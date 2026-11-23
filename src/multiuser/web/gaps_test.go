@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func getPage(t *testing.T, e *env, ck *http.Cookie, path string) (*http.Response, string) {
+func fetchPage(t *testing.T, e *env, ck *http.Cookie, path string) (*http.Response, string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	if ck != nil {
@@ -36,7 +36,7 @@ func TestARowSignedOutFromThePhoneKeepsItsNumber(t *testing.T) {
 	require.NoError(t, e.st.SetOwner(ctx, "d_out", me))
 	require.NoError(t, e.st.MarkSignedOut(ctx, "d_out", "27825550177", "Shop phone"))
 
-	_, body := getPage(t, e, ck, "/")
+	_, body := fetchPage(t, e, ck, "/")
 	require.Contains(t, body, "Shop phone")
 	require.Contains(t, body, "Signed out from your phone. Link it again.")
 	require.NotContains(t, body, "Not linked yet")
@@ -50,12 +50,12 @@ func TestARefusedDuplicateSaysWhyUntilTheNextGoodLink(t *testing.T) {
 	require.NoError(t, e.st.SetOwner(ctx, "d_dup", me))
 	require.NoError(t, e.st.RecordRefusal(ctx, "d_dup", store.RefusalDuplicate))
 
-	_, body := getPage(t, e, ck, "/")
+	_, body := fetchPage(t, e, ck, "/")
 	require.Contains(t, body, "That number is already linked to another account.")
 
 	require.NoError(t, e.st.ClearRefusal(ctx, "d_dup"))
 	stub.devices = []domainDevice.Device{{ID: "d_dup", PhoneNumber: "27825550188", State: domainDevice.DeviceStateLoggedIn}}
-	_, body = getPage(t, e, ck, "/")
+	_, body = fetchPage(t, e, ck, "/")
 	require.NotContains(t, body, "already linked to another account")
 	require.Contains(t, body, "Connected")
 }
@@ -74,7 +74,7 @@ func TestAdminSeesAUsersNumbersAndCanUnlinkOne(t *testing.T) {
 	require.NoError(t, e.st.SetOwner(ctx, "d_x", userID))
 	require.NoError(t, e.st.SetOwner(ctx, "d_mine", adminID))
 
-	_, body := getPage(t, e, admin, "/admin/users")
+	_, body := fetchPage(t, e, admin, "/admin/users")
 	require.Contains(t, body, `aria-expanded="false"`, "the numbers sit behind a chevron")
 	require.Contains(t, body, "/admin/users/"+userID+"/devices/d_x/unlink")
 	require.NotContains(t, body, "/admin/users/"+userID+"/devices/d_mine/unlink", "only that user's own numbers")
@@ -110,7 +110,7 @@ func TestAdminActionsAreRefusedToOthersAndNeedCSRF(t *testing.T) {
 		resp, _ = postForm(t, e, admin, path, url.Values{"max_devices": {"9"}, "phone": {"+27825550999"}})
 		require.Equal(t, http.StatusForbidden, resp.StatusCode, "no CSRF token: %s", path)
 	}
-	resp, _ := getPage(t, e, plain, "/admin/activity")
+	resp, _ := fetchPage(t, e, plain, "/admin/activity")
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 	_ = plainID
 }
@@ -127,7 +127,7 @@ func TestDisableCanAlsoUnlinkTheirNumbers(t *testing.T) {
 	require.NoError(t, e.st.SetOwner(ctx, "d_3", dropID))
 	tok := csrfFor(t, e, admin)
 
-	_, body := getPage(t, e, admin, "/admin/users")
+	_, body := fetchPage(t, e, admin, "/admin/users")
 	require.Contains(t, body, `name="unlink"`)
 	require.Regexp(t, regexp.MustCompile(`name="unlink"[^>]*checked`), body, "on by default")
 
@@ -189,7 +189,7 @@ func TestAdminChangesAUsersPhone(t *testing.T) {
 	u, _ := e.st.UserByID(ctx, userID)
 	require.Equal(t, "+27825550199", u.Phone)
 
-	resp, _ = getPage(t, e, userCk, "/")
+	resp, _ = fetchPage(t, e, userCk, "/")
 	require.Equal(t, http.StatusSeeOther, resp.StatusCode, "their sessions ended")
 
 	rows, _, _ := e.st.ListAudit(ctx, store.AuditQuery{UserID: userID})
@@ -208,7 +208,7 @@ func TestAccountListsMySessionsWithoutExposingIDs(t *testing.T) {
 	other, err := e.st.CreateSession(ctx, me, "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", time.Hour)
 	require.NoError(t, err)
 
-	_, body := getPage(t, e, ck, "/account")
+	_, body := fetchPage(t, e, ck, "/account")
 	require.Contains(t, body, "Chrome on macOS")
 	require.Contains(t, body, "This device")
 	require.NotContains(t, body, ck.Value, "the raw cookie never reaches HTML")
@@ -248,7 +248,7 @@ func TestSigningOutOneSessionIsOwnerChecked(t *testing.T) {
 	resp, _ = postForm(t, e, ck, "/account/sessions/"+cur+"/signout", url.Values{"csrf": {tok}})
 	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
 	require.Equal(t, "/signin", resp.Header.Get("Location"))
-	resp, _ = getPage(t, e, ck, "/account")
+	resp, _ = fetchPage(t, e, ck, "/account")
 	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
 }
 
@@ -264,7 +264,7 @@ func TestActivityPagesAuditInPlainWords(t *testing.T) {
 	}
 	require.NoError(t, e.st.Audit(ctx, store.AuditEvent{UserID: userID, ActorID: adminID, Action: "user_disabled"}))
 
-	resp, body := getPage(t, e, admin, "/admin/activity")
+	resp, body := fetchPage(t, e, admin, "/admin/activity")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, body, "58 events", "55 + the disable + two sign-ins")
 	require.Contains(t, body, "Admin")
@@ -273,12 +273,12 @@ func TestActivityPagesAuditInPlainWords(t *testing.T) {
 	require.Contains(t, body, "page=2")
 	require.Equal(t, 50, strings.Count(body, `class="row activity-row"`))
 
-	_, body = getPage(t, e, admin, "/admin/activity?page=2")
+	_, body = fetchPage(t, e, admin, "/admin/activity?page=2")
 	require.Equal(t, 8, strings.Count(body, `class="row activity-row"`))
 
-	_, body = getPage(t, e, admin, "/admin/activity?user="+userID)
+	_, body = fetchPage(t, e, admin, "/admin/activity?user="+userID)
 	require.Contains(t, body, "2 events", "their sign-in and being disabled")
-	resp, _ = getPage(t, e, admin, "/admin/activity?user=u_nobody")
+	resp, _ = fetchPage(t, e, admin, "/admin/activity?user=u_nobody")
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
@@ -307,7 +307,7 @@ func TestWebhookDialogSavesAPublicURLAndNeverShowsTheSecret(t *testing.T) {
 	require.NoError(t, e.st.SetOwner(ctx, "d_them", them))
 	tok := csrfFor(t, e, ck)
 
-	resp, _ := getPage(t, e, ck, "/ui/devices/d_them/webhook")
+	resp, _ := fetchPage(t, e, ck, "/ui/devices/d_them/webhook")
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 	resp, _ = postForm(t, e, ck, "/ui/devices/d_them/webhook", url.Values{"csrf": {tok}, "url": {"https://93.184.216.34/in"}})
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
@@ -328,7 +328,7 @@ func TestWebhookDialogSavesAPublicURLAndNeverShowsTheSecret(t *testing.T) {
 	_, _ = postForm(t, e, ck, "/ui/devices/d_w/webhook", url.Values{"csrf": {tok}, "url": {"https://93.184.216.35/in"}})
 	require.Equal(t, "s3cr3t-value", stub.cfg.WebhookSecret)
 
-	_, body = getPage(t, e, ck, "/ui/devices/d_w/webhook")
+	_, body = fetchPage(t, e, ck, "/ui/devices/d_w/webhook")
 	require.Contains(t, body, "https://93.184.216.35/in")
 	require.NotContains(t, body, "s3cr3t-value")
 

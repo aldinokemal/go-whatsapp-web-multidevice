@@ -1,5 +1,12 @@
 {{define "verify.html"}}{{template "head" .}}{{template "auth_start" .}}
-  {{if .Data.Valid}}
+  {{if .Data.Disabled}}
+  <span class="badge-icon badge-icon-danger" aria-hidden="true">{{icon "user-x"}}</span>
+  <h1 class="auth-title">This account is disabled</h1>
+  <p class="auth-sub">This account is disabled. Contact your admin.</p>
+  <div class="auth-actions">
+    <a class="btn btn-secondary btn-lg btn-block" href="/signin">{{icon "arrow-left"}}<span>Back to sign in</span></a>
+  </div>
+  {{else if .Data.Valid}}
   <span class="badge-icon badge-icon-brand" aria-hidden="true">{{icon "log-in"}}</span>
   <h1 class="auth-title">Sign in to {{.Product}}</h1>
   <p class="auth-sub">Confirm you want to sign in.</p>

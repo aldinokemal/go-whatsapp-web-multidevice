@@ -4,9 +4,9 @@
   {{if .Data.WALink}}
   <p class="auth-sub">Send us a WhatsApp message and we'll reply with a sign-in link.</p>
   <ol class="steps auth-steps">
-    <li>Tap Continue with WhatsApp</li>
+    <li>Choose Continue with WhatsApp</li>
     <li>Send the message that opens</li>
-    <li>Tap the sign-in link we reply with</li>
+    <li>Open the sign-in link we reply with</li>
   </ol>
   <div class="auth-actions">
     {{.Data.WALinkButton}}
@@ -16,13 +16,13 @@
   {{end}}
   <p class="divider"><span>or</span></p>
   <div class="auth-actions">
-    <button type="button" class="btn btn-secondary btn-lg btn-block" data-passkey-login>{{icon "fingerprint"}}<span>Sign in with a passkey</span></button>
+    <button type="button" class="btn btn-secondary btn-lg btn-block" data-passkey-login data-next="{{.Data.Next}}">{{icon "fingerprint"}}<span>Sign in with a passkey</span></button>
   </div>
   <p data-passkey-error role="alert" class="form-error"></p>
   </div>
   {{if .Data.WALink}}
   <div class="qr-panel">
-    <p class="qr-panel-title">On a computer?</p>
+    <p class="qr-panel-title">Use your phone</p>
     <div class="qr-frame"><img class="qr-desktop" src="/signin/qr.png" alt="QR code to open WhatsApp" width="320" height="320"></div>
     <p class="qr-panel-text">Scan with your phone's camera to open WhatsApp.</p>
   </div>

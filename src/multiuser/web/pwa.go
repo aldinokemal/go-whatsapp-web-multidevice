@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	brandCache  = "public, max-age=604800"
-	themeColor  = "#0E9F6E"
+	brandCache = "public, max-age=604800"
+	// themeColor matches the light theme-color in the page <head> (the top
+	// bar's surface), so an installed app's title bar matches the page.
+	themeColor  = "#ffffff"
 	splashColor = "#0B1220"
 )
 
@@ -84,7 +86,7 @@ const NEVER = ["/auth/", "/signin", "/signout", "/ui/devices/", "/app/", "/send/
   "/chat/", "/chats", "/group/", "/newsletter/", "/devices", "/call/", "/schedule", "/mcp", "/health"];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
@@ -124,22 +126,30 @@ var offlineTmpl = template.Must(template.New("offline").Parse(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Offline - {{.Product}}</title>
-<meta name="theme-color" content="` + themeColor + `">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Offline &middot; {{.Product}}</title>
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/ui/static/brand/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/ui/static/app.css">
+<script src="/ui/static/boot.js"></script>
 </head>
 <body>
-<main class="page page-centered">
-  <section class="card card-auth">
-    <img src="/ui/static/brand/mark.svg" width="56" height="56" alt="">
-    <h1>You're offline</h1>
-    <p>{{.Product}} needs a connection to show your devices. Check your network and try again.</p>
-    <p><a class="btn" href="/">Try again</a></p>
-  </section>
+<main id="main" class="auth">
+  <div class="auth-inner">
+    <div class="auth-brand"><a class="brand" href="/"><img class="brand-mark" src="/ui/static/brand/mark.svg" alt="" width="32" height="32"><span class="brand-name">{{.Product}}</span></a></div>
+    <div class="card auth-card">
+      <span class="badge-icon badge-icon-muted" aria-hidden="true"><svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/></svg></span>
+      <h1 class="auth-title">You're offline</h1>
+      <p class="auth-sub">Check your connection, then try again.</p>
+      <div class="auth-actions">
+        <a class="btn btn-primary btn-lg btn-block" href="/">Try again</a>
+      </div>
+    </div>
+  </div>
 </main>
 </body>
 </html>

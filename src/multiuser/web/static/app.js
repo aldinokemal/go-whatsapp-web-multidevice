@@ -51,14 +51,11 @@
     return out;
   }
 
-  // describeError surfaces the real DOMException name/message from a failed
-  // WebAuthn ceremony. Temporary diagnostic (2026-11-23): the generic
-  // "was cancelled" text swallows every rejection identically, including a
-  // real browser/relying-party error, which is indistinguishable on screen
-  // from an actual user cancel. Remove once the live failure is understood.
-  function describeError(e) {
-    if (!e) return "";
-    return " [" + (e.name || "Error") + ": " + (e.message || String(e)) + "]";
+  // A rejected WebAuthn ceremony is the person backing out only when the
+  // browser says so (NotAllowedError, AbortError); anything else is a plain
+  // failure. Raw browser error text is never shown.
+  function wasCancelled(e) {
+    return !!e && (e.name === "NotAllowedError" || e.name === "AbortError");
   }
 
   function setError(message) {
@@ -71,7 +68,7 @@
     if (el) el.textContent = message || "";
   }
 
-  async function signInWithPasskey() {
+  async function signInWithPasskey(button) {
     setError("");
     if (!window.PublicKeyCredential || !navigator.credentials) {
       setError("This browser doesn't support passkeys.");
@@ -95,7 +92,7 @@
       try {
         credential = await navigator.credentials.get({ publicKey: publicKey });
       } catch (e) {
-        setError("Passkey sign-in was cancelled." + describeError(e));
+        setError(wasCancelled(e) ? "Passkey sign-in was cancelled." : "Couldn't sign you in with a passkey. Try again.");
         return;
       }
       if (!credential) {
@@ -105,7 +102,9 @@
 
       var payload = typeof credential.toJSON === "function" ? credential.toJSON() : encodeCredential(credential);
 
-      var finishResp = await fetch("/auth/passkey/login/finish", {
+      // The server validates next (same-origin relative paths only).
+      var next = (button && button.getAttribute("data-next")) || "/";
+      var finishResp = await fetch("/auth/passkey/login/finish?next=" + encodeURIComponent(next), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -117,7 +116,7 @@
       }
       window.location.assign(result.next || "/");
     } catch (e) {
-      setError("Passkey sign-in was cancelled." + describeError(e));
+      setError(wasCancelled(e) ? "Passkey sign-in was cancelled." : "Couldn't sign you in with a passkey. Try again.");
     }
   }
 
@@ -162,7 +161,7 @@
       try {
         credential = await navigator.credentials.create({ publicKey: publicKey });
       } catch (e) {
-        setRegisterError("Adding the passkey was cancelled." + describeError(e));
+        setRegisterError(wasCancelled(e) ? "Adding the passkey was cancelled." : "Couldn't add the passkey. Try again.");
         return;
       }
       if (!credential) {
@@ -198,7 +197,7 @@
       }
       window.location.reload();
     } catch (e) {
-      setRegisterError("Adding the passkey was cancelled." + describeError(e));
+      setRegisterError(wasCancelled(e) ? "Adding the passkey was cancelled." : "Couldn't add the passkey. Try again.");
     }
   }
 
@@ -224,18 +223,22 @@
     });
   }
 
-  // The QR image polls itself every 20s with hx-swap="none" (the response is
-  // a PNG, not markup to swap in), so nothing else makes the browser re-fetch
-  // it once the real, rotating code behind it changes. On a successful poll,
-  // re-point the <img> at the same URL plus a cache-buster so the browser
-  // actually fetches a fresh frame instead of reusing the first one forever.
-  document.body.addEventListener("htmx:afterRequest", function (event) {
-    var el = event.detail && event.detail.elt;
-    if (!el || typeof el.hasAttribute !== "function" || !el.hasAttribute("data-qr-refresh")) return;
-    if (!event.detail.successful) return;
-    var base = el.getAttribute("src").split("?")[0];
-    el.src = base + "?t=" + Date.now();
-  });
+  // The real QR code rotates, so while a QR <img> (data-qr-refresh) is
+  // showing, re-point it at the same URL plus a cache-buster (Date.now())
+  // every 20 seconds: one fetch per refresh, and none while it is hidden or
+  // its dialog is closed.
+  function refreshQR(img) {
+    var base = img.getAttribute("src").split("?")[0];
+    img.src = base + "?t=" + Date.now();
+  }
+  function qrShowing(img) {
+    return document.contains(img) && img.closest("[open], .auth") && !img.closest("[data-ended]") && img.getClientRects().length > 0;
+  }
+  window.setInterval(function () {
+    document.querySelectorAll("img[data-qr-refresh]").forEach(function (img) {
+      if (qrShowing(img)) refreshQR(img);
+    });
+  }, 20000);
 
   // openDialog remembers what opened a dialog so focus goes back there on
   // close (Esc, Cancel, the close button or a backdrop click). A dialog whose
@@ -360,6 +363,14 @@
 
   document.addEventListener("close", function (event) {
     var dialog = event.target;
+    // A finished add (data-reload-on-close) refreshes the list behind it.
+    if (dialog && dialog.querySelector && dialog.querySelector("[data-reload-on-close]")) {
+      window.location.reload();
+      return;
+    }
+    // Emptying the htmx-filled body stops its QR refresh and status polling.
+    var body = dialog && dialog.querySelector && dialog.querySelector("#link-dialog-body");
+    if (body) body.innerHTML = "";
     if (dialog && dialog._opener && typeof dialog._opener.focus === "function" && document.contains(dialog._opener)) {
       dialog._opener.focus();
     }
@@ -382,9 +393,15 @@
   var navOpener = document.querySelector("[data-nav-open]");
   var sidebar = document.getElementById("sidebar");
 
+  // While the drawer is open, everything behind it is inert, so Tab stays
+  // inside the menu.
   function setDrawer(open) {
     if (open) root.setAttribute("data-nav-open", "");
     else root.removeAttribute("data-nav-open");
+    document.querySelectorAll(".topbar, #main").forEach(function (el) {
+      if (open) el.setAttribute("inert", "");
+      else el.removeAttribute("inert");
+    });
     if (navOpener) navOpener.setAttribute("aria-expanded", open ? "true" : "false");
     if (open && sidebar) {
       var first = sidebar.querySelector("[aria-current='page']") || sidebar.querySelector("a, button");
@@ -412,6 +429,34 @@
     if (event.key === "Escape" && root.hasAttribute("data-nav-open")) setDrawer(false);
   });
 
+  // Theme: System / Light / Dark, stored per browser. boot.js applies the
+  // stored choice before paint; this keeps every switcher on the page and
+  // the theme-color metas in step when it changes.
+  function currentTheme() {
+    var t = root.getAttribute("data-theme");
+    return t === "light" || t === "dark" ? t : "system";
+  }
+  function syncThemeControls() {
+    var t = currentTheme();
+    document.querySelectorAll("[data-theme-choice]").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-theme-choice") === t ? "true" : "false");
+    });
+    document.querySelectorAll("[data-theme-select]").forEach(function (s) { s.value = t; });
+  }
+  function setTheme(t) {
+    try {
+      if (t === "system") window.localStorage.removeItem("wtf-theme");
+      else window.localStorage.setItem("wtf-theme", t);
+    } catch (e) { /* storage refused: applies to this page only */ }
+    if (window.wtfApplyTheme) window.wtfApplyTheme(t);
+    syncThemeControls();
+  }
+  syncThemeControls();
+  document.addEventListener("change", function (event) {
+    var sel = event.target.closest && event.target.closest("[data-theme-select]");
+    if (sel) setTheme(sel.value);
+  });
+
   // Instant feedback: a submitted form's button shows busy at once, and is
   // disabled after the browser has taken the submission so it cannot double-post.
   document.addEventListener("submit", function (event) {
@@ -429,12 +474,40 @@
     });
   });
 
+  // A linking session (a QR or a pairing code) ends after two minutes, or
+  // when its QR image keeps failing: show "Get a new code" and stop the
+  // status and QR polling by removing them.
+  function endLinkSession(el, why) {
+    if (!el || el.hasAttribute("data-ended")) return;
+    el.setAttribute("data-ended", why);
+    var body = el.closest(".link-body");
+    if (body) body.querySelectorAll("[hx-trigger^='every']").forEach(function (p) { p.remove(); });
+  }
+  function armLinkSessions(root) {
+    (root || document).querySelectorAll("[data-link-session]:not([data-armed])").forEach(function (el) {
+      el.setAttribute("data-armed", "");
+      var secs = parseInt(el.getAttribute("data-expires-in"), 10) || 120;
+      window.setTimeout(function () { if (document.contains(el)) endLinkSession(el, "expired"); }, secs * 1000);
+    });
+  }
+  armLinkSessions();
+  document.addEventListener("htmx:afterSettle", function (event) { armLinkSessions(event.target); });
+
   // Until WhatsApp has produced a code, the QR image fails to load: show a
-  // spinner in its frame instead of a broken image. The 20s poll retries.
+  // spinner in its frame instead of a broken image and retry; after five
+  // failures in a row, say so instead.
   document.addEventListener("error", function (event) {
     var img = event.target;
     if (img && img.hasAttribute && img.hasAttribute("data-qr-refresh") && img.parentElement) {
       img.parentElement.classList.add("is-loading");
+      var fails = (parseInt(img.getAttribute("data-fails"), 10) || 0) + 1;
+      img.setAttribute("data-fails", String(fails));
+      if (fails >= 5) {
+        endLinkSession(img.closest("[data-link-session]"), "failed");
+        return;
+      }
+      // Until the code exists, try again sooner than the 20-second refresh.
+      window.setTimeout(function () { if (qrShowing(img)) refreshQR(img); }, 3000);
     }
   }, true);
   // An image that already failed before this script ran (deferred) gets the
@@ -446,6 +519,7 @@
     var img = event.target;
     if (img && img.hasAttribute && img.hasAttribute("data-qr-refresh") && img.parentElement) {
       img.parentElement.classList.remove("is-loading");
+      img.removeAttribute("data-fails");
     }
   }, true);
 
@@ -453,7 +527,7 @@
     var loginBtn = event.target.closest("[data-passkey-login]");
     if (loginBtn) {
       event.preventDefault();
-      signInWithPasskey();
+      signInWithPasskey(loginBtn);
       return;
     }
     var registerBtn = event.target.closest("[data-passkey-register]");
@@ -477,6 +551,29 @@
     var copyBtn = event.target.closest("[data-copy]");
     if (copyBtn) {
       copyToClipboard(copyBtn);
+      return;
+    }
+    var dismiss = event.target.closest("[data-dismiss]");
+    if (dismiss) {
+      var key = dismiss.getAttribute("data-dismiss");
+      try { window.localStorage.setItem("wtf-dismiss-" + key, "1"); } catch (e) { /* hides for this page only */ }
+      var card = dismiss.closest("[data-nudge]");
+      if (card) card.remove();
+      return;
+    }
+    var themeBtn = event.target.closest("[data-theme-choice]");
+    if (themeBtn) {
+      setTheme(themeBtn.getAttribute("data-theme-choice"));
+      return;
+    }
+    var modeBtn = event.target.closest("[data-link-mode]");
+    if (modeBtn) {
+      var modes = modeBtn.closest("[data-link-modes]");
+      if (modes) {
+        modes.setAttribute("data-mode", modeBtn.getAttribute("data-link-mode"));
+        var first = modes.querySelector(modeBtn.getAttribute("data-link-mode") === "pair" ? ".mode-pair input" : ".to-pair");
+        if (first) first.focus();
+      }
       return;
     }
     if (event.target.closest("[data-nav-open]")) {

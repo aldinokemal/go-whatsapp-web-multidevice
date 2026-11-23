@@ -1,17 +1,21 @@
 {{define "admin_settings.html"}}{{template "head" .}}{{template "app_start" .}}
   <div class="page-head">
     <h1 class="page-title">Settings</h1>
-    <p class="page-sub">The sign-in number and how the server is doing.</p>
+    <p class="page-sub">The sign-in number, and how the server is doing.</p>
   </div>
 
+  {{if eq .Data.ServiceStatus "Not connected"}}
+  <p class="banner banner-danger" role="alert">{{icon "triangle-alert"}}<span><strong>Sign-in is down: the sign-in number isn't connected.</strong> <a href="/">Reconnect it on My WhatsApp</a>, or choose another number below.</span></p>
+  {{end}}
   {{if .Data.Error}}<p class="form-error" role="alert">{{.Data.Error}}</p>{{end}}
 
   <section class="card" aria-labelledby="service-title">
     <div class="card-head">
       <div>
-        <h2 class="card-title" id="service-title">Service number</h2>
+        <h2 class="card-title" id="service-title">Sign-in number</h2>
         <p class="card-sub">The WhatsApp number that replies to sign-in requests. Pick one of your own linked numbers.</p>
       </div>
+      {{if eq .Data.ServiceStatus "Connected"}}<span class="pill pill-ok">Connected</span>{{else if eq .Data.ServiceStatus "Not connected"}}<span class="pill pill-warn">Not connected</span>{{else}}<span class="pill pill-muted">Not set</span>{{end}}
     </div>
     {{if .Data.Devices}}
     <form method="post" action="/admin/settings/service-number" class="service-number-form">
@@ -20,8 +24,9 @@
         <label class="label" for="service-device">Number</label>
         <div class="select-wrap">
           <select id="service-device" name="device_id" class="input field-select">
+            {{if not .Data.ServiceDeviceID}}<option value="" disabled selected>Choose a number</option>{{end}}
             {{range .Data.Devices}}
-            <option value="{{.ID}}" {{if eq .ID $.Data.ServiceDeviceID}}selected{{end}}>{{if .DisplayName}}{{.DisplayName}} ({{phone .PhoneNumber}}){{else}}{{phone .PhoneNumber}}{{end}}</option>
+            <option value="{{.ID}}" {{if eq .ID $.Data.ServiceDeviceID}}selected{{end}}>{{if .DisplayName}}{{.DisplayName}} ({{phone .PhoneNumber}}){{else}}{{phone .PhoneNumber}}{{end}} · {{if eq .State "logged_in"}}Connected{{else}}Not connected{{end}}</option>
             {{end}}
           </select>
           {{icon "chevron-down"}}
@@ -41,10 +46,8 @@
     <h2 class="section-title" id="server-title">Server</h2>
     <dl class="stats">
       {{template "stat" (dict "Icon" "memory-stick" "Label" "Memory in use" "Value" .Data.AllocMB "Unit" "MB")}}
-      {{template "stat" (dict "Icon" "server" "Label" "Memory reserved" "Value" .Data.SysMB "Unit" "MB")}}
-      {{template "stat" (dict "Icon" "activity" "Label" "Goroutines" "Value" .Data.Goroutines "Unit" "")}}
       {{template "stat" (dict "Icon" "hard-drive" "Label" "Storage used" "Value" .Data.DiskMB "Unit" "MB")}}
-      {{template "stat" (dict "Icon" "smartphone" "Label" "Linked phones (all users)" "Value" .Data.LinkedTotal "Unit" "")}}
+      {{template "stat" (dict "Icon" "smartphone" "Label" "Linked numbers" "Value" .Data.LinkedTotal "Unit" "")}}
     </dl>
   </section>
 {{template "app_end" .}}{{template "foot" .}}{{end}}

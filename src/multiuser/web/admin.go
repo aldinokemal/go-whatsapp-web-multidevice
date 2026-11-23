@@ -30,6 +30,36 @@ func mountAdmin(app *fiber.App, d Deps) {
 		return renderUsers(c, d, "")
 	})
 
+	// Add user: the only way to create an account from the UI, for when
+	// sign-ups are closed. Answers the htmx modal with either the form again
+	// (with the error and what was typed) or the new user's sign-in link.
+	app.Post("/admin/users", page, admin, csrf, func(c fiber.Ctx) error {
+		typed := c.FormValue("phone")
+		phone, err := store.NormalizePhone(typed)
+		if err != nil {
+			return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{
+				"Phone": typed, "Error": "Enter a full number with its country code, like +27 82 555 0100.",
+			})
+		}
+		if _, err := d.Store.UserByPhone(c.Context(), phone); err == nil {
+			return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{
+				"Phone": typed, "Error": "That number already has an account. Use Get sign-in link on its row instead.",
+			})
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		u, err := d.Store.CreateUser(c.Context(), phone)
+		if err != nil {
+			return err
+		}
+		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: u.ID, Action: "user_added", IP: c.IP()})
+		link, err := signinLinkFor(c, d, phone)
+		if err != nil {
+			return err
+		}
+		return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{"Link": link, "Phone": phone})
+	})
+
 	app.Post("/admin/users/:id/status", page, admin, csrf, func(c fiber.Ctx) error {
 		caller, _ := userOf(c)
 		targetID := c.Params("id")
@@ -76,11 +106,15 @@ func mountAdmin(app *fiber.App, d Deps) {
 			}
 			return err
 		}
-		raw, err := d.Store.CreateLoginToken(c.Context(), target.Phone, signinLinkTTL)
+		if target.Status != store.StatusActive {
+			return d.render(c, fiber.StatusOK, "signin_link.html", "", map[string]any{
+				"Error": "Enable this account first, then get a sign-in link.",
+			})
+		}
+		link, err := signinLinkFor(c, d, target.Phone)
 		if err != nil {
 			return err
 		}
-		link := d.PublicURL + "/signin/verify?t=" + url.QueryEscape(raw)
 		return d.render(c, fiber.StatusOK, "signin_link.html", "", map[string]any{"Link": link})
 	})
 
@@ -113,6 +147,16 @@ func mountAdmin(app *fiber.App, d Deps) {
 	})
 }
 
+// signinLinkFor mints a one-time sign-in link for phone, the same link the
+// "Get sign-in link" button and the admin-link command hand out.
+func signinLinkFor(c fiber.Ctx, d Deps, phone string) (string, error) {
+	raw, err := d.Store.CreateLoginToken(c.Context(), phone, signinLinkTTL)
+	if err != nil {
+		return "", err
+	}
+	return d.PublicURL + "/signin/verify?t=" + url.QueryEscape(raw), nil
+}
+
 // userRow is what admin_users.html renders: one line per account, with the
 // relative time and the "is this me" / "how many devices" facts already
 // resolved so the template holds no logic beyond which pill or button to show.
@@ -126,6 +170,7 @@ type userRow struct {
 	MaxDevices  int
 	LastSignIn  string
 	Numbers     []numberView
+	JustAdded   bool // created in the last ten minutes and never signed in
 }
 
 func userRows(ctx context.Context, d Deps, users []store.User, caller *store.User) ([]userRow, error) {
@@ -135,6 +180,7 @@ func userRows(ctx context.Context, d Deps, users []store.User, caller *store.Use
 		row := userRow{
 			ID: u.ID, Phone: u.Phone, Active: u.Status == store.StatusActive, IsSelf: caller != nil && u.ID == caller.ID,
 			IsAdmin: d.Auth.IsSuperadminPhone(u.Phone), MaxDevices: u.MaxDevices, LastSignIn: humanAgo(u.LastLoginAt),
+			JustAdded: u.LastLoginAt == nil && time.Since(u.CreatedAt) < 10*time.Minute,
 		}
 		if d.Devices != nil && caller != nil {
 			devs, err := owners.ListDevicesAsAdmin(ctx, d.Devices, caller, u)
@@ -231,6 +277,7 @@ func settingsPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error
 	return map[string]any{
 		"Devices":         linked,
 		"ServiceDeviceID": serviceDeviceID,
+		"ServiceStatus":   serviceStatus(c, d, serviceDeviceID),
 		"LinkedTotal":     total,
 		"AllocMB":         mem.Alloc / bytesPerMB,
 		"SysMB":           mem.Sys / bytesPerMB,
@@ -250,4 +297,17 @@ func renderSettings(c fiber.Ctx, d Deps, errMsg string) error {
 		status = fiber.StatusBadRequest
 	}
 	return d.render(c, status, "admin_settings.html", "Settings", data)
+}
+
+// serviceStatus says whether sign-in by WhatsApp works: "Not set", or the
+// saved number's live state ("Connected" / "Not connected").
+func serviceStatus(c fiber.Ctx, d Deps, id string) string {
+	switch {
+	case id == "":
+		return "Not set"
+	case d.ServicePhone != nil && d.ServicePhone(c.Context()) != "":
+		return "Connected"
+	default:
+		return "Not connected"
+	}
 }

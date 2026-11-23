@@ -31,12 +31,13 @@ import (
 // previewShot is one screenshot the sweep takes: a page, optionally with a
 // dialog opened and some JS-only text (errors, copy feedback) filled in.
 type previewShot struct {
-	Name   string            `json:"name"`
-	Page   string            `json:"page"`
-	Dialog string            `json:"dialog,omitempty"`
-	Set    map[string]string `json:"set,omitempty"`   // CSS selector -> text
-	Attr   string            `json:"attr,omitempty"`  // attribute set on <html>, e.g. data-nav-open
-	Click  []string          `json:"click,omitempty"` // selectors clicked in order (a kebab, then an item)
+	Name    string            `json:"name"`
+	Page    string            `json:"page"`
+	Dialog  string            `json:"dialog,omitempty"`
+	Set     map[string]string `json:"set,omitempty"`     // CSS selector -> text
+	Attr    string            `json:"attr,omitempty"`    // attribute set on <html>, e.g. data-nav-open
+	Storage map[string]string `json:"storage,omitempty"` // localStorage set before the page loads
+	Click   []string          `json:"click,omitempty"`   // selectors clicked in order (a kebab, then an item)
 	// ViewportOnly shoots the visible screen rather than the full page (an open menu or dialog).
 	ViewportOnly bool `json:"viewportOnly,omitempty"`
 }
@@ -62,6 +63,12 @@ func (p *previewSite) file(rel string, b []byte) {
 }
 
 var dialogBodyRE = regexp.MustCompile(`(<div id="link-dialog-body"[^>]*>)(\s*</div>)`)
+var addUserBodyRE = regexp.MustCompile(`(?s)(<div id="add-user-body"[^>]*>)(.*?)(</div>\s*</div>\s*</dialog>)`)
+
+// withAddUserBody replaces the Add user modal's content with a response.
+func withAddUserBody(page, fragment string) string {
+	return addUserBodyRE.ReplaceAllString(page, "${1}"+strings.ReplaceAll(fragment, "$", "$$")+"${3}")
+}
 
 // withDialogBody puts an htmx fragment where the real page would swap it in.
 func withDialogBody(page, fragment string) string {
@@ -149,12 +156,20 @@ func TestPreviewSite(t *testing.T) {
 	p.shot(previewShot{Name: "verify", Page: "verify"})
 	p.write("verify-expired", get(t, e, nil, "/signin/verify?t=expired"))
 	p.shot(previewShot{Name: "verify-expired", Page: "verify-expired"})
+	off, _ := e.st.CreateUser(ctx, "+15555550124")
+	rawOff, _ := e.st.CreateLoginToken(ctx, "+15555550124", 15*time.Minute)
+	require.NoError(t, e.st.SetUserStatus(ctx, off.ID, store.StatusDisabled))
+	p.write("verify-disabled", get(t, e, nil, "/signin/verify?t="+url.QueryEscape(rawOff)))
+	p.shot(previewShot{Name: "verify-disabled", Page: "verify-disabled"})
 
 	// --- Signed-in pages --------------------------------------------------
+	// Each person may link two numbers (the store's default), so the fixtures
+	// spread devices across people the way real accounts would look.
 	stub := &devStub{devices: []domainDevice.Device{
 		{ID: "d_work", DisplayName: "Acme Support", PhoneNumber: "15555550142", State: domainDevice.DeviceStateLoggedIn, CreatedAt: time.Now().Add(-9 * 24 * time.Hour)},
 		{ID: "d_personal", PhoneNumber: "15555550177", State: domainDevice.DeviceStateDisconnected, CreatedAt: time.Now().Add(-3 * 24 * time.Hour)},
 		{ID: "d_slot", CreatedAt: time.Now().Add(-5 * time.Minute)},
+		{ID: "d_fresh", DisplayName: "Sales", PhoneNumber: "447700900123", State: domainDevice.DeviceStateLoggedIn, CreatedAt: time.Now().Add(-2 * time.Minute)},
 		{ID: "d_out", CreatedAt: time.Now().Add(-20 * 24 * time.Hour)},
 		{ID: "d_dup", CreatedAt: time.Now().Add(-2 * time.Minute)},
 		{ID: "d_other", DisplayName: "Bean There Cafe", PhoneNumber: "15555550190", State: domainDevice.DeviceStateLoggedIn, CreatedAt: time.Now().Add(-12 * 24 * time.Hour)},
@@ -173,51 +188,75 @@ func TestPreviewSite(t *testing.T) {
 	base := time.Now().UTC()
 	at := func(d time.Duration) { e.st.Now = func() time.Time { return base.Add(-d) } }
 	at(26 * time.Hour)
-	_, otherID := signedIn(t, e, "+15555550188")
+	other, otherID := signedIn(t, e, "+15555550188")
 	at(3 * time.Hour)
 	_, disabledID := signedIn(t, e, "+15555550199")
 	at(40 * time.Minute)
-	_, _ = signedIn(t, e, "+15555550111")
+	fresh, freshID := signedIn(t, e, "+15555550111")
 	at(0)
 	admin, adminID := signedIn(t, e, "+27825550100")
 	e.st.Now = func() time.Time { return time.Now().UTC() }
 	require.NoError(t, e.st.SetUserStatus(ctx, disabledID, store.StatusDisabled))
-	for _, id := range []string{"d_work", "d_personal", "d_slot"} {
-		require.NoError(t, e.st.SetOwner(ctx, id, adminID))
-	}
+	require.NoError(t, e.st.SetOwner(ctx, "d_work", adminID))
+	require.NoError(t, e.st.SetOwner(ctx, "d_personal", adminID))
+	require.NoError(t, e.st.SetOwner(ctx, "d_slot", otherID))
+	require.NoError(t, e.st.SetOwner(ctx, "d_fresh", freshID))
 	require.NoError(t, e.st.SetOwner(ctx, "d_other", otherID))
 	// Gap A and B states: a number the phone signed out, and a refused duplicate.
-	for _, id := range []string{"d_out", "d_dup"} {
-		require.NoError(t, e.st.SetOwner(ctx, id, adminID))
+	for _, id := range []string{"d_out", "d_dup", "d_other_out"} {
+		require.NoError(t, e.st.SetOwner(ctx, id, otherID))
 	}
 	require.NoError(t, e.st.MarkSignedOut(ctx, "d_out", "15555550166", "Front desk"))
 	require.NoError(t, e.st.RecordRefusal(ctx, "d_dup", store.RefusalDuplicate))
-	require.NoError(t, e.st.SetOwner(ctx, "d_other_out", otherID))
 	require.NoError(t, e.st.MarkSignedOut(ctx, "d_other_out", "15555550191", ""))
-	require.NoError(t, e.st.SetMaxDevices(ctx, otherID, 3))
+	require.NoError(t, e.st.SetMaxDevices(ctx, otherID, 6))
 	csrf := csrfFor(t, e, admin)
 
-	home := get(t, e, admin, "/")
+	// The admin is at their two-number limit: no Link button, a notice.
+	homeLimit := get(t, e, admin, "/")
+	p.write("home-at-limit", homeLimit)
+	p.shot(previewShot{Name: "home-at-limit", Page: "home-at-limit"})
+	p.shot(previewShot{Name: "home-unlink-dialog", Page: "home-at-limit", Dialog: "remove-d_work"})
+	p.shot(previewShot{Name: "home-menu-open", Page: "home-at-limit", Attr: "data-nav-open"})
+	p.shot(previewShot{Name: "home-rail", Page: "home-at-limit", Attr: "data-rail"})
+
+	// Reconnect, drawn in place: checking, then a way to link again.
+	rowRE := regexp.MustCompile(`(?s)<li class="row" id="row-d_personal".*?</li>`)
+	checking := get(t, e, admin, "/ui/devices/d_personal/row?n=1")
+	p.write("home-reconnecting", rowRE.ReplaceAllLiteralString(homeLimit, strings.ReplaceAll(checking, `hx-trigger="load delay:3s"`, "")))
+	p.shot(previewShot{Name: "home-reconnecting", Page: "home-reconnecting"})
+	failed := get(t, e, admin, "/ui/devices/d_personal/row?n=5")
+	p.write("home-reconnect-failed", rowRE.ReplaceAllLiteralString(homeLimit, failed))
+	p.shot(previewShot{Name: "home-reconnect-failed", Page: "home-reconnect-failed"})
+
+	// A member with one unfinished link; another with a number linked just now.
+	home := get(t, e, other, "/")
 	p.write("home", home)
 	p.shot(previewShot{Name: "home", Page: "home"})
-	p.shot(previewShot{Name: "home-unlink-dialog", Page: "home", Dialog: "remove-d_work"})
-	p.shot(previewShot{Name: "home-menu-open", Page: "home", Attr: "data-nav-open"})
-	p.shot(previewShot{Name: "home-rail", Page: "home", Attr: "data-rail"})
+	p.write("home-just-linked", get(t, e, fresh, "/"))
+	p.shot(previewShot{Name: "home-just-linked", Page: "home-just-linked"})
 
-	// The real AddDevice refusal (this user is at the limit) is the error state.
+	// The real AddDevice refusal (the admin is at the limit) is the error state.
 	linkErr := htmxPost(t, e, admin, csrf, "/ui/devices", nil)
-	linkQR2 := tmplString(t, "link_modal.html", map[string]any{"ID": "d_new"})
-	p.write("home-link-qr", withDialogBody(home, linkQR2))
-	p.shot(previewShot{Name: "home-link-dialog", Page: "home-link-qr", Dialog: "link-dialog"})
-	// Before WhatsApp has produced a code the QR request fails: a spinner shows.
-	p.write("home-link-qr-loading", withDialogBody(home, strings.ReplaceAll(linkQR2, "/ui/devices/d_new/qr.png", "/ui/devices/d_pending/qr.png")))
-	p.shot(previewShot{Name: "home-link-qr-loading", Page: "home-link-qr-loading", Dialog: "link-dialog"})
-	p.write("home-link-pair-form", withDialogBody(home, strings.Replace(linkQR2, "<details class=\"pair-alt\"", "<details class=\"pair-alt\" open", 1)))
+	linkFrag := tmplString(t, "link_modal.html", map[string]any{"ID": "d_new"})
+	p.write("home-link", withDialogBody(home, linkFrag))
+	// Default mode: QR on a computer, pairing code on a phone.
+	p.shot(previewShot{Name: "home-link-dialog", Page: "home-link", Dialog: "link-dialog"})
+	p.write("home-link-qr", withDialogBody(home, strings.Replace(linkFrag, "data-link-modes", `data-link-modes data-mode="qr"`, 1)))
+	p.shot(previewShot{Name: "home-link-qr", Page: "home-link-qr", Dialog: "link-dialog"})
+	p.write("home-link-pair-form", withDialogBody(home, strings.Replace(linkFrag, "data-link-modes", `data-link-modes data-mode="pair"`, 1)))
 	p.shot(previewShot{Name: "home-link-pair-form", Page: "home-link-pair-form", Dialog: "link-dialog"})
-	pair := htmxPost(t, e, admin, csrf, "/ui/devices/d_slot/pair-code", url.Values{"phone": {"+15555550142"}})
+	// Before WhatsApp has produced a code the QR request fails: a spinner shows.
+	p.write("home-link-qr-loading", withDialogBody(home, strings.Replace(strings.ReplaceAll(linkFrag, "/ui/devices/d_new/qr.png", "/ui/devices/d_pending/qr.png"), "data-link-modes", `data-link-modes data-mode="qr"`, 1)))
+	p.shot(previewShot{Name: "home-link-qr-loading", Page: "home-link-qr-loading", Dialog: "link-dialog"})
+	p.write("home-link-expired", withDialogBody(home, strings.Replace(linkFrag, "data-link-session", `data-link-session data-ended="expired"`, 1)))
+	p.shot(previewShot{Name: "home-link-expired", Page: "home-link-expired", Dialog: "link-dialog"})
+	p.write("home-link-failed", withDialogBody(home, strings.Replace(linkFrag, "data-link-session", `data-link-session data-ended="failed"`, 1)))
+	p.shot(previewShot{Name: "home-link-failed", Page: "home-link-failed", Dialog: "link-dialog"})
+	pair := htmxPost(t, e, other, csrfFor(t, e, other), "/ui/devices/d_slot/pair-code", url.Values{"phone": {"+15555550142"}})
 	p.write("home-link-pair-code", withDialogBody(home, pair))
 	p.shot(previewShot{Name: "home-link-pair-code", Page: "home-link-pair-code", Dialog: "link-dialog"})
-	p.write("home-link-error", withDialogBody(home, linkErr))
+	p.write("home-link-error", withDialogBody(homeLimit, linkErr))
 	p.shot(previewShot{Name: "home-link-error", Page: "home-link-error", Dialog: "link-dialog"})
 
 	// Per-number webhook dialog: empty, saved, refused address.
@@ -225,18 +264,18 @@ func TestPreviewSite(t *testing.T) {
 		return strings.Replace(page, `id="link-dialog-title">Link WhatsApp<`, `id="link-dialog-title">Webhook<`, 1)
 	}
 	hook := get(t, e, admin, "/ui/devices/d_work/webhook")
-	p.write("home-webhook", withDialogBody(asWebhook(home), hook))
+	p.write("home-webhook", withDialogBody(asWebhook(homeLimit), hook))
 	p.shot(previewShot{Name: "home-webhook", Page: "home-webhook", Dialog: "link-dialog"})
 	hookSaved := tmplString(t, "webhook_form.html", map[string]any{"ID": "d_work", "URL": "https://hooks.acme.example/whatsapp", "HasSecret": true, "Saved": "Saved."})
-	p.write("home-webhook-saved", withDialogBody(asWebhook(home), hookSaved))
+	p.write("home-webhook-saved", withDialogBody(asWebhook(homeLimit), hookSaved))
 	p.shot(previewShot{Name: "home-webhook-saved", Page: "home-webhook-saved", Dialog: "link-dialog"})
 	hookErr := htmxPost(t, e, admin, csrf, "/ui/devices/d_work/webhook", url.Values{"url": {"https://127.0.0.1/hook"}})
-	p.write("home-webhook-error", withDialogBody(asWebhook(home), hookErr))
+	p.write("home-webhook-error", withDialogBody(asWebhook(homeLimit), hookErr))
 	p.shot(previewShot{Name: "home-webhook-error", Page: "home-webhook-error", Dialog: "link-dialog"})
 
-	// Home with nothing linked yet: a fresh user.
-	fresh, _ := signedIn(t, e, "+15555550155")
-	p.write("home-empty", get(t, e, fresh, "/"))
+	// Home with nothing linked yet: a brand-new member.
+	empty, _ := signedIn(t, e, "+15555550155")
+	p.write("home-empty", get(t, e, empty, "/"))
 	p.shot(previewShot{Name: "home-empty", Page: "home-empty"})
 
 	// Account, with passkeys and without.
@@ -259,10 +298,21 @@ func TestPreviewSite(t *testing.T) {
 	p.shot(previewShot{Name: "account-remove-passkey", Page: "account", Dialog: "remove-passkey-cred_mac"})
 	p.shot(previewShot{Name: "account-passkey-error", Page: "account",
 		Set: map[string]string{"[data-passkey-register-error]": "Adding the passkey was cancelled."}})
-	p.write("account-empty", get(t, e, fresh, "/account"))
+	p.shot(previewShot{Name: "account-theme-light", Page: "account", Storage: map[string]string{"wtf-theme": "light"}})
+	p.shot(previewShot{Name: "account-theme-dark", Page: "account", Storage: map[string]string{"wtf-theme": "dark"}})
+	p.write("account-empty", get(t, e, empty, "/account"))
 	p.shot(previewShot{Name: "account-empty", Page: "account-empty"})
 
-	// Admin users.
+	// Admin users: one just added from the Add user modal (never signed in).
+	usersBefore := get(t, e, admin, "/admin/users")
+	p.write("admin-add-user", usersBefore)
+	p.shot(previewShot{Name: "admin-add-user", Page: "admin-add-user", Dialog: "add-user"})
+	dup := htmxPost(t, e, admin, csrf, "/admin/users", url.Values{"phone": {"+1 555 555 0188"}})
+	p.write("admin-add-user-error", withAddUserBody(usersBefore, dup))
+	p.shot(previewShot{Name: "admin-add-user-error", Page: "admin-add-user-error", Dialog: "add-user"})
+	added := htmxPost(t, e, admin, csrf, "/admin/users", url.Values{"phone": {"+44 7700 900456"}})
+	p.write("admin-add-user-done", withAddUserBody(usersBefore, added))
+	p.shot(previewShot{Name: "admin-add-user-done", Page: "admin-add-user-done", Dialog: "add-user"})
 	users := get(t, e, admin, "/admin/users")
 	p.write("admin-users", users)
 	p.shot(previewShot{Name: "admin-users", Page: "admin-users"})
@@ -302,7 +352,9 @@ func TestPreviewSite(t *testing.T) {
 	p.shot(previewShot{Name: "admin-users-link", Page: "admin-users-link", Dialog: "link-dialog",
 		Set: map[string]string{"[data-copy-feedback]": "Copied."}})
 
-	// Admin settings, with linked numbers and without.
+	// Admin settings: no sign-in number yet, one set, and one set but down.
+	p.write("admin-settings-unset", get(t, e, admin, "/admin/settings"))
+	p.shot(previewShot{Name: "admin-settings-unset", Page: "admin-settings-unset"})
 	require.NoError(t, e.st.SetSetting(ctx, store.SettingServiceDeviceID, "d_work", adminID))
 	p.write("admin-settings", get(t, e, admin, "/admin/settings"))
 	p.shot(previewShot{Name: "admin-settings", Page: "admin-settings"})
@@ -311,11 +363,23 @@ func TestPreviewSite(t *testing.T) {
 	p.write("admin-settings-empty", get(t, freshAdminEnv, freshAdmin, "/admin/settings"))
 	p.shot(previewShot{Name: "admin-settings-empty", Page: "admin-settings-empty"})
 
+	// Offline page (served by the service worker when the network is gone).
+	p.write("offline", get(t, e, nil, "/offline"))
+	p.shot(previewShot{Name: "offline", Page: "offline"})
+
 	// Error pages.
 	p.write("error-404", get(t, e, admin, "/no-such-page"))
 	p.shot(previewShot{Name: "error-404", Page: "error-404"})
 	p.write("error-500", get(t, e, admin, "/boom"))
 	p.shot(previewShot{Name: "error-500", Page: "error-500"})
+
+	// Sign-in is down: the saved sign-in number is not connected.
+	e.d.ServicePhone = func(context.Context) string { return "" }
+	remount(e, stub)
+	p.write("admin-settings-down", get(t, e, admin, "/admin/settings"))
+	p.shot(previewShot{Name: "admin-settings-down", Page: "admin-settings-down"})
+	p.write("home-signin-down", get(t, e, admin, "/"))
+	p.shot(previewShot{Name: "home-signin-down", Page: "home-signin-down"})
 
 	b, err := json.MarshalIndent(p.shots, "", "  ")
 	require.NoError(t, err)

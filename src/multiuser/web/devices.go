@@ -4,12 +4,20 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/gofiber/fiber/v3"
+	"github.com/sirupsen/logrus"
 )
+
+// deviceLimitMessage is what a person sees at their linked-number limit; the
+// owners package's own error text is for logs and the API.
+const deviceLimitMessage = "You've linked as many numbers as you can. Unlink one to add another."
 
 // mountDevices registers "/" (My WhatsApp) and its htmx fragments: creating a
 // device, the QR image, the pairing-code fragment, status polling, reconnect
@@ -21,28 +29,25 @@ func mountDevices(app *fiber.App, d Deps) {
 	csrf := d.Auth.VerifyCSRF()
 
 	app.Get("/", page, func(c fiber.Ctx) error {
-		list, err := d.Devices.ListDevices(c.Context())
+		data, err := homeData(c, d)
 		if err != nil {
 			return err
 		}
-		connected := 0
-		for _, dev := range list {
-			if dev.PhoneNumber != "" && dev.State == domainDevice.DeviceStateLoggedIn {
-				connected++
-			}
-		}
-		u, _ := userOf(c)
-		slots, err := d.Store.SlotsOf(c.Context(), u.ID)
-		if err != nil {
-			return err
-		}
-		return d.render(c, fiber.StatusOK, "home.html", "My WhatsApp", map[string]any{
-			"Numbers": numberViews(list, slots), "Connected": connected})
+		return d.render(c, fiber.StatusOK, "home.html", "My WhatsApp", data)
 	})
 
+	// One device row, re-drawn in place while a reconnect settles (htmx).
+	// n counts the checks so far; after reconnectChecks it gives up and says so.
+	app.Get("/ui/devices/:id/row", page, func(c fiber.Ctx) error {
+		n, _ := strconv.Atoi(c.Query("n"))
+		return renderRow(c, d, c.Params("id"), n)
+	})
 	app.Post("/ui/devices", page, csrf, func(c fiber.Ctx) error {
 		dev, err := d.Devices.AddDevice(c.Context(), "", nil)
 		if err != nil {
+			if errors.Is(err, owners.ErrDeviceLimitReached) {
+				return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"Error": deviceLimitMessage})
+			}
 			var v pkgError.ValidationError
 			if errors.As(err, &v) {
 				return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"Error": v.Error()})
@@ -63,7 +68,11 @@ func mountDevices(app *fiber.App, d Deps) {
 		} else if err != nil {
 			return err
 		}
-		return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"ID": c.Params("id")})
+		mode := c.Query("mode") // "qr" or "pair" pins the link dialog's view
+		if mode != "qr" && mode != "pair" {
+			mode = ""
+		}
+		return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"ID": c.Params("id"), "Mode": mode})
 	})
 
 	app.Get("/ui/devices/:id/qr.png", page, func(c fiber.Ctx) error {
@@ -115,14 +124,26 @@ func mountDevices(app *fiber.App, d Deps) {
 		return c.SendStatus(fiber.StatusOK)
 	})
 
+	// Reconnect answers htmx with the row itself (reconnecting, then
+	// connected or a way to link again); a plain form post redirects home.
+	// A failure is never a full-page error.
 	app.Post("/ui/devices/:id/reconnect", page, csrf, func(c fiber.Ctx) error {
-		if err := d.Devices.ReconnectDevice(c.Context(), c.Params("id")); err != nil {
-			if errors.Is(err, pkgError.ErrDeviceNotFound) {
-				return fiber.ErrNotFound
-			}
-			return err
+		id := c.Params("id")
+		err := d.Devices.ReconnectDevice(c.Context(), id)
+		if errors.Is(err, pkgError.ErrDeviceNotFound) {
+			return fiber.ErrNotFound
 		}
-		return c.Redirect().Status(fiber.StatusSeeOther).To("/")
+		if c.Get("HX-Request") != "true" {
+			if err != nil {
+				logrus.WithError(err).Warnf("[WTF] reconnect %s", id)
+			}
+			return c.Redirect().Status(fiber.StatusSeeOther).To("/")
+		}
+		if err != nil {
+			logrus.WithError(err).Warnf("[WTF] reconnect %s", id)
+			return renderRow(c, d, id, reconnectChecks)
+		}
+		return renderRow(c, d, id, 1)
 	})
 
 	app.Post("/ui/devices/:id/unlink", page, csrf, func(c fiber.Ctx) error {
@@ -134,4 +155,104 @@ func mountDevices(app *fiber.App, d Deps) {
 		}
 		return c.Redirect().Status(fiber.StatusSeeOther).To("/")
 	})
+}
+
+// reconnectChecks is how many times (3 seconds apart) a reconnecting row
+// checks in before it says the reconnect did not work.
+const reconnectChecks = 5
+
+// homeData is everything "/" shows, derived from real state at request time.
+func homeData(c fiber.Ctx, d Deps) (map[string]any, error) {
+	ctx := c.Context()
+	list, err := d.Devices.ListDevices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u, _ := userOf(c)
+	connected := 0
+	for _, dev := range list {
+		if dev.PhoneNumber != "" && dev.State == domainDevice.DeviceStateLoggedIn {
+			connected++
+		}
+	}
+	// Every device row (linked or a half-linked slot) counts toward the
+	// owner's limit, exactly as owners.ScopedDevices.AddDevice counts it.
+	atLimit := u != nil && u.MaxDevices > 0 && len(list) >= u.MaxDevices
+	data := map[string]any{
+		"Devices": list, "Connected": connected, "AtLimit": atLimit, "LimitMessage": deviceLimitMessage, "ServiceID": "",
+	}
+	if u != nil {
+		// What each slot remembers (signed out from the phone, refused link).
+		slots, err := d.Store.SlotsOf(ctx, u.ID)
+		if err != nil {
+			return nil, err
+		}
+		data["Numbers"] = numberMap(list, slots)
+		pks, err := d.Store.PasskeysOf(ctx, u.ID)
+		if err != nil {
+			return nil, err
+		}
+		data["NoPasskeys"] = len(pks) == 0
+	}
+	if err := addServiceState(c, d, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// addServiceState adds, for a superadmin only, the sign-in (service) number
+// state: which device it is, and whether sign-in is down because that number
+// is set but not connected.
+func addServiceState(c fiber.Ctx, d Deps, data map[string]any) error {
+	u, _ := userOf(c)
+	if !d.Auth.IsSuperadmin(u) {
+		return nil
+	}
+	id, _, err := d.Store.Setting(c.Context(), store.SettingServiceDeviceID)
+	if err != nil {
+		return err
+	}
+	data["IsAdmin"] = true
+	data["ServiceID"] = id
+	data["ServiceDown"] = id != "" && d.ServicePhone != nil && d.ServicePhone(c.Context()) == ""
+	return nil
+}
+
+// renderRow draws one device row for htmx. checks < reconnectChecks while the
+// device is not yet connected keeps it checking; at the limit it gives up.
+func renderRow(c fiber.Ctx, d Deps, id string, checks int) error {
+	list, err := d.Devices.ListDevices(c.Context())
+	if err != nil {
+		return err
+	}
+	var dev *domainDevice.Device
+	for i := range list {
+		if list[i].ID == id {
+			dev = &list[i]
+		}
+	}
+	if dev == nil {
+		return fiber.ErrNotFound
+	}
+	data := map[string]any{"D": *dev, "ServiceID": ""}
+	if u, ok := userOf(c); ok {
+		slots, err := d.Store.SlotsOf(c.Context(), u.ID)
+		if err != nil {
+			return err
+		}
+		data["N"] = numberMap([]domainDevice.Device{*dev}, slots)[dev.ID]
+	}
+	switch {
+	case dev.State == domainDevice.DeviceStateLoggedIn && checks > 0:
+		data["Flash"] = "Reconnected."
+	case dev.State == domainDevice.DeviceStateLoggedIn:
+	case checks >= reconnectChecks:
+		data["Failed"] = true
+	default:
+		data["Checking"] = checks + 1
+	}
+	if err := addServiceState(c, d, data); err != nil {
+		return err
+	}
+	return d.render(c, fiber.StatusOK, "device_row.html", "", data)
 }

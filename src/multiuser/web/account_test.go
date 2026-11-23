@@ -18,7 +18,7 @@ func TestAccountPageShowsPhoneAndEmptyState(t *testing.T) {
 	req.AddCookie(ck)
 	resp, body := e.do(t, req)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Contains(t, body, "&#43;27825550101")
+	require.Contains(t, body, "&#43;27 82 555 0101", "shown grouped")
 	require.Contains(t, body, "No passkeys yet")
 	require.Contains(t, body, "Add a passkey")
 }

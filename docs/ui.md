@@ -39,6 +39,19 @@ so dark mode follows `prefers-color-scheme` with no second block.
 Contrast: every text pair the UI paints passes WCAG AA 4.5:1 in both themes
 (white on `#047857` is 5.5:1; checked with `ui-polish/scripts/contrast_audit.py`).
 
+## Theme
+
+Dark mode follows the system unless someone picks **System / Light / Dark**
+(the switcher in the menu, above Sign out, and Account › Appearance). The
+choice is stored per browser in `localStorage` (`wtf-theme`). `boot.js` applies
+it before paint as `data-theme="light|dark"` on `<html>`, which sets
+`color-scheme`, so every `light-dark()` token follows; it also pins both
+`theme-color` metas. Browsers without `light-dark()` get the light values from an
+`@supports not` block.
+
+The switcher is one partial (`theme_switcher`) drawn as a row of buttons, or as
+one `<select>` below 600px (house rule B4).
+
 ## Shell
 
 - Above 960px: a 248px sidebar (brand, nav with icons, user and Sign out at the
@@ -74,6 +87,19 @@ Contrast: every text pair the UI paints passes WCAG AA 4.5:1 in both themes
 | `{{template "form_dialog" (dict ...)}}` | One small form dialog shared by every row: the opener's `data-dialog-action`, `data-dialog-value` and `data-dialog-subject` fill it. `confirm` with an empty `Action` works the same way, and takes an optional ticked `Check`/`CheckName`. |
 | `data-dialog-title` on a `sheet` opener | Sets the shared sheet's title (Link WhatsApp, Webhook, Sign-in link). |
 
+| `.notice`, `.banner-danger` | Neutral notices (device limit) and blocking problems (sign-in is down). |
+| `.nudge` (`data-nudge`, `data-dismiss`) | A dismissible suggestion card (add a passkey); dismissal is remembered per browser. |
+| `.row-flash` | In-row feedback (Reconnecting…, Reconnected., Couldn't reconnect). |
+
+Phone numbers are shown with the `{{phone}}` template func: `+`, country code,
+then digit groups (`+27 82 555 0100`); inputs and links keep the raw value.
+One word per concept: a linked WhatsApp **number**.
+
+The link dialog opens on the QR code on a computer and on the pairing code on a
+phone (it cannot scan its own screen); `data-link-mode` buttons switch. A code
+ends after two minutes, or when its QR keeps failing, and offers "Get a new
+code"; polling stops then, on success, and when the dialog closes.
+
 Dialogs are native `<dialog>` opened with `data-open-dialog="<id>"` and closed with
 `data-close-dialog`, Esc or a backdrop click; focus returns to the opener. Below
 600px they are bottom sheets.
@@ -92,7 +118,8 @@ buttons carry an `aria-label`.
 not-set-up states, verify valid and expired, My WhatsApp with devices and empty,
 every link-dialog state, account with and without passkeys and its dialogs, admin
 users and its dialogs, settings with and without numbers, 404 and 500, the
-drawer and the rail) with fixture data into a static site plus `manifest.json`.
+drawer and the rail, the theme choices, Add user, reconnect, sign-in down, the
+offline page) with fixture data into a static site plus `manifest.json`.
 It is skipped unless `WTF_PREVIEW_DIR` is set.
 
 ```sh
@@ -104,6 +131,7 @@ node multiuser/web/preview/shoot.js ../.preview/site ../.preview/shots
 ```
 
 `shoot.js` needs Playwright (`require('playwright')`). It writes
-`<shot>-<phone|tablet|desktop>-<light|dark>.png`, a `report.json` (horizontal
+`<shot>-<phone|tablet|desktop>-<light|dark>.png` (each shot starts with clean
+`localStorage`, plus any `storage` the manifest sets, e.g. a chosen theme), a `report.json` (horizontal
 overflow and console errors per shot) and `contact-sheet.png`. `.preview/` is
 gitignored.

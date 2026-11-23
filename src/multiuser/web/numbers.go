@@ -69,3 +69,13 @@ func numberViews(devs []domainDevice.Device, slots map[string]store.Slot) []numb
 	}
 	return out
 }
+
+// numberMap is numberViews keyed by device id, for templates that range over
+// the devices themselves.
+func numberMap(devs []domainDevice.Device, slots map[string]store.Slot) map[string]numberView {
+	m := make(map[string]numberView, len(devs))
+	for _, v := range numberViews(devs, slots) {
+		m[v.ID] = v
+	}
+	return m
+}

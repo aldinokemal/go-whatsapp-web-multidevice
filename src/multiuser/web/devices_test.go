@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,9 +22,10 @@ import (
 )
 
 type devStub struct {
-	devices  []domainDevice.Device
-	qrPath   string
-	loggedIn bool
+	devices      []domainDevice.Device
+	reconnectErr error
+	qrPath       string
+	loggedIn     bool
 }
 
 func (s *devStub) ListDevices(context.Context) ([]domainDevice.Device, error) { return s.devices, nil }
@@ -42,7 +44,7 @@ func (s *devStub) LoginDeviceWithCode(context.Context, string, string) (string, 
 	return "ABCD-EFGH", nil
 }
 func (s *devStub) LogoutDevice(context.Context, string) error    { return nil }
-func (s *devStub) ReconnectDevice(context.Context, string) error { return nil }
+func (s *devStub) ReconnectDevice(context.Context, string) error { return s.reconnectErr }
 func (s *devStub) GetStatus(context.Context, string) (bool, bool, error) {
 	return s.loggedIn, s.loggedIn, nil
 }
@@ -172,27 +174,24 @@ func TestCreateDeviceWithCSRFOpensLinkModal(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, body, "QR code to link WhatsApp")
 	require.Contains(t, body, "data-qr-refresh",
-		"the QR <img> must carry the hook app.js uses to force a re-fetch; "+
-			"hx-swap=\"none\" alone never changes src, so the real, rotating QR would go stale silently")
+		"the QR <img> must carry the hook app.js uses to force a re-fetch, or the real, rotating QR would go stale silently")
 
 	ids, err := e.st.DevicesOf(context.Background(), me)
 	require.NoError(t, err)
 	require.Len(t, ids, 1)
 }
 
-// The QR poll runs with hx-swap="none" (the response is a PNG, not markup),
-// so nothing makes the <img> re-fetch once the real code behind it rotates
-// unless app.js does it by hand. This pins the wiring that does that: a
-// listener on htmx:afterRequest, gated on the same data-qr-refresh attribute
-// the template renders, that only acts on a successful response and sets src
-// to a fresh URL rather than reusing the cached one.
-func TestAppJSRefreshesQRImageAfterASuccessfulPoll(t *testing.T) {
+// The real QR code rotates, so app.js re-points the QR <img> at a fresh URL
+// on a timer: gated on the data-qr-refresh attribute the template renders,
+// reassigning src with a cache-buster so the browser really re-fetches, and
+// only while the image is showing (one fetch per refresh, none when hidden).
+func TestAppJSRefreshesQRImageOnATimer(t *testing.T) {
 	js, err := staticFS.ReadFile("static/app.js")
 	require.NoError(t, err)
 	body := string(js)
-	require.Contains(t, body, "htmx:afterRequest", "must react to the QR poll completing")
+	require.Contains(t, body, "setInterval", "must refresh on a timer")
 	require.Contains(t, body, "data-qr-refresh", "must gate on the same attribute the template renders")
-	require.Contains(t, body, "successful", "must only refresh on a successful poll, not a failed one")
+	require.Contains(t, body, "qrShowing", "must skip images that are hidden or in a closed dialog")
 	require.Regexp(t, `\.src\s*=`, body, "must actually reassign src to force a re-fetch")
 	require.Contains(t, body, "Date.now()", "must bust the cache, or the browser can serve the first frame forever")
 }
@@ -295,4 +294,58 @@ func TestLinkRouteReopensExistingDeviceOwnerChecked(t *testing.T) {
 	req.AddCookie(ck)
 	resp, _ = e.do(t, req)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func htmxReconnect(t *testing.T, e *env, ck *http.Cookie, id string) (*http.Response, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/ui/devices/"+id+"/reconnect", nil)
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("X-CSRF-Token", csrfFor(t, e, ck))
+	req.AddCookie(ck)
+	return e.do(t, req)
+}
+
+func TestReconnectAnswersHtmxWithTheRowNeverAPageError(t *testing.T) {
+	stub := &devStub{devices: []domainDevice.Device{{ID: "d_mine", PhoneNumber: "27825550199", State: domainDevice.DeviceStateLoggedIn}}}
+	e := withDevices(t, stub)
+	ck, me := signedIn(t, e, "+27825550101")
+	require.NoError(t, e.st.SetOwner(context.Background(), "d_mine", me))
+
+	resp, body := htmxReconnect(t, e, ck, "d_mine")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, body, `id="row-d_mine"`)
+	require.Contains(t, body, "Reconnected.")
+	require.NotContains(t, body, "<html", "a row, not a page")
+
+	stub.devices[0].State = domainDevice.DeviceStateDisconnected
+	_, body = htmxReconnect(t, e, ck, "d_mine")
+	require.Contains(t, body, "Reconnecting…")
+	require.Contains(t, body, `hx-get="/ui/devices/d_mine/row?n=2"`, "checks again")
+
+	stub.reconnectErr = errors.New("socket closed")
+	resp, body = htmxReconnect(t, e, ck, "d_mine")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, body, "Couldn't reconnect — link it again.")
+	require.Contains(t, body, "Link again")
+
+	// Without htmx the form still works: back home, no 500.
+	form := url.Values{"csrf": {csrfFor(t, e, ck)}}
+	req := httptest.NewRequest(http.MethodPost, "/ui/devices/d_mine/reconnect", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(ck)
+	resp, _ = e.do(t, req)
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	require.Equal(t, "/", resp.Header.Get("Location"))
+}
+
+func TestReconnectingRowGivesUpAfterItsChecks(t *testing.T) {
+	stub := &devStub{devices: []domainDevice.Device{{ID: "d_mine", PhoneNumber: "27825550199", State: domainDevice.DeviceStateDisconnected}}}
+	e := withDevices(t, stub)
+	ck, me := signedIn(t, e, "+27825550101")
+	require.NoError(t, e.st.SetOwner(context.Background(), "d_mine", me))
+	req := httptest.NewRequest(http.MethodGet, "/ui/devices/d_mine/row?n=5", nil)
+	req.AddCookie(ck)
+	_, body := e.do(t, req)
+	require.Contains(t, body, "Couldn't reconnect")
+	require.NotContains(t, body, "hx-trigger=\"load delay:3s\"", "stops checking")
 }
