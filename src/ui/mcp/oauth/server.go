@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 )
 
@@ -554,6 +555,9 @@ func (s *Server) lookupClient(c fiber.Ctx, req *authorizationRequest) (Client, b
 		}
 		client, err := s.cimd.resolve(c.Context(), req.ClientID)
 		if err != nil {
+			// The client_id is a public URL, never a secret: log why, so a
+			// failed connect can be diagnosed from the server log.
+			logrus.Warnf("[MCP OAuth] client %q refused: %v", truncateForLog(req.ClientID), err)
 			return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_client", "the client's metadata document could not be used", badConnectRequest)
 		}
 		if !cimdRedirectMatches(client.RedirectURIs, req.RedirectURI) {
@@ -868,4 +872,19 @@ func (s *Server) authorizationError(c fiber.Ctx, req authorizationRequest, code,
 	redirectURL.RawQuery = query.Encode()
 	s.setNoStore(c)
 	return c.Redirect().Status(fiber.StatusFound).To(redirectURL.String())
+}
+
+// truncateForLog bounds attacker-chosen text before it reaches a log line.
+func truncateForLog(v string) string {
+	const max = 200
+	v = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return '?'
+		}
+		return r
+	}, v)
+	if len(v) > max {
+		return v[:max] + "..."
+	}
+	return v
 }

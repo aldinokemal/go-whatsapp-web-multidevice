@@ -41,11 +41,13 @@ type docServer struct {
 	bodyRead atomic.Int64 // bytes our client actually read from response bodies
 }
 
+// desktopDoc is the shape Claude serves (fetched 2026-11-23), including a
+// grant type this server never runs.
 func desktopDoc(clientID string, redirects ...string) map[string]any {
 	return map[string]any{
-		"client_id": clientID, "client_name": "Claude", "redirect_uris": redirects,
-		"grant_types": []string{"authorization_code", "refresh_token"}, "response_types": []string{"code"},
-		"token_endpoint_auth_method": "none", "scope": "mcp:use offline_access",
+		"client_id": clientID, "client_name": "Claude", "client_uri": "https://claude.ai", "redirect_uris": redirects,
+		"grant_types":    []string{"authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"},
+		"response_types": []string{"code"}, "token_endpoint_auth_method": "none",
 	}
 }
 
@@ -276,7 +278,8 @@ func TestDocumentRulesEnforced(t *testing.T) {
 		"secret client":  {"client_id": desktopClientID, "redirect_uris": []string{testRedirect}, "token_endpoint_auth_method": "client_secret_basic"},
 		"no redirects":   {"client_id": desktopClientID},
 		"http redirect":  {"client_id": desktopClientID, "redirect_uris": []string{"http://claude.ai/cb"}},
-		"implicit grant": {"client_id": desktopClientID, "redirect_uris": []string{testRedirect}, "grant_types": []string{"implicit"}},
+		"no code grant":  {"client_id": desktopClientID, "redirect_uris": []string{testRedirect}, "grant_types": []string{"implicit", "refresh_token"}},
+		"token response": {"client_id": desktopClientID, "redirect_uris": []string{testRedirect}, "response_types": []string{"token"}},
 	}
 	for name, doc := range cases {
 		d := newDocServer(t)

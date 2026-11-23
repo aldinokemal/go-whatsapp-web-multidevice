@@ -247,8 +247,15 @@ func validateCIMDDocument(clientID string, doc cimdDocument) (Client, error) {
 	if doc.TokenEndpointAuthMethod != "" && doc.TokenEndpointAuthMethod != "none" {
 		return Client{}, fmt.Errorf("%w: only public clients are supported", errCIMD)
 	}
-	if !onlySupported(doc.GrantTypes, "authorization_code", "refresh_token") || !onlySupported(doc.ResponseTypes, "code") {
-		return Client{}, fmt.Errorf("%w: unsupported grant or response type", errCIMD)
+	// The document lists what the client can do, not what it is granted.
+	// Claude's own document also names the jwt-bearer grant (measured
+	// 2026-11-23), so extra types are ignored: this server only ever runs
+	// the authorization-code flow, which the client must support.
+	if len(doc.GrantTypes) > 0 && !slices.Contains(doc.GrantTypes, "authorization_code") {
+		return Client{}, fmt.Errorf("%w: the client does not use the authorization code grant", errCIMD)
+	}
+	if len(doc.ResponseTypes) > 0 && !slices.Contains(doc.ResponseTypes, "code") {
+		return Client{}, fmt.Errorf("%w: the client does not use response type code", errCIMD)
 	}
 	name := strings.TrimSpace(doc.ClientName)
 	if len(name) > maxClientNameBytes {
