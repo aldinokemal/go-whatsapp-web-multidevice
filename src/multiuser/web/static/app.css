@@ -488,7 +488,7 @@ main:focus { outline: none; }
 /* ---------------------------------------------------- table (boxed rows) */
 .table { display: flex; flex-direction: column; }
 .trow {
-  display: grid; grid-template-columns: minmax(0, 1fr) 104px 112px 132px 244px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 104px 100px 124px 196px;
   align-items: center; gap: var(--s-4);
   padding: var(--s-3) var(--s-5); min-height: 60px;
   transition: background-color var(--dur-fast) var(--ease);
