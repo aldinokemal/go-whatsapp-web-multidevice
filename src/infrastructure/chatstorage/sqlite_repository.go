@@ -87,7 +87,11 @@ func (r *SQLiteRepository) GetChatByDevice(deviceID, jid string) (*domainChatSto
 // GetMessageByID retrieves a message by its ID from any chat
 // This is more efficient than searching through all chats
 func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
-	const query = selectMessages + `
+	query := `
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+		FROM messages
 		WHERE id = ?
 		LIMIT 1
 	`
@@ -103,7 +107,11 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 // GetMessageByIDAndDevice retrieves a message by its ID scoped to a specific device,
 // so a message ID belonging to another device cannot be read from device-isolated flows.
 func (r *SQLiteRepository) GetMessageByIDAndDevice(deviceID, id string) (*domainChatStorage.Message, error) {
-	const query = selectMessages + `
+	query := `
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+		FROM messages
 		WHERE id = ? AND device_id = ?
 		LIMIT 1
 	`
@@ -576,8 +584,8 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 		return nil, fmt.Errorf("device_id is required for message queries (data isolation)")
 	}
 
-	query := selectMessages + " WHERE chat_jid = ? AND device_id = ?"
-	args := []any{filter.ChatJID, filter.DeviceID}
+	query := selectChatMessages
+	args := []any{filter.DeviceID, filter.ChatJID}
 
 	// Timestamps are stored as UTC text and compared as strings, so bounds must be UTC too.
 	if filter.StartTime != nil {
@@ -652,10 +660,9 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 		return []*domainChatStorage.Message{}, nil
 	}
 
-	query := selectMessages + `
-		WHERE chat_jid = ? AND device_id = ? AND LOWER(content) LIKE ?
-		ORDER BY timestamp DESC`
-	args := []any{chatJID, deviceID, "%" + strings.ToLower(searchText) + "%"}
+	query := selectChatMessages
+	query += " AND LOWER(content) LIKE ? ORDER BY timestamp DESC"
+	args := []any{deviceID, chatJID, "%" + strings.ToLower(searchText) + "%"}
 
 	// Add limit with validation
 	if limit > 0 {
@@ -1328,11 +1335,13 @@ func (r *SQLiteRepository) getCount(query string, args ...any) (int64, error) {
 	return count, err
 }
 
-// selectMessages lists columns in the order expected by scanMessage.
-const selectMessages = `SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+// Device-scoped list queries share scanMessage's column order.
+const selectDeviceMessages = `SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
 	media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
 	file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-	FROM messages`
+	FROM messages WHERE device_id = ?`
+
+const selectChatMessages = selectDeviceMessages + " AND chat_jid = ?"
 
 // scanMessage is a private helper for scanning message rows
 func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) (*domainChatStorage.Message, error) {
@@ -2627,7 +2636,11 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 }
 
 func (r *SQLiteRepository) getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, messageID string) (*domainChatStorage.Message, error) {
-	const query = selectMessages + `
+	query := `
+		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+		FROM messages
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 		LIMIT 1
 	`
@@ -2882,10 +2895,11 @@ func (r *SQLiteRepository) GetCallRecords(filter *domainChatStorage.CallRecordFi
 		return nil, 0, fmt.Errorf("device_id is required for call record queries (data isolation)")
 	}
 
-	const callScope = " WHERE device_id = ? AND media_type = 'call'"
+	const callScope = " AND media_type = 'call'"
 	const chatFilter = " AND chat_jid IN (SELECT value FROM json_each(?))"
-	countQuery := "SELECT COUNT(*) FROM messages" + callScope
-	query := selectMessages + callScope
+	const countDeviceCalls = "SELECT COUNT(*) FROM messages WHERE device_id = ?" + callScope
+	const selectDeviceCalls = selectDeviceMessages + callScope
+	countQuery, query := countDeviceCalls, selectDeviceCalls
 	args := []any{filter.DeviceID}
 	if len(filter.ChatJIDs) > 0 {
 		// Bind the alias list as one parameter, keeping the indexed chat_jid predicate.
