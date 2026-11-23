@@ -19,7 +19,9 @@ function opt(name, def) {
   const i = args.indexOf("--" + name);
   return (i >= 0 ? args[i + 1] : def).split(",");
 }
-const VIEWPORTS = { phone: [390, 844], tablet: [820, 1180], desktop: [1440, 900] };
+const VIEWPORTS = { phone: [390, 844], tablet: [820, 1180], desktop: [1440, 900], laptop: [1280, 800], hd: [1366, 768] };
+// Laptop widths (1280, 1366) are desktops with a mouse: they keep the sidebar.
+const DESKTOPS = ["desktop", "laptop", "hd"];
 const viewports = opt("viewports", "phone,tablet,desktop");
 const schemes = opt("schemes", "light,dark");
 const only = opt("only", "").filter(Boolean);
@@ -54,7 +56,7 @@ function serve() {
     for (const vp of viewports) {
       const [width, height] = VIEWPORTS[vp];
       const context = await browser.newContext({ viewport: { width, height }, colorScheme: scheme,
-        deviceScaleFactor: vp === "desktop" ? 1 : 2, reducedMotion: "reduce", hasTouch: vp !== "desktop", isMobile: vp === "phone" });
+        deviceScaleFactor: DESKTOPS.includes(vp) ? 1 : 2, reducedMotion: "reduce", hasTouch: !DESKTOPS.includes(vp), isMobile: vp === "phone" });
       for (const s of manifest) {
         const page = await context.newPage();
         // Each shot starts from clean per-browser settings, plus its own.

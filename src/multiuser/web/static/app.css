@@ -200,6 +200,7 @@ main:focus { outline: none; }
 }
 .brand:hover { color: var(--ink); }
 .brand-mark { width: 32px; height: 32px; border-radius: var(--radius); flex: none; }
+.brand-name { white-space: nowrap; }
 
 /* ------------------------------------------------------------------- shell */
 .shell { min-height: 100vh; min-height: 100dvh; }
@@ -233,7 +234,8 @@ main:focus { outline: none; }
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
-.nav-link .icon { color: var(--ink-3); transition: color var(--dur-fast) var(--ease); }
+.nav-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-link .icon { flex: none; color: var(--ink-3); transition: color var(--dur-fast) var(--ease); }
 .nav-link:hover { background: var(--surface-hover); color: var(--ink); }
 .nav-link:hover .icon { color: var(--ink-2); }
 .nav-link[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); }
@@ -265,7 +267,7 @@ main:focus { outline: none; }
 .topbar { display: none; }
 .nav-backdrop { display: none; }
 
-.main { margin-left: var(--sidebar); min-height: 100vh; min-height: 100dvh; transition: margin-left var(--dur-slow) var(--ease); }
+.main { margin-left: var(--sidebar); min-height: 100vh; min-height: 100dvh; }
 .page {
   max-width: var(--content); margin: 0 auto;
   padding: var(--s-10) var(--s-8) var(--s-16);
@@ -273,8 +275,9 @@ main:focus { outline: none; }
 }
 
 /* Desktop rail: the menu folds to icons; labels stay for screen readers. */
+/* The width snaps between the two: animating it drew every width in
+   between, and a label wraps in each of them. */
 @media (min-width: 961px) {
-  .sidebar { transition: width var(--dur-slow) var(--ease); }
   [data-rail] .sidebar { width: var(--rail); padding-inline: var(--s-3); }
   [data-rail] .main { margin-left: var(--rail); }
   [data-rail] .sidebar-head { flex-direction: column; padding-inline: 0; gap: var(--s-3); }
