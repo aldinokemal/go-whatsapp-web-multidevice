@@ -748,7 +748,8 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 			continue
 		}
 		attachments = append(attachments, path)
-		logrus.Infof("Chatwoot: Found %s attachment at %s", field, path)
+		// The path embeds the sender's filename or caption; keep it out of logs.
+		logrus.Infof("Chatwoot: Found %s attachment", field)
 	}
 
 	// interactive_media carries zero or more paths collected from an
@@ -763,14 +764,14 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 		for _, path := range paths {
 			if path != "" {
 				attachments = append(attachments, path)
-				logrus.Infof("Chatwoot: Found interactive media attachment at %s", path)
+				logrus.Info("Chatwoot: Found interactive media attachment")
 			}
 		}
 	case []any:
 		for _, v := range paths {
 			if path, ok := v.(string); ok && path != "" {
 				attachments = append(attachments, path)
-				logrus.Infof("Chatwoot: Found interactive media attachment at %s", path)
+				logrus.Info("Chatwoot: Found interactive media attachment")
 			}
 		}
 	}
@@ -1132,7 +1133,11 @@ func syncMessageToChatwoot(cw *chatwoot.Client, info *chatwootContactInfo, conte
 	if info.IsFromMe {
 		messageType = "outgoing"
 	}
-	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, attachments, opts)
+	messageAttachments := make([]chatwoot.MessageAttachment, 0, len(attachments))
+	for _, path := range attachments {
+		messageAttachments = append(messageAttachments, chatwoot.MessageAttachment{Path: path, FileName: utils.StoredMediaDisplayName(path)})
+	}
+	msgID, err := cw.CreateMessage(conversation.ID, content, messageType, messageAttachments, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create message: %w", err)
 	}
@@ -1891,7 +1896,7 @@ func forwardToChatwoot(ctx context.Context, payload map[string]any, eventName st
 	logrus.Infof("Chatwoot: Attempting to forward %s...", eventName)
 	deviceID, linkRepo := chatwootLinkStorageFromContext(ctx)
 	if err := syncPayloadToChatwoot(ctx, payload, eventName, deviceID, linkRepo); err != nil {
-		logrus.Errorf("Chatwoot: %v", err)
+		logrus.Errorf("Chatwoot: Failed to forward WhatsApp message %s: %v", chatwootForwardMessageID(payload), utils.MediaErrorForLog(err))
 		enqueueChatwootForwardRetry(linkRepo, deviceID, eventName, payload, err)
 	}
 }
@@ -1951,7 +1956,7 @@ func processDueChatwootForwardRetries(repo domainChatStorage.IChatStorageReposit
 			if markErr := repo.MarkChatwootForwardEventFailed(event.ID, truncateChatwootForwardError(err), nextAttempt); markErr != nil {
 				logrus.Errorf("Chatwoot: Failed to reschedule retry job %d: %v", event.ID, markErr)
 			}
-			logrus.Warnf("Chatwoot: Retry job %d failed, next attempt at %s: %v", event.ID, nextAttempt.Format(time.RFC3339), err)
+			logrus.Warnf("Chatwoot: Retry job %d for WhatsApp message %s failed, next attempt at %s: %v", event.ID, event.WhatsAppMessageID, nextAttempt.Format(time.RFC3339), utils.MediaErrorForLog(err))
 			continue
 		}
 		if err := repo.MarkChatwootForwardEventDone(event.ID); err != nil {

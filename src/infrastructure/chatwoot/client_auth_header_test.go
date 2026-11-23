@@ -59,7 +59,7 @@ var authHeaderCases = map[string]func(t *testing.T, c *Client){
 		if err := os.WriteFile(tmp, []byte("data"), 0o600); err != nil {
 			t.Fatalf("write temp file: %v", err)
 		}
-		_, _ = c.CreateMessage(5, "hello", "incoming", []string{tmp}, MessageOptions{})
+		_, _ = c.CreateMessage(5, "hello", "incoming", []MessageAttachment{{Path: tmp}}, MessageOptions{})
 	},
 }
 
