@@ -1,0 +1,67 @@
+{{define "home.html"}}{{template "head" .}}
+<main id="main" tabindex="-1" class="page">
+  <div class="page-header">
+    <h1>My WhatsApp</h1>
+    <button type="button" class="btn btn-primary" data-open-dialog="link-dialog"
+            hx-post="/ui/devices" hx-target="#link-dialog-body" hx-swap="innerHTML"
+            hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}'>Link WhatsApp</button>
+  </div>
+
+  {{if .Data.Devices}}
+  <div class="device-list">
+    {{range .Data.Devices}}
+    <div class="device-card">
+      <div class="device-info">
+        <p class="device-name">{{if .DisplayName}}{{.DisplayName}}{{else if .PhoneNumber}}{{.PhoneNumber}}{{else}}Not linked yet{{end}}</p>
+        {{if eq .PhoneNumber ""}}
+        <span class="pill pill-muted">Not linked</span>
+        {{else if eq .State "logged_in"}}
+        <span class="pill pill-ok">Connected</span>
+        {{else}}
+        <span class="pill pill-warn">Not connected</span>
+        {{end}}
+      </div>
+      <div class="device-actions">
+        {{if eq .PhoneNumber ""}}
+        <button type="button" class="btn btn-secondary" data-open-dialog="link-dialog"
+                hx-get="/ui/devices/{{.ID}}/link" hx-target="#link-dialog-body" hx-swap="innerHTML">Link</button>
+        <button type="button" class="btn btn-ghost" data-open-dialog="remove-{{.ID}}">Remove</button>
+        {{else}}
+        {{if ne .State "logged_in"}}
+        <form method="post" action="/ui/devices/{{.ID}}/reconnect" class="inline-form">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}">
+          <button type="submit" class="btn btn-secondary">Reconnect</button>
+        </form>
+        {{end}}
+        <button type="button" class="btn btn-ghost" data-open-dialog="remove-{{.ID}}">Unlink</button>
+        {{end}}
+      </div>
+    </div>
+    <dialog id="remove-{{.ID}}">
+      {{if eq .PhoneNumber ""}}
+      <h2>Remove this device?</h2>
+      <p>This removes the empty slot. You can link a new one any time.</p>
+      {{else}}
+      <h2>Unlink this WhatsApp account?</h2>
+      <p>You'll need to scan a QR code or request a new pairing code to link it again.</p>
+      {{end}}
+      <form method="post" action="/ui/devices/{{.ID}}/unlink">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <div class="action-group">
+          <button type="submit" class="btn btn-danger">{{if eq .PhoneNumber ""}}Remove{{else}}Unlink{{end}}</button>
+          <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
+        </div>
+      </form>
+    </dialog>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="empty-state">Link your WhatsApp to get started.</p>
+  {{end}}
+
+  <dialog id="link-dialog">
+    <div id="link-dialog-body" class="link-body"></div>
+    <button type="button" class="btn btn-ghost" data-close-dialog>Close</button>
+  </dialog>
+</main>
+{{template "foot" .}}{{end}}

@@ -105,6 +105,19 @@
     }
   }
 
+  // The QR image polls itself every 20s with hx-swap="none" (the response is
+  // a PNG, not markup to swap in), so nothing else makes the browser re-fetch
+  // it once the real, rotating code behind it changes. On a successful poll,
+  // re-point the <img> at the same URL plus a cache-buster so the browser
+  // actually fetches a fresh frame instead of reusing the first one forever.
+  document.body.addEventListener("htmx:afterRequest", function (event) {
+    var el = event.detail && event.detail.elt;
+    if (!el || typeof el.hasAttribute !== "function" || !el.hasAttribute("data-qr-refresh")) return;
+    if (!event.detail.successful) return;
+    var base = el.getAttribute("src").split("?")[0];
+    el.src = base + "?t=" + Date.now();
+  });
+
   document.addEventListener("click", function (event) {
     var loginBtn = event.target.closest("[data-passkey-login]");
     if (loginBtn) {
