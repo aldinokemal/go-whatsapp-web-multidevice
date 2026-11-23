@@ -465,6 +465,14 @@
     var btn = event.submitter || form.querySelector("[type=submit]");
     if (!btn) return;
     btn.setAttribute("aria-busy", "true");
+    // data-no-disable (the OAuth consent form): a disabled submitter's
+    // name/value is dropped from the POST, so a busy Allow would arrive as no
+    // decision at all. Busy there is the aria-busy styling alone; the other
+    // buttons in the form are made inert with a class instead.
+    if (form.hasAttribute("data-no-disable")) {
+      form.classList.add("is-submitting");
+      return;
+    }
     window.setTimeout(function () { btn.disabled = true; }, 0);
   });
   window.addEventListener("pageshow", function () {
@@ -472,6 +480,7 @@
       b.removeAttribute("aria-busy");
       b.disabled = false;
     });
+    document.querySelectorAll("form.is-submitting").forEach(function (f) { f.classList.remove("is-submitting"); });
   });
 
   // A linking session (a QR or a pairing code) ends after two minutes, or

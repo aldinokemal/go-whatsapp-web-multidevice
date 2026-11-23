@@ -149,13 +149,17 @@ type page struct {
 }
 
 func (d Deps) render(c fiber.Ctx, status int, name, title string, data any) error {
+	return d.renderCSP(c, status, name, title, data, csp)
+}
+
+func (d Deps) renderCSP(c fiber.Ctx, status int, name, title string, data any, policy string) error {
 	u, _ := auth.UserFrom(c.Context())
 	p := page{Product: d.ProductName, Title: title, User: u, Superadmin: d.Auth.IsSuperadmin(u), CSRF: d.Auth.CSRFToken(c), Path: c.Path(), PublicURL: strings.TrimRight(d.PublicURL, "/"), Data: data}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, name, p); err != nil {
 		return err
 	}
-	c.Set(fiber.HeaderContentSecurityPolicy, csp)
+	c.Set(fiber.HeaderContentSecurityPolicy, policy)
 	c.Set("X-Content-Type-Options", "nosniff")
 	c.Set("Referrer-Policy", "same-origin")
 	c.Set(fiber.HeaderCacheControl, "no-store")
