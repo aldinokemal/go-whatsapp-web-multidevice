@@ -141,6 +141,10 @@ func describe(e store.AuditRow, users map[string]store.User) []wordPart {
 			return []wordPart{w("Admin "), a, w(" unlinked "), number, w(" from "), u}
 		}
 		return []wordPart{u, w(" unlinked "), number}
+	case "device_slot_expired":
+		return []wordPart{w("An unfinished link of "), u, w(" was removed after an hour")}
+	case "device_renamed":
+		return []wordPart{u, w(" renamed a number")}
 	case "device_link_refused_duplicate":
 		return []wordPart{u, w(" tried to link a number that's already linked to another account")}
 	case "device_link_refused_unreadable_number", "device_link_refused_lookup_failed":
@@ -160,6 +164,18 @@ func describe(e store.AuditRow, users map[string]store.User) []wordPart {
 	case "user_phone_changed":
 		old, _, _ := strings.Cut(e.Detail, " ")
 		return []wordPart{w("Admin "), a, w(" changed the number of "), u, w(" (was " + displayPhone(old) + ")")}
+	case "account_deleted":
+		return []wordPart{w("An account was deleted")}
+	case "waitlist_joined":
+		return []wordPart{w("Someone joined the waitlist")}
+	case "waitlist_admitted":
+		return []wordPart{w("Admin "), a, w(" let "), u, w(" in from the waitlist")}
+	case "waitlist_declined":
+		return []wordPart{w("Admin "), a, w(" declined a number on the waitlist")}
+	case "waitlist_reopened":
+		return []wordPart{w("Admin "), a, w(" moved a number back to waiting")}
+	case "waitlist_removed":
+		return []wordPart{w("Admin "), a, w(" removed a number from the waitlist")}
 	case "service_number_set":
 		return []wordPart{u, w(" chose the number that sends sign-in links")}
 	case "webhook_set":
