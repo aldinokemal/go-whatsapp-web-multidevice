@@ -43,13 +43,10 @@ func (s *ScopedDevices) ListDevices(ctx context.Context) ([]domainDevice.Device,
 	if !ok {
 		return []domainDevice.Device{}, nil
 	}
-	ids, err := s.st.DevicesOf(ctx, u.ID)
+	// One query gives both which devices are the user's and their names.
+	mine, err := s.st.LabelsOf(ctx, u.ID)
 	if err != nil {
 		return nil, err
-	}
-	mine := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		mine[id] = true
 	}
 	all, err := s.inner.ListDevices(ctx)
 	if err != nil {
@@ -57,7 +54,8 @@ func (s *ScopedDevices) ListDevices(ctx context.Context) ([]domainDevice.Device,
 	}
 	out := []domainDevice.Device{}
 	for _, d := range all {
-		if mine[d.ID] {
+		if label, ok := mine[d.ID]; ok {
+			d.Label = label
 			out = append(out, d)
 		}
 	}
@@ -166,7 +164,17 @@ func (s *ScopedDevices) GetDevice(ctx context.Context, id string) (*domainDevice
 	if err := s.own(ctx, id); err != nil {
 		return nil, err
 	}
-	return s.inner.GetDevice(ctx, id)
+	dev, err := s.inner.GetDevice(ctx, id)
+	if err != nil || dev == nil {
+		return dev, err
+	}
+	u, _ := auth.UserFrom(ctx)
+	labels, err := s.st.LabelsOf(ctx, u.ID)
+	if err != nil {
+		return nil, err
+	}
+	dev.Label = labels[id]
+	return dev, nil
 }
 
 func (s *ScopedDevices) LoginDevice(ctx context.Context, id string) (domainApp.LoginResponse, error) {
