@@ -66,9 +66,16 @@ type Runtime struct {
 	// Retention is the retention worker Start runs; nil while retention is
 	// off (WTF_RETENTION_HOURS=0) or before Start.
 	Retention *retention.Worker
+	// ResumeDeletionsEvery is how often Start retries account deletions
+	// left half done (default resumeDeletionsEvery).
+	ResumeDeletionsEvery time.Duration
 
 	stop context.CancelFunc // ends Start's background work
 }
+
+// resumeDeletionsEvery is how often a deletion left half done (a WhatsApp
+// error mid way) is retried while the server runs: hourly, like retention.
+const resumeDeletionsEvery = time.Hour
 
 // staleSweepEvery is how often the stale-slot sweeper looks.
 const staleSweepEvery = 10 * time.Minute
@@ -82,9 +89,9 @@ type ChatData interface {
 }
 
 // Start begins the runtime's background work, once, after Install: it
-// finishes every account deletion left half done (a crash, a WhatsApp error),
-// runs the stale-slot sweeper and, while retention is on, the retention
-// worker, until Close. chats clears a deleted number's chat storage even when
+// finishes every account deletion left half done (a crash, a WhatsApp error)
+// at once and then hourly, runs the stale-slot sweeper and, while retention
+// is on, the retention worker, until Close. chats clears a deleted number's chat storage even when
 // the device manager no longer knows it, and is what retention purges; nil
 // leaves the former to the device purge alone and retention to files and
 // the accounts store.
@@ -103,9 +110,11 @@ func (r *Runtime) Start(chats ChatData) {
 				logrus.Errorf("[WTF] resuming account deletions: recovered from panic\n%s", debug.Stack())
 			}
 		}()
-		if err := r.Deleter.ResumePending(ctx); err != nil {
-			logrus.WithError(err).Warn("[WTF] some account deletions are still unfinished; they are retried at the next start")
+		every := r.ResumeDeletionsEvery
+		if every <= 0 {
+			every = resumeDeletionsEvery
 		}
+		r.resumeDeletions(ctx, every)
 	}()
 	go func() {
 		defer func() {
@@ -130,6 +139,24 @@ func (r *Runtime) Start(chats ChatData) {
 			}()
 			w.Run(ctx)
 		}()
+	}
+}
+
+// resumeDeletions finishes every account left "deleting" at once and then
+// every interval until ctx ends, so a deletion that stopped half way does
+// not wait for a restart. One loop: a pass never overlaps the one before.
+func (r *Runtime) resumeDeletions(ctx context.Context, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		if err := r.Deleter.ResumePending(ctx); err != nil && ctx.Err() == nil {
+			logrus.WithError(err).Warn("[WTF] some account deletions are still unfinished; they are retried within the hour")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 
