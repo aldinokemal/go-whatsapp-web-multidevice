@@ -80,7 +80,7 @@ func mountAdmin(app *fiber.App, d Deps) {
 			return err
 		}
 		if status == store.StatusDisabled {
-			if err := d.Store.DeleteUserSessions(c.Context(), targetID); err != nil {
+			if err := revokeCredentials(c.Context(), d, targetID); err != nil {
 				return err
 			}
 			_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: targetID, ActorID: caller.ID, Action: "user_disabled", IP: c.IP()})
@@ -148,6 +148,25 @@ func mountAdmin(app *fiber.App, d Deps) {
 		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: caller.ID, Action: "service_number_set", DeviceID: deviceID, IP: c.IP()})
 		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/settings")
 	})
+}
+
+// revokeCredentials ends everything that lets userID in without signing in
+// again: sessions, API keys and connected apps (OAuth grants). Disabling an
+// account and changing its number both call it, so enabling the account
+// again, or the old number, never brings an old credential back.
+func revokeCredentials(ctx context.Context, d Deps, userID string) error {
+	if err := d.Store.DeleteUserSessions(ctx, userID); err != nil {
+		return err
+	}
+	if err := d.Store.RevokeAllAPIKeys(ctx, userID); err != nil {
+		return err
+	}
+	if d.Grants != nil {
+		if err := d.Grants.RevokeSubject(ctx, userID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // signinLinkFor mints a one-time sign-in link for phone, the same link the

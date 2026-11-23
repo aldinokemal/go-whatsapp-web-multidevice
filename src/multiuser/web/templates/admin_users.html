@@ -44,7 +44,7 @@
                   data-dialog-action="/admin/users/{{.ID}}/limit" data-dialog-value="{{.MaxDevices}}" data-dialog-subject="For {{phone .Phone}}">{{icon "hash"}}<span>Number limit</span></button>
           {{if and (not .IsSelf) (not .IsAdmin)}}
           <button type="button" class="menu-item" role="menuitem" data-open-dialog="phone-dialog"
-                  data-dialog-action="/admin/users/{{.ID}}/phone" data-dialog-value="{{.Phone}}" data-dialog-subject="They'll be signed out everywhere and sign in with the new number.">{{icon "phone"}}<span>Change number</span></button>
+                  data-dialog-action="/admin/users/{{.ID}}/phone" data-dialog-value="{{.Phone}}" data-dialog-subject="They'll be signed out everywhere and sign in with the new number. Their API keys and connected apps stop working.">{{icon "phone"}}<span>Change number</span></button>
           {{end}}
           <a class="menu-item" role="menuitem" href="/admin/activity?user={{.ID}}">{{icon "activity"}}<span>Activity</span></a>
           {{if not .IsSelf}}
@@ -87,7 +87,7 @@
   </div>
   {{range .Data.Rows}}{{if and .Active (not .IsSelf)}}
   {{template "confirm" (dict "ID" (printf "disable-%s" .ID) "Action" (printf "/admin/users/%s/status" .ID) "CSRF" $.CSRF "Status" "disabled" "Icon" "user-x"
-       "Title" (printf "Disable %s?" (phone .Phone)) "Body" "They'll be signed out everywhere right away." "Button" "Disable"
+       "Title" (printf "Disable %s?" (phone .Phone)) "Body" "They'll be signed out everywhere right away, and their API keys and connected apps stop working for good." "Button" "Disable"
        "Check" "Also unlink their numbers" "CheckName" "unlink")}}
   {{end}}{{end}}
   {{template "confirm" (dict "ID" "admin-unlink" "Action" "" "CSRF" .CSRF "Icon" "unlink"

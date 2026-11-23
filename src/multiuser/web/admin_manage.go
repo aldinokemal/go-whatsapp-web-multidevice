@@ -85,7 +85,11 @@ func mountAdminManage(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		if err := d.Store.DeleteUserSessions(c.Context(), target.ID); err != nil {
+		if err := revokeCredentials(c.Context(), d, target.ID); err != nil {
+			return err
+		}
+		// A sign-in link minted for the old number must not work either.
+		if err := d.Store.DeleteLoginTokensFor(c.Context(), old); err != nil {
 			return err
 		}
 		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: target.ID, ActorID: caller.ID, Action: "user_phone_changed",

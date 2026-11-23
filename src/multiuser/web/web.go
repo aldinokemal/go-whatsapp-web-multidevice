@@ -147,6 +147,8 @@ type Deps struct {
 type GrantStore interface {
 	ListGrants(ctx context.Context, subject string) ([]oauth.Grant, error)
 	RevokeGrant(ctx context.Context, subject, familyID string) error
+	// RevokeSubject ends every grant of the subject (a user id).
+	RevokeSubject(ctx context.Context, subject string) error
 }
 
 // page is the data every template gets.
