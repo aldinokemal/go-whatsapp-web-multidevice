@@ -81,3 +81,30 @@ func (m *Manager) AuthenticatedBy(c fiber.Ctx) string {
 	}
 	return ""
 }
+
+// ForgetSession drops whatever the session middleware loaded from the cookie
+// (the user, the raw session id) and does not send the refreshed cookie back.
+// /mcp calls it first: that endpoint is authenticated by a bearer token only,
+// so a cookie must never count there (no CSRF exposure on a JSON-RPC route a
+// browser could be tricked into posting to).
+func (m *Manager) ForgetSession(c fiber.Ctx) {
+	c.Response().Header.DelCookie(m.CookieName())
+	c.Locals(keyAuthErr, false)
+	c.Locals(keyRaw, "")
+	c.Locals(keyUser, nil)
+	c.Locals(keyVia, "")
+	c.SetContext(WithUser(c.Context(), nil))
+}
+
+// UseAPIKeyUser makes u, loaded from an API key outside APIKey() (the /mcp
+// guard), this request's only principal.
+func (m *Manager) UseAPIKeyUser(c fiber.Ctx, u *store.User) {
+	m.ForgetSession(c)
+	c.Locals(keyUser, u)
+	c.Locals(keyVia, viaAPIKey)
+	c.SetContext(WithUser(c.Context(), u))
+}
+
+// BearerAPIKey returns the raw key from an "Authorization: Bearer wtfk_..."
+// header value, or ok=false when the header holds no WTF key.
+func BearerAPIKey(header string) (string, bool) { return bearerAPIKey(header) }

@@ -14,6 +14,25 @@ type deviceResolver interface {
 	ResolveDevice(deviceID string) (*whatsapp.DeviceInstance, string, error)
 }
 
+// WTF: contextDeviceResolver is a resolver that needs the request context
+// (multi-user mode: the signed-in user decides which devices are reachable).
+// resolveDeviceContext prefers it when the resolver implements it.
+type contextDeviceResolver interface {
+	ResolveDeviceContext(ctx context.Context, deviceID string) (*whatsapp.DeviceInstance, string, error)
+}
+
+// WTF: hookResolver adapts Deps.ResolveDevice. It has no context-free
+// answer: an owner-checked lookup without a user must never succeed.
+type hookResolver func(ctx context.Context, deviceID string) (*whatsapp.DeviceInstance, string, error)
+
+func (h hookResolver) ResolveDevice(deviceID string) (*whatsapp.DeviceInstance, string, error) {
+	return nil, deviceID, errors.New("device resolution needs the request context")
+}
+
+func (h hookResolver) ResolveDeviceContext(ctx context.Context, deviceID string) (*whatsapp.DeviceInstance, string, error) {
+	return h(ctx, deviceID)
+}
+
 // resolveDeviceContext returns a context carrying the device a tool call acts
 // on. Priority: explicit device_id argument > device injected by the HTTP
 // layer from the X-Device-Id header (see route.go) > error. Mirrors REST's
@@ -23,7 +42,15 @@ func resolveDeviceContext(ctx context.Context, request mcpg.CallToolRequest, res
 		if resolver == nil {
 			return ctx, nil, errors.New("device manager not initialized")
 		}
-		inst, _, err := resolver.ResolveDevice(deviceID)
+		var (
+			inst *whatsapp.DeviceInstance
+			err  error
+		)
+		if cr, ok := resolver.(contextDeviceResolver); ok { // WTF
+			inst, _, err = cr.ResolveDeviceContext(ctx, deviceID)
+		} else {
+			inst, _, err = resolver.ResolveDevice(deviceID)
+		}
 		if err != nil {
 			return ctx, nil, err
 		}

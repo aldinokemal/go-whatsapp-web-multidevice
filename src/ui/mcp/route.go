@@ -42,6 +42,9 @@ func Register(router fiber.Router, dm *whatsapp.DeviceManager, deps Deps) {
 		// would all be pinned forever through the fasthttp adaptor.
 		server.WithDisableStreaming(true),
 		server.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
+			if deps.ResolveDevice != nil { // WTF: owner-checked, from the auth middleware's context
+				return hookDeviceContext(ctx, r, deps.ResolveDevice)
+			}
 			if dm == nil {
 				return ctx
 			}
@@ -58,10 +61,48 @@ func Register(router fiber.Router, dm *whatsapp.DeviceManager, deps Deps) {
 	)
 
 	handler := adaptor.HTTPHandler(httpServer)
+	if deps.ResolveDevice != nil {
+		// WTF: carry the Fiber context (the signed-in user) to the handler.
+		handler = adaptor.HTTPHandlerWithContext(httpServer)
+	}
 	// POST carries JSON-RPC calls; DELETE is part of the streamable-HTTP
 	// session lifecycle. GET is intentionally not mounted: with streaming
 	// disabled mcp-go would just 405 it, so Fiber's own 404 for an
 	// unmounted method is equivalent and keeps the route surface narrow.
 	router.Post("/mcp", handler)
 	router.Delete("/mcp", handler)
+}
+
+// WTF: hookDeviceContext builds the tool context in multi-user mode: the
+// request's own context, plus the values the Fiber middleware put on its
+// context (the authenticated user), plus the device the X-Device-Id header
+// names when the user owns it. An empty header resolves the user's only
+// device; none or several leave no device, so tools ask for one. Without the
+// Fiber context there is no user, and nothing resolves.
+func hookDeviceContext(ctx context.Context, r *http.Request, resolve func(context.Context, string) (*whatsapp.DeviceInstance, string, error)) context.Context {
+	local, ok := adaptor.LocalContextFromHTTPRequest(r)
+	if !ok || local == nil {
+		return ctx
+	}
+	ctx = mergedContext{Context: ctx, values: local}
+	deviceID := strings.TrimSpace(r.Header.Get(middleware.DeviceIDHeader))
+	inst, _, err := resolve(ctx, deviceID)
+	if err != nil || inst == nil {
+		return ctx
+	}
+	return whatsapp.ContextWithDevice(ctx, inst)
+}
+
+// mergedContext keeps the request context's deadline, cancellation and
+// values, and falls back to values for anything it does not hold.
+type mergedContext struct {
+	context.Context
+	values context.Context
+}
+
+func (m mergedContext) Value(key any) any {
+	if v := m.Context.Value(key); v != nil {
+		return v
+	}
+	return m.values.Value(key)
 }
