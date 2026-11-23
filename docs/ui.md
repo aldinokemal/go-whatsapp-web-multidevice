@@ -88,6 +88,7 @@ one `<select>` below 600px (house rule B4).
 | `data-dialog-title` on a `sheet` opener | Sets the shared sheet's title (Link WhatsApp, Webhook, Sign-in link). |
 
 | `.notice`, `.banner-danger` | Neutral notices (device limit) and blocking problems (sign-in is down). |
+| `consent.html` (`.consent-facts`, `.consent-actions`, `data-no-disable`) | The OAuth consent card. Its form never disables a submitter (the decision value would be dropped); its CSP widens `form-action` to the validated redirect origin only (`web.RenderStandalone`). |
 | `.nudge` (`data-nudge`, `data-dismiss`) | A dismissible suggestion card (add a passkey); dismissal is remembered per browser. |
 | `.row-flash` | In-row feedback (Reconnecting…, Reconnected., Couldn't reconnect). |
 
@@ -116,7 +117,9 @@ buttons carry an `aria-label`.
 
 `preview_test.go` renders every page and state (sign-in and its error and
 not-set-up states, verify valid and expired, My WhatsApp with devices and empty,
-every link-dialog state, account with and without passkeys and its dialogs, admin
+every link-dialog state, account with and without passkeys and its dialogs
+(API keys, Connected apps and the Connect Claude dialog), the OAuth consent
+page (web client, loopback warning, refused request), admin
 users and its dialogs, settings with and without numbers, 404 and 500, the
 drawer and the rail, the theme choices, Add user, reconnect, sign-in down, the
 offline page) with fixture data into a static site plus `manifest.json`.
