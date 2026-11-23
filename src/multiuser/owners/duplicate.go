@@ -117,3 +117,13 @@ func phoneNumber(jid string) (string, bool) {
 	}
 	return j.User, true
 }
+
+// PhoneNumberReady reports whether jid is a phone-number JID whose number can
+// be read right now. It is the cheap, store-free, network-free signal a
+// caller can poll for right after a pairing, to find out whether the
+// just-paired device's own JID has settled into a readable shape yet, before
+// running the full duplicate guard.
+func PhoneNumberReady(jid string) bool {
+	_, ok := phoneNumber(jid)
+	return ok
+}

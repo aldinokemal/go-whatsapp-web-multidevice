@@ -3,6 +3,7 @@ package multiuser
 import (
 	"context"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -31,6 +32,65 @@ type Runtime struct {
 	Devices  domainDevice.IDeviceUsecase
 	Signin   *signin.Handler
 	Web      web.Deps
+}
+
+// guardDuplicatePhoneForTest, when set, stands in for
+// owners.GuardDuplicatePhone inside Setup's post-pair goroutine. It exists
+// only so a test can force a panic (or any other behaviour) at the exact
+// point production code calls the real guard, without needing to engineer a
+// genuine pairing race; production code never sets it.
+var guardDuplicatePhoneForTest func(ctx context.Context, src owners.PairSource, st owners.OwnerLookup, deviceID string) (bool, error)
+
+func runGuardDuplicatePhone(ctx context.Context, src owners.PairSource, st owners.OwnerLookup, deviceID string) (bool, error) {
+	if guardDuplicatePhoneForTest != nil {
+		return guardDuplicatePhoneForTest(ctx, src, st, deviceID)
+	}
+	return owners.GuardDuplicatePhone(ctx, src, st, deviceID)
+}
+
+// pairSettleCeiling is the most the post-pair goroutine will ever wait for
+// the store JID to settle before running the duplicate guard regardless -
+// the same ceiling the flat sleep this replaced used to enforce
+// unconditionally. pairSettlePollInterval is how often it checks in the
+// meantime.
+const (
+	pairSettleCeiling      = 2 * time.Second
+	pairSettlePollInterval = 100 * time.Millisecond
+)
+
+// waitForPhoneNumberOrDeadline polls src.Paired() for deviceID's phone number
+// to become readable (owners.PhoneNumberReady), checking every interval, and
+// returns as soon as it does - or once deadline has elapsed, whichever comes
+// first. It never waits longer than deadline: the deadline is tracked with
+// its own timer rather than by summing poll intervals, so a slow poll
+// interval can't push the total past it.
+func waitForPhoneNumberOrDeadline(src owners.PairSource, deviceID string, deadline, interval time.Duration) {
+	if phoneNumberSettled(src, deviceID) {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	timeout := time.NewTimer(deadline)
+	defer timeout.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if phoneNumberSettled(src, deviceID) {
+				return
+			}
+		case <-timeout.C:
+			return
+		}
+	}
+}
+
+func phoneNumberSettled(src owners.PairSource, deviceID string) bool {
+	for _, d := range src.Paired() {
+		if d.ID == deviceID {
+			return owners.PhoneNumberReady(d.JID)
+		}
+	}
+	return false
 }
 
 // dmPairs adapts *whatsapp.DeviceManager to owners.PairSource.
@@ -93,8 +153,23 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		sh.OnEvent(ctx, inst, evt)
 		if _, ok := evt.(*events.PairSuccess); ok && inst != nil {
 			go func(id string) {
-				time.Sleep(2 * time.Second) // let the store JID settle
-				if refused, err := owners.GuardDuplicatePhone(context.Background(), pairs, st, id); refused {
+				// recover is only ever able to catch a panic raised in the
+				// same goroutine it runs in - a deferred recover in the
+				// EventHook closure above this one would NOT catch a panic
+				// here, so without this, a panic anywhere in the guard's
+				// call chain would crash the whole process.
+				defer func() {
+					if r := recover(); r != nil {
+						logrus.Errorf("[WTF] duplicate guard: recovered from panic on %s\n%s", id, debug.Stack())
+					}
+				}()
+				// Let the store JID settle, but don't always wait the full
+				// ceiling: poll for it instead of a flat sleep, which was a
+				// worst-case 2-second duplicate-phone exposure window even
+				// in the common case where the number is readable almost
+				// immediately.
+				waitForPhoneNumberOrDeadline(pairs, id, pairSettleCeiling, pairSettlePollInterval)
+				if refused, err := runGuardDuplicatePhone(context.Background(), pairs, st, id); refused {
 					logrus.Warnf("[WTF] refused duplicate link on %s", id)
 				} else if err != nil {
 					logrus.WithError(err).Warn("[WTF] duplicate guard failed")
