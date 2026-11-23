@@ -139,7 +139,7 @@ It is skipped unless `WTF_PREVIEW_DIR` is set.
 
 ```sh
 cd src
-WTF_PREVIEW_DIR=../.preview/site go test ./multiuser/web/ -run TestPreviewSite -count=1
+WTF_PREVIEW_DIR=$PWD/../.preview/site go test ./multiuser/web/ -run TestPreviewSite -count=1  # absolute: the test runs in its package folder
 node multiuser/web/preview/shoot.js ../.preview/site ../.preview/shots
 # options: --viewports phone,tablet,desktop,laptop,hd  --schemes light,dark  --only home,signin
 # (laptop is 1280x800 and hd 1366x768, both with a mouse: the full sidebar)

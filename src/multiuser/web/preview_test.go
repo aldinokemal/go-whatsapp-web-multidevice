@@ -204,6 +204,7 @@ func TestPreviewSite(t *testing.T) {
 	appWithBoom.Get("/boom", func(fiber.Ctx) error { return errors.New("preview: forced failure") })
 	Mount(appWithBoom, e.d)
 	MountDeviceLabelPage(appWithBoom, e.d)
+	appWithBoom.Use(NotFoundPages(appWithBoom, e.d)) // as the runtime installs it
 	appWithBoom.Use(e.d.Auth.RequireAPI())
 	e.app = appWithBoom
 
@@ -389,6 +390,8 @@ func TestPreviewSite(t *testing.T) {
 	p.write("admin-add-user-error", withAddUserBody(usersBefore, dup))
 	p.shot(previewShot{Name: "admin-add-user-error", Page: "admin-add-user-error", Dialog: "add-user"})
 	added := htmxPost(t, e, admin, csrf, "/admin/users", url.Values{"phone": {"+44 7700 900456"}})
+	addedUser, err := e.st.UserByPhone(ctx, "+447700900456")
+	require.NoError(t, err)
 	p.write("admin-add-user-done", withAddUserBody(usersBefore, added))
 	p.shot(previewShot{Name: "admin-add-user-done", Page: "admin-add-user-done", Dialog: "add-user"})
 	users := get(t, e, admin, "/admin/users")
@@ -404,6 +407,22 @@ func TestPreviewSite(t *testing.T) {
 		Click: []string{row + "[data-menu-trigger]", row + `[data-open-dialog="phone-dialog"]`}})
 	p.shot(previewShot{Name: "admin-users-unlink", Page: "admin-users", ViewportOnly: true,
 		Click: []string{row + "[data-disclosure]", "#numbers-" + otherID + ` [data-open-dialog="admin-unlink"]`}})
+	// Done after Add user: the list with the new row pinned and highlighted.
+	p.write("admin-users-new", get(t, e, admin, "/admin/users?sort=phone&new="+addedUser.ID))
+	p.shot(previewShot{Name: "admin-users-new-row", Page: "admin-users-new"})
+	// A disabled user's ⋯ menu ends with Delete account, and its dialog.
+	delRow := "#user-" + disabledID + " "
+	p.shot(previewShot{Name: "admin-users-delete-menu", Page: "admin-users", ViewportOnly: true, Click: []string{delRow + "[data-menu-trigger]"}})
+	p.shot(previewShot{Name: "admin-users-delete-dialog", Page: "admin-users", ViewportOnly: true,
+		Click: []string{delRow + "[data-menu-trigger]", delRow + `[data-open-dialog="delete-` + disabledID + `"]`}})
+	delWrong := htmxPost(t, e, admin, csrf, "/admin/users/"+disabledID+"/delete", url.Values{"confirm": {"DELETE"}})
+	delPage := regexp.MustCompile(`(?s)(<dialog id="delete-`+disabledID+`"[^>]*>).*?(</dialog>)`).
+		ReplaceAllString(users, "${1}"+strings.ReplaceAll(delWrong, "$", "$$")+"${2}")
+	p.write("admin-users-delete-error", delPage)
+	p.shot(previewShot{Name: "admin-users-delete-error", Page: "admin-users-delete-error", Dialog: "delete-" + disabledID, ViewportOnly: true})
+	// From Activity: the person's number searched, their row highlighted.
+	p.write("admin-users-from-activity", get(t, e, admin, "/admin/users?q=15555550188"))
+	p.shot(previewShot{Name: "admin-users-from-activity", Page: "admin-users-from-activity"})
 	p.write("admin-users-error", postPage(t, e, admin, csrf, "/admin/users/"+otherID+"/phone", url.Values{"phone": {"+27825550100"}}))
 	p.shot(previewShot{Name: "admin-users-error", Page: "admin-users-error"})
 
@@ -453,6 +472,8 @@ func TestPreviewSite(t *testing.T) {
 	// Error pages.
 	p.write("error-404", get(t, e, admin, "/no-such-page"))
 	p.shot(previewShot{Name: "error-404", Page: "error-404"})
+	p.write("error-404-signed-out", get(t, e, nil, "/nope"))
+	p.shot(previewShot{Name: "error-404-signed-out", Page: "error-404-signed-out"})
 	p.write("error-500", get(t, e, admin, "/boom"))
 	p.shot(previewShot{Name: "error-500", Page: "error-500"})
 
@@ -497,6 +518,38 @@ func withDeleteForm(page, fragment string) string {
 	return deleteDialogRE.ReplaceAllString(page, "${1}"+strings.ReplaceAll(fragment, "$", "$$")+"${2}")
 }
 
+var oobStartRE = regexp.MustCompile(`<(p|div|a)\b[^>]*\bid="([^"]+)"[^>]*\bhx-swap-oob="true"`)
+
+// withOOB does what htmx does with an answer's out-of-band elements: each
+// replaces the page's element with the same id. Elements are taken to end
+// where the next one starts (or at the answer's end).
+func withOOB(page, answer string) string {
+	locs := oobStartRE.FindAllStringSubmatchIndex(answer, -1)
+	for i, l := range locs {
+		end := len(answer)
+		if i+1 < len(locs) {
+			end = locs[i+1][0]
+		}
+		el := strings.TrimSpace(answer[l[0]:end])
+		el = strings.Replace(el, ` hx-swap-oob="true"`, "", 1)
+		tag, id := answer[l[2]:l[3]], answer[l[4]:l[5]]
+		re := regexp.MustCompile(`(?s)<` + tag + `\b[^>]*\bid="` + regexp.QuoteMeta(id) + `".*?</` + tag + `>`)
+		if tag == "div" { // the switcher: its own div holds one more
+			re = regexp.MustCompile(`(?s)<div\b[^>]*\bid="` + regexp.QuoteMeta(id) + `".*?</select>.*?</div>\s*</div>\s*</div>`)
+		}
+		page = re.ReplaceAllLiteralString(page, el)
+	}
+	return page
+}
+
+// rowOnly is an htmx row answer without its out-of-band elements.
+func rowOnly(answer string) string {
+	if l := oobStartRE.FindStringIndex(answer); l != nil {
+		return answer[:l[0]]
+	}
+	return answer
+}
+
 // withWaitlistRow swaps one waitlist row for the row an action answered:
 // from its opening tag to the next row, or the end of the table.
 func withWaitlistRow(page, digits, row string) string {
@@ -511,7 +564,7 @@ func withWaitlistRow(page, digits, row string) string {
 			end = start + 1 + i
 		}
 	}
-	return page[:start] + strings.TrimSpace(row) + page[end:]
+	return page[:start] + strings.TrimSpace(rowOnly(row)) + page[end:]
 }
 
 // previewPhase34 renders the phase 3 and 4 screens: Delete account, Rename,
@@ -572,6 +625,7 @@ func previewPhase34(t *testing.T, p *previewSite, e *env, admin *http.Cookie, ad
 	sent.err = nil
 	declined := htmxPost(t, e, admin, csrf, "/admin/waitlist/27825550313/decline", nil)
 	after := withWaitlistRow(withWaitlistRow(withWaitlistRow(wl, "447700900311", admitted), "15555550312", failed), "27825550313", declined)
+	after = withOOB(after, declined) // the counts the last action redrew
 	p.write("admin-waitlist-after", after)
 	p.shot(previewShot{Name: "admin-waitlist-after-actions", Page: "admin-waitlist-after"})
 	p.write("admin-waitlist-declined", get(t, e, admin, "/admin/waitlist?status=declined"))
