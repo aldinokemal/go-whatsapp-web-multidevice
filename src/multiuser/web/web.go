@@ -243,7 +243,36 @@ func extOf(name string) string {
 // machinePrefixes answer in JSON. Everything else is a page a person reads.
 var machinePrefixes = []string{"/auth/passkey/", "/ui/devices/", "/app/", "/send/", "/user/", "/message/",
 	"/chat/", "/chats", "/group/", "/newsletter/", "/devices", "/call/", "/schedule", "/mcp", "/health",
-	"/files/", "/oauth/token", "/oauth/register", "/.well-known/"}
+	"/files/", "/oauth/token", "/oauth/register", "/.well-known/", "/chatwoot/", "/ws"}
+
+// NotFoundPages answers a browser's GET for a page that no route serves with
+// the styled 404 page. It sits after every page route and before the API
+// gate, so an unknown page is not mistaken for an API call (a JSON 401 signed
+// out, "link a WhatsApp account first" signed in). A machine path, a client
+// that does not accept HTML, and any path a registered route matches (even
+// one mounted later, behind the gate) pass through untouched.
+func NotFoundPages(app *fiber.App, d Deps) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		m := c.Method()
+		if (m != fiber.MethodGet && m != fiber.MethodHead) || IsMachinePath(c.Path()) ||
+			c.Accepts(fiber.MIMETextHTML) == "" || routeExists(app, m, c.Path()) {
+			return c.Next()
+		}
+		return ErrorHandler(d)(c, fiber.ErrNotFound)
+	}
+}
+
+// routeExists reports whether a handler route (not a middleware) serves
+// method on path.
+func routeExists(app *fiber.App, method, path string) bool {
+	for _, r := range app.GetRoutes(true) {
+		if (r.Method == method || r.Method == fiber.MethodGet && method == fiber.MethodHead) &&
+			fiber.RoutePatternMatch(path, r.Path) {
+			return true
+		}
+	}
+	return false
+}
 
 func IsMachinePath(path string) bool {
 	for _, p := range machinePrefixes {

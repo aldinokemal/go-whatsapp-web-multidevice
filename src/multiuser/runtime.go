@@ -458,6 +458,9 @@ func (r *Runtime) Install(app *fiber.App, dm *whatsapp.DeviceManager, mcpDeps ui
 		mcpDeps.ExtraTools = mcpauth.Tools(r.Devices)
 		uimcp.Register(app, dm, mcpDeps)
 	}
+	// A browser asking for a page nothing serves gets the 404 page here,
+	// before the API gate would answer it in JSON.
+	app.Use(web.NotFoundPages(app, r.Web))
 	// A key request carries no session id, so RequireSameOriginAPI and
 	// VerifyCSRF (which judge cookie sessions only) let it through.
 	app.Use(r.Auth.APIKey(), r.Auth.RequireAPI(), r.Auth.RequireSameOriginAPI(), r.Auth.VerifyCSRF())
