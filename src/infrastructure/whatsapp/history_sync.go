@@ -19,9 +19,43 @@ import (
 
 var historySyncID int32
 
+// WTF: HistoryCutoffHook is set in multi-user mode while retention is on. It
+// returns the retention cutoff; history sync then stores nothing older than
+// it (messages, reactions, poll definitions), creates no chat whose every
+// message was dropped, and skips the raw history dump. Push names are still
+// processed. Nil (upstream) changes nothing.
+var HistoryCutoffHook func() (cutoff time.Time, ok bool)
+
+// WTF: historyCutoff is the hook's cutoff, if retention is on.
+func historyCutoff() (time.Time, bool) {
+	if HistoryCutoffHook == nil {
+		return time.Time{}, false
+	}
+	cutoff, ok := HistoryCutoffHook()
+	if !ok || cutoff.IsZero() {
+		return time.Time{}, false
+	}
+	return cutoff, true
+}
+
+// WTF: historyDumpAllowed is false while retention is on: the dump holds every
+// synced message, however old, and nothing would ever delete it.
+func historyDumpAllowed() bool {
+	_, on := historyCutoff()
+	return !on
+}
+
 func handleHistorySync(ctx context.Context, evt *events.HistorySync, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
 	if client == nil || client.Store == nil || client.Store.ID == nil {
 		log.Warnf("Skipping history sync handling: WhatsApp client not initialized")
+		return
+	}
+	if !historyDumpAllowed() { // WTF: retention
+		if chatStorageRepo != nil {
+			if err := processHistorySync(ctx, evt.Data, chatStorageRepo, client); err != nil {
+				log.Errorf("Failed to process history sync to database: %v", err)
+			}
+		}
 		return
 	}
 	id := atomic.AddInt32(&historySyncID, 1)
@@ -104,6 +138,9 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 	// The contact store is authoritative for chat names; the conversation's own
 	// DisplayName is not. The resolver caches contacts, so build it once.
 	chatNameResolver := NewChatDisplayNameResolver(ctx, client)
+
+	// WTF: one cutoff for the whole sync, so a batch is judged consistently.
+	cutoff, dropOld := historyCutoff()
 
 	for _, conv := range conversations {
 		rawChatJID := conv.GetID()
@@ -211,6 +248,13 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 			// Convert timestamp from Unix seconds to time.Time
 			// WhatsApp history sync timestamps are in seconds, not milliseconds
 			timestamp := time.Unix(int64(msg.GetMessageTimestamp()), 0)
+
+			// WTF: retention. Already past the window: do not store it (nor
+			// its reaction or poll definition), and do not let it count
+			// towards the chat's activity time.
+			if dropOld && timestamp.Before(cutoff) {
+				continue
+			}
 
 			if msg.GetMessage().GetReactionMessage() != nil {
 				if senderJID.IsEmpty() {
