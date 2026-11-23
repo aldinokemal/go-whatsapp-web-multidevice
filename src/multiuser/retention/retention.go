@@ -38,6 +38,9 @@ type Worker struct {
 	// FileRoots are swept by modification time: statics/media and
 	// statics/senditems in production.
 	FileRoots []string
+	// HistoryDumpDir is where upstream wrote raw history sync dumps
+	// (storages). Only history-*.json directly in it is swept; "" skips it.
+	HistoryDumpDir string
 	// Every is the time between runs (default one hour).
 	Every time.Duration
 	// Now is the clock (default time.Now).
@@ -79,6 +82,13 @@ func (w *Worker) RunOnce(ctx context.Context, now time.Time) (Report, error) {
 			// File and directory names can carry a phone number, so only the
 			// root's index and the bare cause reach the log, never a path.
 			errs = append(errs, fmt.Errorf("file root %d: %s", i, pathless(err)))
+		}
+	}
+	if w.HistoryDumpDir != "" {
+		n, err := SweepHistoryDumps(w.HistoryDumpDir, cutoff)
+		rep.Files += n
+		if err != nil {
+			errs = append(errs, fmt.Errorf("history dumps: %s", pathless(err)))
 		}
 	}
 	if w.Accounts != nil {

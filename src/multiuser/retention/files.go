@@ -108,3 +108,43 @@ func inside(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
 	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
+
+// historyDumpPattern matches the raw history sync dumps upstream writes to
+// the storages folder (history-<start>-<jid>-<n>-<type>.json).
+const historyDumpPattern = "history-*.json"
+
+// SweepHistoryDumps deletes history sync dumps directly in dir (never in a
+// subfolder, never anything else: the databases live beside them) whose
+// modification time is strictly before cutoff. Symlinks are left alone. A
+// missing dir is not an error.
+func SweepHistoryDumps(dir string, cutoff time.Time) (removed int, err error) {
+	if cutoff.IsZero() {
+		return 0, errors.New("sweep needs a cutoff")
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var errs []error
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		if ok, _ := filepath.Match(historyDumpPattern, e.Name()); !ok {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil || !fi.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, e.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+			continue
+		}
+		removed++
+	}
+	return removed, errors.Join(errs...)
+}

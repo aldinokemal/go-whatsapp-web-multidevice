@@ -136,3 +136,39 @@ func TestSweepRefusesDangerousRoots(t *testing.T) {
 	_, err := SweepDir(t.TempDir(), time.Time{})
 	require.Error(t, err, "a zero cutoff deletes nothing")
 }
+
+// Behaviour and security: in the storages folder only old history dumps go.
+// The databases beside them, anything in a subfolder, a fresh dump and a
+// symlink named like a dump are left alone.
+func TestSweepHistoryDumpsTakesOnlyOldDumps(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	old := sweepCutoff.Add(-time.Hour)
+	oldDump := filepath.Join(dir, "history-1-27820000001.0:1@s.whatsapp.net-1-INITIAL_BOOTSTRAP.json")
+	freshDump := filepath.Join(dir, "history-2-x-1-RECENT.json")
+	db := filepath.Join(dir, "whatsapp.db")
+	accounts := filepath.Join(dir, "accounts.db")
+	nested := filepath.Join(dir, "scheduled", "history-3.json")
+	target := filepath.Join(outside, "precious.json")
+	writeAged(t, oldDump, old)
+	writeAged(t, freshDump, sweepCutoff.Add(time.Hour))
+	writeAged(t, db, old)
+	writeAged(t, accounts, old)
+	writeAged(t, nested, old)
+	writeAged(t, target, old)
+	link := filepath.Join(dir, "history-9-link.json")
+	require.NoError(t, os.Symlink(target, link))
+
+	n, err := SweepHistoryDumps(dir, sweepCutoff)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.False(t, exists(oldDump))
+	for _, kept := range []string{freshDump, db, accounts, nested, target, link} {
+		require.True(t, exists(kept), kept)
+	}
+	n, err = SweepHistoryDumps(filepath.Join(dir, "missing"), sweepCutoff)
+	require.NoError(t, err)
+	require.Zero(t, n)
+	_, err = SweepHistoryDumps(dir, time.Time{})
+	require.Error(t, err)
+}

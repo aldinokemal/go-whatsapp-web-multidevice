@@ -101,11 +101,16 @@ func TestRunOnceSweepsRootsAndCarriesOnAfterAFailure(t *testing.T) {
 	writeAged(t, oldSend, now.Add(-25*time.Hour))
 	writeAged(t, fresh, now.Add(-23*time.Hour))
 
+	storages := t.TempDir()
+	oldDump := filepath.Join(storages, "history-1-x-1-RECENT.json")
+	writeAged(t, oldDump, now.Add(-25*time.Hour))
+
 	chats, accts := &fakeChats{err: errors.New("db busy")}, &fakeAccounts{}
-	w := &Worker{Window: 24 * time.Hour, Chats: chats, Accounts: accts, FileRoots: []string{media, send}}
+	w := &Worker{Window: 24 * time.Hour, Chats: chats, Accounts: accts, FileRoots: []string{media, send}, HistoryDumpDir: storages}
 	rep, err := w.RunOnce(context.Background(), now)
 	require.Error(t, err)
-	require.Equal(t, 2, rep.Files)
+	require.Equal(t, 3, rep.Files)
+	require.False(t, exists(oldDump))
 	require.False(t, exists(oldMedia))
 	require.False(t, exists(oldSend))
 	require.True(t, exists(fresh))
