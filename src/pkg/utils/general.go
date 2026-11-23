@@ -28,6 +28,13 @@ import (
 	_ "golang.org/x/image/webp" // Register WebP format
 )
 
+// WTF: OutboundClient, when set, replaces the HTTP client of every fetch a
+// caller can steer here (the Download*FromURL helpers and GetMetaDataFromURL).
+// Multi-user mode sets it to netguard's client so these fetches cannot reach
+// private, loopback or metadata addresses (phase 2, task 2). Nil keeps
+// upstream behaviour.
+var OutboundClient func(timeout time.Duration) *http.Client
+
 // RemoveFile is removing file with delay
 func RemoveFile(delaySecond int, paths ...string) error {
 	if delaySecond > 0 {
@@ -179,6 +186,9 @@ func GetMetaDataFromURL(urlStr string) (meta Metadata, err error) {
 			}
 			return nil
 		},
+	}
+	if OutboundClient != nil { // WTF: phase 2 task 2
+		client = OutboundClient(15 * time.Second)
 	}
 
 	// Parse the base URL for resolving relative URLs later
@@ -354,6 +364,9 @@ func DownloadImageFromURL(url string) ([]byte, string, error) {
 			return nil
 		},
 	}
+	if OutboundClient != nil { // WTF: phase 2 task 2
+		client = OutboundClient(30 * time.Second)
+	}
 	response, err := client.Get(url)
 	if err != nil {
 		return nil, "", err
@@ -409,6 +422,9 @@ func DownloadAudioFromURL(audioURL string) ([]byte, string, error) {
 			}
 			return nil
 		},
+	}
+	if OutboundClient != nil { // WTF: phase 2 task 2
+		client = OutboundClient(30 * time.Second)
 	}
 
 	resp, err := client.Get(audioURL)
@@ -500,6 +516,9 @@ func DownloadVideoFromURL(videoURL string) ([]byte, string, error) {
 			}
 			return nil
 		},
+	}
+	if OutboundClient != nil { // WTF: phase 2 task 2
+		client = OutboundClient(30 * time.Second)
 	}
 
 	resp, err := client.Get(videoURL)
@@ -616,6 +635,9 @@ func DownloadFileFromURL(fileURL string) ([]byte, string, error) {
 			}
 			return nil
 		},
+	}
+	if OutboundClient != nil { // WTF: phase 2 task 2
+		client = OutboundClient(30 * time.Second)
 	}
 
 	resp, err := client.Get(fileURL)

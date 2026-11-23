@@ -8,6 +8,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/auth"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/netguard"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/sirupsen/logrus"
@@ -21,6 +22,27 @@ type ScopedDevices struct {
 }
 
 var ErrDeviceLimitReached = pkgError.ValidationError("you have reached your limit of linked WhatsApp accounts")
+
+// checkWebhook refuses a webhook URL that is not http(s) to a public address
+// (phase 2 task 2). It is the save-time check; delivery is guarded again at
+// dial time by netguard, which also catches DNS rebinding. An empty URL
+// clears the webhook and is always allowed.
+func checkWebhook(url string) error {
+	if url == "" {
+		return nil
+	}
+	if err := netguard.CheckURL(url); err != nil {
+		return pkgError.ValidationError("webhook URL refused: it must be an http or https address on the public internet")
+	}
+	return nil
+}
+
+func checkWebhookConfig(cfg *chatstorage.DeviceWebhookConfig) error {
+	if cfg == nil || cfg.WebhookURL == nil {
+		return nil
+	}
+	return checkWebhook(*cfg.WebhookURL)
+}
 
 func NewScopedDevices(inner domainDevice.IDeviceUsecase, st *store.Store) domainDevice.IDeviceUsecase {
 	return &ScopedDevices{inner: inner, st: st}
@@ -72,6 +94,9 @@ func (s *ScopedDevices) AddDevice(ctx context.Context, _ string, webhook *chatst
 	u, ok := auth.UserFrom(ctx)
 	if !ok {
 		return nil, pkgError.ErrDeviceNotFound
+	}
+	if err := checkWebhookConfig(webhook); err != nil {
+		return nil, err
 	}
 	id := NewDeviceID()
 	reserved, err := s.st.ReserveOwner(ctx, id, u.ID, u.MaxDevices)
@@ -164,6 +189,9 @@ func (s *ScopedDevices) SetDeviceWebhook(ctx context.Context, id, url string) er
 	if err := s.own(ctx, id); err != nil {
 		return err
 	}
+	if err := checkWebhook(url); err != nil {
+		return err
+	}
 	return s.inner.SetDeviceWebhook(ctx, id, url)
 }
 
@@ -176,6 +204,9 @@ func (s *ScopedDevices) GetDeviceWebhook(ctx context.Context, id string) (string
 
 func (s *ScopedDevices) SetDeviceWebhookConfig(ctx context.Context, id string, cfg *chatstorage.DeviceWebhookConfig) error {
 	if err := s.own(ctx, id); err != nil {
+		return err
+	}
+	if err := checkWebhookConfig(cfg); err != nil {
 		return err
 	}
 	return s.inner.SetDeviceWebhookConfig(ctx, id, cfg)
