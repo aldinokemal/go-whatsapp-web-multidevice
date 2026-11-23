@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/capacity"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/oauth"
@@ -187,10 +189,19 @@ func TestPreviewSite(t *testing.T) {
 	e.d.Devices = owners.NewScopedDevices(stub, e.st)
 	grants := &fakeGrants{grants: map[string][]oauth.Grant{}}
 	e.d.Grants, e.d.MCPURL = grants, "https://wtf.onrender.com/mcp"
+	// Phases 3 and 4: Delete account, Let in from the waitlist, capacity.
+	e.d.DeleteAccount = func(context.Context, string) error { return nil }
+	sent := &sentMessages{}
+	e.d.SendWhatsApp = sent.Send
+	e.d.Capacity = capacity.Service{Store: e.st, MaxPhones: 20}
+	e.d.DefaultMaxDevices = 2
+	// People waiting, so the admin's menu shows the count everywhere.
+	join(t, e.st, "+447700900311", "+15555550312", "+27825550313", "+5511955550314", "+15555550315", "+919855550316")
 	appWithBoom := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(e.d)})
 	appWithBoom.Use(e.d.Auth.Middleware())
 	appWithBoom.Get("/boom", func(fiber.Ctx) error { return errors.New("preview: forced failure") })
 	Mount(appWithBoom, e.d)
+	MountDeviceLabelPage(appWithBoom, e.d)
 	appWithBoom.Use(e.d.Auth.RequireAPI())
 	e.app = appWithBoom
 
@@ -421,10 +432,15 @@ func TestPreviewSite(t *testing.T) {
 	require.NoError(t, e.st.SetSetting(ctx, store.SettingServiceDeviceID, "d_work", adminID))
 	p.write("admin-settings", get(t, e, admin, "/admin/settings"))
 	p.shot(previewShot{Name: "admin-settings", Page: "admin-settings"})
+	// The owner of the sign-in number is told why there's no Delete button.
+	p.write("account-delete-service", get(t, e, admin, "/account"))
+	p.shot(previewShot{Name: "account-delete-service", Page: "account-delete-service"})
 	freshAdminEnv := withDevices(t, &devStub{})
 	freshAdmin, _ := signedIn(t, freshAdminEnv, "+27825550100")
 	p.write("admin-settings-empty", get(t, freshAdminEnv, freshAdmin, "/admin/settings"))
 	p.shot(previewShot{Name: "admin-settings-empty", Page: "admin-settings-empty"})
+
+	previewPhase34(t, p, e, admin, adminID, csrf, other, otherID, sent)
 
 	// Offline page (served by the service worker when the network is gone).
 	p.write("offline", get(t, e, nil, "/offline"))
@@ -468,4 +484,135 @@ func postPage(t *testing.T, e *env, ck *http.Cookie, csrf, path string, form url
 	req.AddCookie(ck)
 	_, body := e.do(t, req)
 	return body
+}
+
+var deleteDialogRE = regexp.MustCompile(`(?s)(<dialog id="delete-account"[^>]*>).*?(</dialog>)`)
+
+// withDeleteForm puts the Delete account dialog's htmx answer in its place.
+func withDeleteForm(page, fragment string) string {
+	return deleteDialogRE.ReplaceAllString(page, "${1}"+strings.ReplaceAll(fragment, "$", "$$")+"${2}")
+}
+
+// withWaitlistRow swaps one waitlist row for the row an action answered:
+// from its opening tag to the next row, or the end of the table.
+func withWaitlistRow(page, digits, row string) string {
+	start := strings.Index(page, `id="wl-`+digits+`"`)
+	if start < 0 {
+		return page
+	}
+	start = strings.LastIndex(page[:start], "<div")
+	end := len(page)
+	for _, stop := range []string{"\n<div class=\"trow wl-row", "\n  </div>\n"} {
+		if i := strings.Index(page[start+1:], stop); i >= 0 && start+1+i < end {
+			end = start + 1 + i
+		}
+	}
+	return page[:start] + strings.TrimSpace(row) + page[end:]
+}
+
+// previewPhase34 renders the phase 3 and 4 screens: Delete account, Rename,
+// the waitlist, users at scale and the capacity tiles.
+func previewPhase34(t *testing.T, p *previewSite, e *env, admin *http.Cookie, adminID, csrf string, other *http.Cookie, otherID string, sent *sentMessages) {
+	ctx := context.Background()
+
+	// --- Delete account (phase 3, task 5) ---------------------------------
+	otherCSRF := csrfFor(t, e, other)
+	acct := get(t, e, other, "/account")
+	p.write("account-delete", acct)
+	p.shot(previewShot{Name: "account-delete-card", Page: "account-delete"})
+	p.shot(previewShot{Name: "account-delete-dialog", Page: "account-delete", Dialog: "delete-account"})
+	wrong := htmxPost(t, e, other, otherCSRF, "/account/delete", url.Values{"confirm": {"yes please"}})
+	p.write("account-delete-error", withDeleteForm(acct, wrong))
+	p.shot(previewShot{Name: "account-delete-error", Page: "account-delete-error", Dialog: "delete-account"})
+	busy := strings.Replace(withDeleteForm(acct, tmplString(t, "delete_account_form.html", &deleteView{Numbers: 5})),
+		`class="dialog-panel" aria-live`, `class="dialog-panel htmx-request" aria-live`, 1)
+	busy = strings.Replace(busy, `name="confirm" type="text"`, `name="confirm" type="text" value="DELETE"`, 1)
+	p.write("account-delete-busy", busy)
+	p.shot(previewShot{Name: "account-delete-busy", Page: "account-delete-busy", Dialog: "delete-account"})
+	p.write("signin-deleted", get(t, e, nil, "/signin?deleted=1"))
+	p.shot(previewShot{Name: "signin-deleted", Page: "signin-deleted"})
+
+	// --- Rename a number (phase 3, task 7) --------------------------------
+	require.NoError(t, e.st.SetLabel(ctx, adminID, "d_work", "Front desk"))
+	homeNamed := get(t, e, admin, "/")
+	p.write("home-named", homeNamed)
+	p.shot(previewShot{Name: "home-named", Page: "home-named"})
+	p.shot(previewShot{Name: "home-row-menu", Page: "home-named", ViewportOnly: true, Click: []string{`#row-d_work [data-menu-trigger]`}})
+	p.shot(previewShot{Name: "home-row-menu-disconnected", Page: "home-named", ViewportOnly: true, Click: []string{`#row-d_personal [data-menu-trigger]`}})
+	asRename := func(page string) string {
+		return strings.Replace(page, `id="link-dialog-title">Link WhatsApp<`, `id="link-dialog-title">Rename<`, 1)
+	}
+	p.write("home-rename", withDialogBody(asRename(homeNamed), get(t, e, admin, "/ui/devices/d_work/label")))
+	p.shot(previewShot{Name: "home-rename", Page: "home-rename", Dialog: "link-dialog"})
+	p.write("home-rename-new", withDialogBody(asRename(homeNamed), get(t, e, admin, "/ui/devices/d_personal/label")))
+	p.shot(previewShot{Name: "home-rename-unnamed", Page: "home-rename-new", Dialog: "link-dialog"})
+	renameErr := htmxPost(t, e, admin, csrf, "/ui/devices/d_work/label", url.Values{"label": {strings.Repeat("Reception and deliveries ", 3)}})
+	p.write("home-rename-error", withDialogBody(asRename(homeNamed), renameErr))
+	p.shot(previewShot{Name: "home-rename-error", Page: "home-rename-error", Dialog: "link-dialog"})
+	require.NoError(t, e.st.SetLabel(ctx, adminID, "d_work", ""))
+
+	// --- Waitlist (phase 4, task 3) ---------------------------------------
+	_, _, _ = e.st.JoinWaitlist(ctx, "+15555550312") // asked again
+	wl := get(t, e, admin, "/admin/waitlist")
+	p.write("admin-waitlist", wl)
+	p.shot(previewShot{Name: "admin-waitlist", Page: "admin-waitlist"})
+	p.shot(previewShot{Name: "admin-waitlist-let-in-dialog", Page: "admin-waitlist", ViewportOnly: true,
+		Click: []string{`#wl-447700900311 [data-open-dialog="admit-dialog"]`}})
+	p.shot(previewShot{Name: "admin-waitlist-menu", Page: "admin-waitlist", ViewportOnly: true, Click: []string{`#wl-15555550312 [data-menu-trigger]`}})
+	p.shot(previewShot{Name: "admin-waitlist-decline-dialog", Page: "admin-waitlist", ViewportOnly: true,
+		Click: []string{`#wl-15555550312 [data-menu-trigger]`, `#wl-15555550312 [data-open-dialog="decline-dialog"]`}})
+	admitted := htmxPost(t, e, admin, csrf, "/admin/waitlist/447700900311/admit", nil)
+	require.Contains(t, admitted, "Link sent")
+	sent.err = errors.New("service number not connected")
+	failed := htmxPost(t, e, admin, csrf, "/admin/waitlist/15555550312/admit", nil)
+	sent.err = nil
+	declined := htmxPost(t, e, admin, csrf, "/admin/waitlist/27825550313/decline", nil)
+	after := withWaitlistRow(withWaitlistRow(withWaitlistRow(wl, "447700900311", admitted), "15555550312", failed), "27825550313", declined)
+	p.write("admin-waitlist-after", after)
+	p.shot(previewShot{Name: "admin-waitlist-after-actions", Page: "admin-waitlist-after"})
+	p.write("admin-waitlist-declined", get(t, e, admin, "/admin/waitlist?status=declined"))
+	p.shot(previewShot{Name: "admin-waitlist-declined", Page: "admin-waitlist-declined"})
+
+	full := withDevices(t, &devStub{})
+	full.d.Capacity = fakeCapacity{capacity.Capacity{Linked: 20, Max: 20, Users: 14, Waiting: 3}}
+	remount(full, &devStub{})
+	fullAdmin, _ := signedIn(t, full, "+27825550100")
+	join(t, full.st, "+447700900411", "+15555550412", "+27825550413")
+	p.write("admin-waitlist-full", get(t, full, fullAdmin, "/admin/waitlist"))
+	p.shot(previewShot{Name: "admin-waitlist-full", Page: "admin-waitlist-full"})
+
+	many := withDevices(t, &devStub{})
+	manyAdmin, _ := signedIn(t, many, "+27825550100")
+	var phones []string
+	for i := 0; i < 57; i++ {
+		phones = append(phones, fmt.Sprintf("+2782557%04d", i))
+	}
+	join(t, many.st, phones...)
+	p.write("admin-waitlist-page-2", get(t, many, manyAdmin, "/admin/waitlist?page=2"))
+	p.shot(previewShot{Name: "admin-waitlist-page-2", Page: "admin-waitlist-page-2"})
+	manyUsers(t, many.st, 64)
+	p.write("admin-users-paged", get(t, many, manyAdmin, "/admin/users?sort=phone&page=2"))
+	p.shot(previewShot{Name: "admin-users-paged", Page: "admin-users-paged"})
+
+	emptyAdmin := withDevices(t, &devStub{})
+	ea, _ := signedIn(t, emptyAdmin, "+27825550100")
+	p.write("admin-waitlist-empty", get(t, emptyAdmin, ea, "/admin/waitlist"))
+	p.shot(previewShot{Name: "admin-waitlist-empty", Page: "admin-waitlist-empty"})
+
+	// --- Users at scale (phase 4, task 5) ---------------------------------
+	p.write("admin-users-search", get(t, e, admin, "/admin/users?q=555+01"))
+	p.shot(previewShot{Name: "admin-users-search", Page: "admin-users-search"})
+	p.write("admin-users-no-match", get(t, e, admin, "/admin/users?q=4321"))
+	p.shot(previewShot{Name: "admin-users-no-match", Page: "admin-users-no-match"})
+	p.write("admin-users-disabled", get(t, e, admin, "/admin/users?status=disabled"))
+	p.shot(previewShot{Name: "admin-users-disabled", Page: "admin-users-disabled"})
+
+	// --- Capacity (phase 4, task 6) ---------------------------------------
+	near := withDevices(t, &devStub{})
+	near.d.Capacity = fakeCapacity{capacity.Capacity{Linked: 18, Max: 20, Users: 14, Waiting: 3}}
+	remount(near, &devStub{})
+	nearAdmin, _ := signedIn(t, near, "+27825550100")
+	p.write("admin-settings-near-full", get(t, near, nearAdmin, "/admin/settings"))
+	p.shot(previewShot{Name: "admin-settings-near-full", Page: "admin-settings-near-full"})
+	_ = otherID
 }

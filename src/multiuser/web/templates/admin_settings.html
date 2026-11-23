@@ -44,7 +44,7 @@
 
   <section aria-labelledby="capacity-title">
     <h2 class="section-title" id="capacity-title">Capacity</h2>
-    <dl class="stats">
+    <dl class="stats stats-wide">
       {{with .Data.Capacity}}
       {{template "stat" (dict "Icon" "smartphone" "Label" "Numbers linked" "Value" .Linked "Unit" (or (and .Max (printf "of %d" .Max)) "")
            "Warn" $.Data.NearFull "Note" (or (and (not .Max) "No limit set") (and (ge .Linked .Max) "Full") (and $.Data.NearFull "Almost full") ""))}}

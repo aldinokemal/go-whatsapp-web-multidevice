@@ -30,6 +30,12 @@ type devStub struct {
 
 func (s *devStub) ListDevices(context.Context) ([]domainDevice.Device, error) { return s.devices, nil }
 func (s *devStub) GetDevice(_ context.Context, id string) (*domainDevice.Device, error) {
+	for _, d := range s.devices {
+		if d.ID == id {
+			d := d
+			return &d, nil
+		}
+	}
 	return &domainDevice.Device{ID: id}, nil
 }
 func (s *devStub) AddDevice(_ context.Context, id string, _ *chatstorage.DeviceWebhookConfig) (*domainDevice.Device, error) {

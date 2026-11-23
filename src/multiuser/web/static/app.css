@@ -1083,7 +1083,7 @@ main:focus { outline: none; }
 .card-danger > .notice { margin-top: var(--s-1); }
 .notice a, .form-error a { color: inherit; font-weight: var(--weight-medium); text-decoration: underline; text-underline-offset: 2px; }
 .dialog-main { min-width: 0; flex: 1; }
-.dialog-list { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-3) 0 var(--s-1); padding: 0; list-style: none; }
+.dialog-list { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-3) 0; padding: 0; list-style: none; }
 .dialog-list li { display: flex; gap: var(--s-2); align-items: flex-start; color: var(--ink); }
 .dialog-list .icon { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--danger-ink); }
 .dialog-typed { margin-top: var(--s-4); }
@@ -1143,20 +1143,24 @@ main:focus { outline: none; }
 
 @media (max-width: 860px) {
   .wl-table .trow { display: flex; }
+  .wl-table .trow.thead { display: none; }
+  .wl-table .row-icon { display: none; }
   .wl-table .cell-pos {
     order: 0; flex: none; min-width: 28px; height: 24px; padding: 0 var(--s-2);
     display: inline-grid; place-items: center; border-radius: var(--radius-full);
     background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); font-size: var(--text-sm);
   }
-  .wl-table .cell-seen { width: 100%; padding-left: calc(40px + var(--s-3)); margin-top: calc(-1 * var(--s-2)); font-size: var(--text-sm); color: var(--ink-3); }
+  .wl-table .cell-seen { width: 100%; padding-left: calc(28px + var(--s-3)); margin-top: calc(-1 * var(--s-2)); font-size: var(--text-sm); color: var(--ink-3); }
   .wl-table .cell-seen::before { content: none; }
   .wl-table .cell-note { display: inline; }
   .wl-table .cell-note::before { content: "\00b7"; margin: 0 var(--s-2); }
   .wl-table .cell-status { order: 1; }
   .wl-table .cell-user { order: 1; }
   .wl-table .cell-meta, .wl-table .cell-seen { order: 2; }
-  .wl-table .cell-actions { order: 3; }
-  .wl-result { width: 100%; padding-left: calc(40px + var(--s-3)); }
+  .wl-table .cell-actions { order: 3; padding-left: calc(28px + var(--s-3)); }
+  .wl-declined .cell-seen, .wl-declined .cell-actions { padding-left: 0; }
+  .wl-result { width: 100%; padding-left: calc(28px + var(--s-3)); }
+  .wl-declined .wl-result { padding-left: 0; }
 }
 
 /* Users at scale: a search box and a status switcher above the list. */
@@ -1175,8 +1179,8 @@ main:focus { outline: none; }
 .cell-added { color: var(--ink-2); }
 @media (max-width: 860px) {
   .users-table .trow { display: flex; }
+  .users-table .trow.thead { display: none; }
   .cell-added { color: var(--ink-3); }
-  .cell-added::before { content: "\00b7"; margin-right: var(--s-2); }
 }
 @media (max-width: 600px) {
   .list-tools { flex-direction: column; align-items: stretch; }
@@ -1192,7 +1196,35 @@ main:focus { outline: none; }
 .stat-anchor::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
 .stat-anchor:focus-visible { outline: none; }
 .stat-link:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
-.stat-note { margin-left: auto; align-self: center; color: var(--ink-3); font-size: var(--text-sm); }
+.stat-unit { white-space: nowrap; }
+.stat dd { flex-wrap: wrap; row-gap: var(--s-1); }
+.stat-note { flex: 1 0 100%; color: var(--ink-3); font-size: var(--text-sm); }
+.stats-wide { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .stat-warn { border-color: color-mix(in srgb, var(--warn-dot) 45%, transparent); background: var(--warn-soft); }
 .stat-warn .stat-icon { background: color-mix(in srgb, var(--warn-dot) 18%, transparent); color: var(--warn-ink); }
 .stat-warn .stat-note { color: var(--warn-ink); font-weight: var(--weight-medium); }
+/* A row after an action: the number and what happened, out of the grid. */
+.wl-table .trow.wl-done { display: flex; align-items: center; gap: var(--s-4); }
+.wl-done .cell-user { flex: 0 0 auto; min-width: 232px; }
+.wl-done .wl-result { flex: 1; }
+@media (max-width: 860px) {
+  .wl-table .trow.wl-done { flex-wrap: wrap; gap: var(--s-2) var(--s-3); }
+  .wl-done .cell-user { min-width: 0; }
+}
+@media (min-width: 861px) {
+  .wl-table:not(.wl-declined) .trow.wl-done { padding-left: calc(var(--s-5) + 72px + var(--s-4)); }
+  .wl-done .cell-user { min-width: 274px; }
+}
+.row-flash-warn { color: var(--warn-ink); }
+@media (max-width: 860px) {
+  .wl-done .cell-user { order: 0; width: 100%; }
+  .wl-done .wl-result { order: 2; flex: 1 1 100%; padding-left: 0; }
+}
+/* The status pill already says active or disabled; on a wide screen the
+   row icon gives its room to the number and its tags. */
+@media (min-width: 861px) {
+  .users-table .cell-user > .row-icon { display: none; }
+}
+.dialog-foot > .btn-ghost:first-child { margin-right: auto; }
+.row-title:has(> .tag) { white-space: normal; }
+@media (max-width: 600px) { .stats-wide { grid-template-columns: 1fr 1fr; } }

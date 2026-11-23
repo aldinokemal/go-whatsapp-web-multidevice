@@ -42,7 +42,7 @@
         <span class="row-icon{{if .Active}} row-icon-ok{{else}} row-icon-muted{{end}}" aria-hidden="true">{{icon "user-round"}}</span>
         <span class="cell-phone">{{phone .Phone}}</span>
         {{if .IsSelf}}<span class="pill pill-brand">You</span>{{end}}
-        {{if .JustAdded}}<span class="pill pill-brand">Just added</span>{{end}}
+        {{if .JustAdded}}<span class="pill pill-brand" title="Just added">New</span>{{end}}
       </span>
       <span role="cell" class="cell-status">
         {{if .Active}}<span class="pill pill-ok">Active</span>{{else}}<span class="pill pill-muted">Disabled</span>{{end}}

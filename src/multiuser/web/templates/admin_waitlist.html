@@ -64,7 +64,7 @@
   <div role="cell" class="wl-result" aria-live="polite" tabindex="-1">
     {{if eq $r.Result "admitted"}}<p class="row-flash row-flash-ok">{{icon "check"}}<span>Let in. Link sent on WhatsApp.</span></p>
     {{else if eq $r.Result "sent-failed"}}
-    <p class="row-flash row-flash-error">{{icon "circle-alert"}}<span>Let in. Couldn't send on WhatsApp: copy the link and send it yourself.</span></p>
+    <p class="row-flash row-flash-warn">{{icon "triangle-alert"}}<span>Let in. Couldn't send on WhatsApp: copy the link and send it yourself.</span></p>
     {{template "copy_link" (dict "ID" (printf "wl-link-%s" $r.Digits) "Link" $r.Link "Secondary" true)}}
     {{else if eq $r.Result "exists"}}<p class="row-flash">{{icon "info"}}<span>{{$r.Message}}</span></p>
     {{else if eq $r.Result "declined"}}<p class="row-flash">{{icon "ban"}}<span>Declined.</span></p>
