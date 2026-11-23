@@ -4,18 +4,36 @@
     <div class="page-actions">
       <button type="button" class="btn btn-primary" data-open-dialog="add-user">{{icon "user-plus"}}<span>Add user</span></button>
     </div>
-    <p class="page-sub list-count">{{len .Data.Rows}} user{{if ne (len .Data.Rows) 1}}s{{end}}</p>
+    <p class="page-sub list-count" id="users-count">{{.Data.Total}} user{{if ne .Data.Total 1}}s{{end}}</p>
   </div>
 
   {{if .Data.Error}}<p class="form-error" role="alert">{{.Data.Error}}</p>{{end}}
 
+  <div class="list-tools">
+    {{/* House rule T8: types ahead (app.js debounces, from two digits),
+         hx-sync drops a stale request, Enter still submits, no Apply. */}}
+    <form class="list-search" method="get" action="/admin/users" role="search"
+          hx-get="/admin/users" hx-trigger="submit, typeahead" hx-target="#users-results" hx-select="#users-results"
+          hx-select-oob="#users-count,#users-tabs" hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace">
+      {{if .Data.Query.Status}}<input type="hidden" name="status" value="{{.Data.Query.Status}}">{{end}}
+      {{if .Data.Query.Sort}}<input type="hidden" name="sort" value="{{.Data.Query.Sort}}">{{if .Data.Query.Desc}}<input type="hidden" name="dir" value="desc">{{end}}{{end}}
+      <label class="visually-hidden" for="users-q">Search by number</label>
+      {{icon "search"}}
+      <input class="input" id="users-q" type="search" name="q" value="{{.Data.Query.Q}}" placeholder="Search by number"
+             inputmode="tel" autocomplete="off" data-typeahead>
+    </form>
+    <div id="users-tabs">{{template "nav_switcher" (dict "Label" "Status" "ID" "users-status" "Items" .Data.Tabs)}}</div>
+  </div>
+
+  <div id="users-results" class="list-results">
   {{if .Data.Rows}}
-  <div class="table card card-flush" role="table" aria-label="Users">
+  <div class="table card card-flush users-table" role="table" aria-label="Users">
     <div class="trow thead" role="row">
-      <span role="columnheader">Number</span>
+      {{template "sort_header" .Data.Headers.phone}}
       <span role="columnheader">Status</span>
       <span role="columnheader" class="num">Numbers</span>
-      <span role="columnheader">Last sign-in</span>
+      {{template "sort_header" .Data.Headers.created}}
+      {{template "sort_header" .Data.Headers.last_login}}
       <span role="columnheader" class="end"><span class="visually-hidden">Actions</span></span>
     </div>
     {{range .Data.Rows}}
@@ -36,6 +54,7 @@
                   aria-label="{{.DeviceCount}} of {{.MaxDevices}} numbers linked. Show them">{{.DeviceCount}} of {{.MaxDevices}}{{icon "chevron-down"}}</button>
           {{else}}{{.DeviceCount}} of {{.MaxDevices}}<span class="compact-label"> numbers</span>{{end}}
         </span>
+        <span role="cell" class="cell-added"><span class="compact-label">Added </span>{{since .Added}}</span>
         <span role="cell" class="cell-seen"><span class="compact-label">Last sign-in </span>{{.LastSignIn}}</span>
       </span>
       <span role="cell" class="cell-actions end">
@@ -85,6 +104,7 @@
     {{end}}
     {{end}}
   </div>
+  {{template "pager" .Data.Pager}}
   {{range .Data.Rows}}{{if and .Active (not .IsSelf)}}
   {{template "confirm" (dict "ID" (printf "disable-%s" .ID) "Action" (printf "/admin/users/%s/status" .ID) "CSRF" $.CSRF "Status" "disabled" "Icon" "user-x"
        "Title" (printf "Disable %s?" (phone .Phone)) "Body" "They'll be signed out everywhere right away, and their API keys and connected apps stop working for good." "Button" "Disable"
@@ -96,12 +116,19 @@
        "Name" "max_devices" "Type" "number" "Min" "0" "Max" "20" "Hint" "From 0 to 20. Lowering it unlinks nothing." "Button" "Save")}}
   {{template "form_dialog" (dict "ID" "phone-dialog" "CSRF" .CSRF "Title" "Change number" "Label" "New phone number"
        "Name" "phone" "Type" "tel" "Hint" "Include the country code, for example +27 82 555 0101." "Button" "Change number")}}
+  {{else if .Data.Filtered}}
+  <div class="empty">
+    <span class="empty-art" aria-hidden="true">{{icon "search"}}</span>
+    <h2 class="empty-title">No users match{{if .Data.Query.Q}} &ldquo;{{.Data.Query.Q}}&rdquo;{{end}}.</h2>
+    <a class="btn btn-secondary" href="/admin/users">Show everyone</a>
+  </div>
   {{else}}
   <div class="empty">
     <span class="empty-art" aria-hidden="true">{{icon "users"}}</span>
     <p class="empty-text">No users yet.</p>
   </div>
   {{end}}
+  </div>
 
   {{template "sheet" (dict "Title" "Sign-in link")}}
 
@@ -169,3 +196,7 @@
   </div>
 </form>
 {{end}}
+
+{{/* sort_header is a column header that sorts the list (house rule T7):
+     ascending first, then descending; the sorted one carries aria-sort. */}}
+{{define "sort_header"}}<span role="columnheader"{{if .AriaSort}} aria-sort="{{.AriaSort}}"{{end}}><a class="sort-link" href="{{.Href}}">{{.Label}}{{if eq .AriaSort "ascending"}}{{icon "arrow-up"}}{{else if eq .AriaSort "descending"}}{{icon "arrow-down"}}{{end}}</a></span>{{end}}

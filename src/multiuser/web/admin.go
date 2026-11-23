@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
@@ -191,6 +193,7 @@ type userRow struct {
 	DeviceCount int
 	MaxDevices  int
 	LastSignIn  string
+	Added       time.Time
 	Numbers     []numberView
 	JustAdded   bool // created in the last ten minutes and never signed in
 }
@@ -201,7 +204,7 @@ func userRows(ctx context.Context, d Deps, users []store.User, caller *store.Use
 		u := &users[i]
 		row := userRow{
 			ID: u.ID, Phone: u.Phone, Active: u.Status == store.StatusActive, IsSelf: caller != nil && u.ID == caller.ID,
-			IsAdmin: d.Auth.IsSuperadminPhone(u.Phone), MaxDevices: u.MaxDevices, LastSignIn: humanAgo(u.LastLoginAt),
+			IsAdmin: d.Auth.IsSuperadminPhone(u.Phone), MaxDevices: u.MaxDevices, LastSignIn: humanAgo(u.LastLoginAt), Added: u.CreatedAt,
 			JustAdded: u.LastLoginAt == nil && time.Since(u.CreatedAt) < 10*time.Minute,
 		}
 		if d.Devices != nil && caller != nil {
@@ -227,8 +230,86 @@ func userRows(ctx context.Context, d Deps, users []store.User, caller *store.Use
 	return rows, nil
 }
 
+// usersQuery is the Users list's search, filter, sort and page, read from
+// the URL and written back into every link so they survive each other.
+type usersQuery struct {
+	Q      string // as typed; the store keeps its digits
+	Status string // "", active, disabled
+	Sort   string // "", created, last_login, phone (the store's allowlist)
+	Desc   bool
+	Page   int
+}
+
+func parseUsersQuery(c fiber.Ctx) usersQuery {
+	q := usersQuery{Q: strings.TrimSpace(c.Query("q")), Page: 1}
+	if st := c.Query("status"); st == store.StatusActive || st == store.StatusDisabled {
+		q.Status = st
+	}
+	switch c.Query("sort") {
+	case "created", "last_login", "phone":
+		q.Sort = c.Query("sort")
+		q.Desc = c.Query("dir") == "desc"
+	}
+	if n, err := strconv.Atoi(c.Query("page")); err == nil && n > 1 {
+		q.Page = n
+	}
+	return q
+}
+
+// URL is the list with these choices, in a fixed order, page 1 left out.
+func (q usersQuery) URL() string {
+	v := []string{}
+	add := func(k, val string) {
+		if val != "" {
+			v = append(v, k+"="+url.QueryEscape(val))
+		}
+	}
+	add("q", q.Q)
+	add("status", q.Status)
+	add("sort", q.Sort)
+	if q.Sort != "" && q.Desc {
+		add("dir", "desc")
+	}
+	if q.Page > 1 {
+		add("page", strconv.Itoa(q.Page))
+	}
+	if len(v) == 0 {
+		return "/admin/users"
+	}
+	return "/admin/users?" + strings.Join(v, "&")
+}
+
+// sortHeader is one sortable column header: where it links and how the list
+// is sorted by it now ("", ascending, descending).
+type sortHeader struct {
+	Label, Href, AriaSort string
+}
+
+func (q usersQuery) header(label, key string) sortHeader {
+	cur, desc := q.Sort, q.Desc
+	if cur == "" { // the default: newest first
+		cur, desc = "created", true
+	}
+	h := sortHeader{Label: label}
+	next := q
+	next.Page = 1
+	next.Sort, next.Desc = key, false
+	if cur == key {
+		h.AriaSort = "ascending"
+		if desc {
+			h.AriaSort = "descending"
+		} else {
+			next.Desc = true
+		}
+	}
+	h.Href = next.URL()
+	return h
+}
+
 func usersPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error) {
-	users, err := d.Store.ListUsers(c.Context())
+	q := parseUsersQuery(c)
+	total, users, err := d.Store.ListUsersPage(c.Context(), store.UsersQuery{Search: q.Q, Status: q.Status, Sort: q.Sort,
+		Desc: q.Desc, Offset: (q.Page - 1) * listPageSize, Limit: listPageSize})
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +318,32 @@ func usersPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"Rows": rows, "Error": errMsg}, nil
+	pg := pager{Total: total}
+	if len(rows) > 0 {
+		pg.First = (q.Page-1)*listPageSize + 1
+		pg.Last = pg.First + len(rows) - 1
+	}
+	if q.Page > 1 {
+		prev := q
+		prev.Page--
+		pg.Prev = prev.URL()
+	}
+	if pg.Last < total {
+		next := q
+		next.Page++
+		pg.Next = next.URL()
+	}
+	tab := func(text, status string) switchItem {
+		t := q
+		t.Status, t.Page = status, 1
+		return switchItem{Href: t.URL(), Text: text, Current: q.Status == status}
+	}
+	return map[string]any{
+		"Rows": rows, "Error": errMsg, "Total": total, "Query": q, "Pager": pg,
+		"Tabs":     []switchItem{tab("All", ""), tab("Active", store.StatusActive), tab("Disabled", store.StatusDisabled)},
+		"Headers":  map[string]sortHeader{"phone": q.header("Number", "phone"), "created": q.header("Added", "created"), "last_login": q.header("Last sign-in", "last_login")},
+		"Filtered": q.Q != "" || q.Status != "",
+	}, nil
 }
 
 func renderUsers(c fiber.Ctx, d Deps, errMsg string) error {

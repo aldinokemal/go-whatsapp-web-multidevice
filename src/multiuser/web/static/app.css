@@ -1158,3 +1158,28 @@ main:focus { outline: none; }
   .wl-table .cell-actions { order: 3; }
   .wl-result { width: 100%; padding-left: calc(40px + var(--s-3)); }
 }
+
+/* Users at scale: a search box and a status switcher above the list. */
+.list-tools { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+.list-search { position: relative; flex: 1 1 280px; max-width: 420px; margin: 0; }
+.list-search > .icon { position: absolute; left: var(--s-3); top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--ink-3); pointer-events: none; }
+.list-search .input { padding-left: calc(var(--s-3) + 16px + var(--s-2)); }
+.list-search .input::-webkit-search-cancel-button { cursor: pointer; }
+.list-results { display: flex; flex-direction: column; gap: var(--s-4); }
+.list-results.htmx-request { opacity: 0.6; transition: opacity var(--dur) var(--ease); }
+.sort-link { display: inline-flex; align-items: center; gap: var(--s-1); color: inherit; text-decoration: none; text-transform: inherit; letter-spacing: inherit; }
+.sort-link:hover { color: var(--ink); }
+.sort-link .icon { width: 13px; height: 13px; }
+[aria-sort] .sort-link { color: var(--ink); }
+.users-table .trow { grid-template-columns: minmax(0, 1fr) 88px 80px 104px 120px 184px; }
+.cell-added { color: var(--ink-2); }
+@media (max-width: 860px) {
+  .users-table .trow { display: flex; }
+  .cell-added { color: var(--ink-3); }
+  .cell-added::before { content: "\00b7"; margin-right: var(--s-2); }
+}
+@media (max-width: 600px) {
+  .list-tools { flex-direction: column; align-items: stretch; }
+  .list-search { max-width: none; flex: none; }
+  .switcher-nav .switcher-select { min-width: 0; }
+}

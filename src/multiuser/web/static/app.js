@@ -406,6 +406,21 @@
     if (event.detail.successful && host && host.open) host.close();
   });
 
+  // Type-ahead search (house rule T8): [data-typeahead] asks its form to
+  // search 300ms after typing stops, from two digits (or when emptied). The
+  // form's hx-sync replaces a request still running; Enter submits at once.
+  var typeaheadTimer = null;
+  document.addEventListener("input", function (event) {
+    var input = event.target.closest && event.target.closest("[data-typeahead]");
+    if (!input || !input.form) return;
+    window.clearTimeout(typeaheadTimer);
+    var digits = input.value.replace(/\D/g, "");
+    if (input.value.trim() !== "" && digits.length < 2) return;
+    typeaheadTimer = window.setTimeout(function () {
+      if (window.htmx) window.htmx.trigger(input.form, "typeahead");
+    }, 300);
+  });
+
   // A navigating switcher's select (a phone's view of its links) goes there.
   document.addEventListener("change", function (event) {
     var sel = event.target.closest && event.target.closest("[data-nav-select]");
