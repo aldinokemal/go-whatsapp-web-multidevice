@@ -1,10 +1,10 @@
 {{define "admin_waitlist.html"}}{{template "head" .}}{{template "app_start" .}}
   <div class="page-head">
     <h1 class="page-title">Waitlist</h1>
-    <p class="page-sub list-count">{{if eq .Data.Status "declined"}}{{.Data.Total}} declined{{else}}{{.Data.Total}} waiting{{end}}{{with .Data.Capacity}}{{if .Max}}<span class="page-sub-part">{{.Linked}} of {{.Max}} numbers linked</span>{{end}}{{end}}</p>
+    {{template "waitlist_count" .Data}}
   </div>
 
-  {{template "nav_switcher" (dict "Label" "Show" "ID" "waitlist-tab" "Items" .Data.Tabs)}}
+  <div id="waitlist-tabs">{{template "nav_switcher" (dict "Label" "Show" "ID" "waitlist-tab" "Items" .Data.Tabs)}}</div>
 
   {{if and .Data.Full (eq .Data.Status "waiting") .Data.Rows}}
   <p class="notice notice-warn" role="status">{{icon "triangle-alert"}}<span>The server is full. Free a number or raise the limit before letting anyone in.</span></p>
@@ -46,8 +46,16 @@
        "Button" "Remove" "Busy" "Removing…")}}
 {{template "app_end" .}}{{template "foot" .}}{{end}}
 
-{{/* waitlist_row.html is one row again, for htmx, after an action. */}}
-{{define "waitlist_row.html"}}{{template "waitlist_row" (dict "R" .Data "CSRF" .CSRF)}}{{end}}
+{{/* waitlist_count is the page head's count (and capacity). */}}
+{{define "waitlist_count"}}<p class="page-sub list-count" id="waitlist-count"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if eq .Status "declined"}}{{.Total}} declined{{else}}{{.Total}} waiting{{end}}{{with .Capacity}}{{if .Max}}<span class="page-sub-part">{{.Linked}} of {{.Max}} numbers linked</span>{{end}}{{end}}</p>{{end}}
+
+{{/* waitlist_row.html is one row again, for htmx, after an action, plus
+     the counts it changed, out of band: the page head, the Waiting /
+     Declined switcher and the menu's count. */}}
+{{define "waitlist_row.html"}}{{template "waitlist_row" (dict "R" .Data.Row "CSRF" .CSRF)}}
+{{with .Data.Counts}}{{template "waitlist_count" .}}
+<div id="waitlist-tabs" hx-swap-oob="true">{{template "nav_switcher" (dict "Label" "Show" "ID" "waitlist-tab" "Items" .Tabs)}}</div>
+{{template "nav_link" (dict "Href" "/admin/waitlist" "Label" "Waitlist" "Icon" "hourglass" "Current" true "Count" .Waiting "ID" "nav-waitlist" "OOB" true)}}{{end}}{{end}}
 
 {{/* waitlist_row is one person on the waitlist: position (waiting only),
      number, when they joined, a status pill, then the actions: the kebab

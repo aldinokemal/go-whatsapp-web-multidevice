@@ -258,3 +258,67 @@ func TestWaitlistEmpty(t *testing.T) {
 	require.Contains(t, body, "Nobody is waiting.")
 	require.NotContains(t, body, `class="nav-count"`)
 }
+
+// oob is the out-of-band element with id in an htmx answer, up to the next
+// one, or "".
+func oob(body, id string) string {
+	loc := regexp.MustCompile(`<\w+[^>]*\bid="` + id + `"[^>]*\bhx-swap-oob="true"`).FindStringIndex(body)
+	if loc == nil {
+		return ""
+	}
+	rest := body[loc[0]:]
+	if next := strings.Index(rest[1:], `hx-swap-oob="true"`); next >= 0 {
+		if lt := strings.LastIndex(rest[:next+1], "<"); lt > 0 {
+			return rest[:lt]
+		}
+	}
+	return rest
+}
+
+// Behaviour: after Let in, Decline or Remove the page head's count, the
+// Waiting / Declined counts and the menu's count say the new numbers at
+// once, not after a reload.
+func TestWaitlistCountsFollowEachAction(t *testing.T) {
+	sent := &sentMessages{}
+	e := waitlistEnv(t, sent, nil)
+	admin, _ := signedIn(t, e, "+27825550100")
+	join(t, e.st, "+27825550111", "+27825550112", "+27825550113", "+27825550114")
+	csrf := csrfFor(t, e, admin)
+	page := get(t, e, admin, "/admin/waitlist")
+	require.Contains(t, page, `id="waitlist-count"`)
+	require.Contains(t, page, `id="waitlist-tabs"`)
+	require.Contains(t, page, `id="nav-waitlist"`)
+
+	steps := []struct{ path, head, nav, tabs string }{
+		{"/admin/waitlist/27825550111/admit", "3 waiting", ">3<", "Declined"},
+		{"/admin/waitlist/27825550112/decline", "2 waiting", ">2<", "Declined (1)"},
+		{"/admin/waitlist/27825550113/remove", "1 waiting", ">1<", "Waiting (1)"},
+	}
+	for _, s := range steps {
+		_, body := waitlistPost(t, e, admin, csrf, s.path)
+		head := oob(body, "waitlist-count")
+		require.Contains(t, head, s.head, s.path)
+		nav := oob(body, "nav-waitlist")
+		require.Contains(t, nav, s.nav, s.path)
+		require.Contains(t, nav, `aria-current="page"`, "still the current page")
+		require.Contains(t, oob(body, "waitlist-tabs"), s.tabs, s.path)
+	}
+
+	// From the Declined tab the head counts the declined.
+	req := httptest.NewRequest(http.MethodPost, "/admin/waitlist/27825550112/reopen", strings.NewReader(url.Values{"csrf": {csrf}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Current-URL", "https://wtf.onrender.com/admin/waitlist?status=declined")
+	req.AddCookie(admin)
+	_, body := e.do(t, req)
+	require.Contains(t, oob(body, "waitlist-count"), "0 declined")
+	require.Contains(t, oob(body, "nav-waitlist"), ">2<")
+
+	// The last one out: the menu's count goes away.
+	waitlistPost(t, e, admin, csrf, "/admin/waitlist/27825550112/remove")
+	_, body = waitlistPost(t, e, admin, csrf, "/admin/waitlist/27825550114/remove")
+	require.Contains(t, oob(body, "waitlist-count"), "0 waiting")
+	nav := oob(body, "nav-waitlist")
+	require.NotEmpty(t, nav)
+	require.NotContains(t, nav, "nav-count")
+}

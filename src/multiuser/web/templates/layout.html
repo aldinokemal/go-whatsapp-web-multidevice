@@ -48,8 +48,9 @@
 
 {{define "brand"}}<a class="brand" href="/"><img class="brand-mark" src="/ui/static/brand/mark.svg" alt="" width="32" height="32"><span class="brand-name">{{.}}</span></a>{{end}}
 
-{{/* nav_link draws one menu entry. Current: the longest matching path. */}}
-{{define "nav_link"}}<a class="nav-link" href="{{.Href}}" data-tip="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="nav-label">{{.Label}}</span>{{if .Count}}<span class="nav-count" aria-label="{{.Count}} waiting">{{.Count}}</span>{{end}}</a>{{end}}
+{{/* nav_link draws one menu entry. Current: the longest matching path. ID
+     and OOB let an htmx answer redraw it out of band (the Waitlist count). */}}
+{{define "nav_link"}}<a{{if .ID}} id="{{.ID}}"{{end}}{{if .OOB}} hx-swap-oob="true"{{end}} class="nav-link" href="{{.Href}}" data-tip="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="nav-label">{{.Label}}</span>{{if .Count}}<span class="nav-count" aria-label="{{.Count}} waiting">{{.Count}}</span>{{end}}</a>{{end}}
 
 {{define "app_start"}}
 <div class="shell">
@@ -70,7 +71,7 @@
       {{if .Superadmin}}
       <p class="nav-section">Admin</p>
       {{template "nav_link" (dict "Href" "/admin/users" "Label" "Users" "Icon" "users" "Current" (eq .Path "/admin/users"))}}
-      {{template "nav_link" (dict "Href" "/admin/waitlist" "Label" "Waitlist" "Icon" "hourglass" "Current" (eq .Path "/admin/waitlist") "Count" .Waiting)}}
+      {{template "nav_link" (dict "Href" "/admin/waitlist" "Label" "Waitlist" "Icon" "hourglass" "Current" (eq .Path "/admin/waitlist") "Count" .Waiting "ID" "nav-waitlist")}}
       {{template "nav_link" (dict "Href" "/admin/activity" "Label" "Activity" "Icon" "activity" "Current" (eq .Path "/admin/activity"))}}
       {{template "nav_link" (dict "Href" "/admin/settings" "Label" "Settings" "Icon" "settings" "Current" (eq .Path "/admin/settings"))}}
       {{end}}
