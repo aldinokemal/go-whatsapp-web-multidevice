@@ -21,6 +21,8 @@ type fakeChats struct {
 	block                 chan struct{} // when set, each call waits on it
 	inFlight, maxInFlight atomic.Int32
 	err                   error
+	scheduledCutoffs      []time.Time
+	scheduledErr          error
 }
 
 func (f *fakeChats) PurgeMessagesBefore(cutoff time.Time) (chatstorage.PurgeResult, error) {
@@ -40,6 +42,13 @@ func (f *fakeChats) PurgeMessagesBefore(cutoff time.Time) (chatstorage.PurgeResu
 		<-block
 	}
 	return chatstorage.PurgeResult{Messages: 3, Chats: 1}, f.err
+}
+
+func (f *fakeChats) PurgeFinishedScheduledSendsBefore(cutoff time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.scheduledCutoffs = append(f.scheduledCutoffs, cutoff)
+	return 2, f.scheduledErr
 }
 
 func (f *fakeChats) calls() []time.Time {
@@ -163,4 +172,19 @@ func TestSweepErrorsCarryNoPath(t *testing.T) {
 	got := pathless(err)
 	require.NotContains(t, got, "27825550100")
 	require.Contains(t, got, "remove")
+}
+
+// Behaviour: finished scheduled sends are purged with the same cutoff as the
+// messages, and a failure there does not stop the other steps.
+func TestRunOncePurgesFinishedScheduledSends(t *testing.T) {
+	chats, accts := &fakeChats{scheduledErr: errors.New("boom")}, &fakeAccounts{}
+	w := &Worker{Window: 24 * time.Hour, Chats: chats, Accounts: accts}
+	now := time.Date(2026, time.November, 23, 14, 30, 0, 0, time.UTC)
+
+	rep, err := w.RunOnce(context.Background(), now)
+	require.Error(t, err)
+	require.Equal(t, []time.Time{now.Add(-24 * time.Hour)}, chats.scheduledCutoffs)
+	require.Equal(t, int64(2), rep.ScheduledSends)
+	require.Equal(t, int64(3), rep.Messages)
+	require.Equal(t, int32(1), accts.calls.Load(), "accounts are still pruned")
 }

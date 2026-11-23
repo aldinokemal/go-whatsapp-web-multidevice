@@ -19,9 +19,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Chats is the chat storage purge (IChatStorageRepository has it).
+// Chats is the chat storage purge (IChatStorageRepository has it): message
+// content, and scheduled sends that are finished. Pending scheduled sends are
+// kept.
 type Chats interface {
 	PurgeMessagesBefore(cutoff time.Time) (chatstorage.PurgeResult, error)
+	PurgeFinishedScheduledSendsBefore(cutoff time.Time) (int64, error)
 }
 
 // Accounts prunes dead rows in the accounts store (*store.Store has it).
@@ -50,6 +53,7 @@ type Worker struct {
 // Report counts what one run removed.
 type Report struct {
 	Messages, Chats int64
+	ScheduledSends  int64
 	Files           int
 	Sessions        int64
 	LoginTokens     int64
@@ -73,6 +77,11 @@ func (w *Worker) RunOnce(ctx context.Context, now time.Time) (Report, error) {
 		rep.Messages, rep.Chats = res.Messages, res.Chats
 		if err != nil {
 			errs = append(errs, fmt.Errorf("messages: %w", err))
+		}
+		n, err := w.Chats.PurgeFinishedScheduledSendsBefore(cutoff)
+		rep.ScheduledSends = n
+		if err != nil {
+			errs = append(errs, fmt.Errorf("scheduled sends: %w", err))
 		}
 	}
 	for i, root := range w.FileRoots {
@@ -132,7 +141,7 @@ func (w *Worker) Run(ctx context.Context) {
 func (w *Worker) runLogged(ctx context.Context, now time.Time) {
 	rep, err := w.RunOnce(ctx, now)
 	entry := logrus.WithFields(logrus.Fields{
-		"messages": rep.Messages, "chats": rep.Chats, "files": rep.Files,
+		"messages": rep.Messages, "chats": rep.Chats, "scheduled_sends": rep.ScheduledSends, "files": rep.Files,
 		"sessions": rep.Sessions, "login_tokens": rep.LoginTokens,
 	})
 	if err != nil {

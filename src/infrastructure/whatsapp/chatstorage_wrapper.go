@@ -399,6 +399,15 @@ func (r *deviceChatStorage) PurgeMessagesBefore(cutoff time.Time) (domainChatSto
 	return r.base.PurgeMessagesBefore(cutoff)
 }
 
+// WTF: PurgeFinishedScheduledSendsBefore is device-agnostic for the same
+// reason.
+func (r *deviceChatStorage) PurgeFinishedScheduledSendsBefore(cutoff time.Time) (int64, error) {
+	if r.base == nil {
+		return 0, nil
+	}
+	return r.base.PurgeFinishedScheduledSendsBefore(cutoff)
+}
+
 func (r *deviceChatStorage) SaveDeviceRecord(record *domainChatStorage.DeviceRecord) error {
 	return r.base.SaveDeviceRecord(record)
 }

@@ -347,3 +347,69 @@ func (r *SQLiteRepository) scanStamps(query string, args ...any) ([]purgeKey, er
 	}
 	return out, rows.Err()
 }
+
+// finishedScheduled is the fixed condition "this scheduled send will never
+// send again". active, running and paused jobs may still send and are kept.
+const finishedScheduled = `status IN ('completed', 'failed', 'cancelled')`
+
+// PurgeFinishedScheduledSendsBefore deletes, across every device, scheduled
+// sends that are finished and were last updated (that is, finished) strictly
+// before cutoff. Their media was already removed when they finished.
+func (r *SQLiteRepository) PurgeFinishedScheduledSendsBefore(cutoff time.Time) (int64, error) {
+	if cutoff.IsZero() {
+		return 0, errors.New("purge needs a cutoff")
+	}
+	cutoff = cutoff.UTC()
+	prefilter := cutoff.Add(purgePrefilterSlack)
+	var total, after int64
+	for {
+		page, err := r.scanStamps(`SELECT rowid, CAST(updated_at AS TEXT) FROM scheduled_sends
+			WHERE rowid > ? AND updated_at < ? AND `+finishedScheduled+` ORDER BY rowid LIMIT ?`, after, prefilter, purgeBatchSize)
+		if err != nil {
+			return total, fmt.Errorf("purge: list scheduled sends: %w", err)
+		}
+		var old []purgeKey
+		for _, k := range page {
+			if olderThan(k.stamp, cutoff) {
+				old = append(old, k)
+			}
+		}
+		if len(old) > 0 {
+			n, err := r.deleteCounted(`DELETE FROM scheduled_sends WHERE rowid = ? AND CAST(updated_at AS TEXT) = ? AND `+finishedScheduled, old)
+			total += n
+			if err != nil {
+				return total, fmt.Errorf("purge: delete scheduled sends: %w", err)
+			}
+		}
+		if len(page) < purgeBatchSize {
+			return total, nil
+		}
+		after = page[len(page)-1].rowid
+	}
+}
+
+// deleteCounted runs query once per key (rowid, stamp) in one transaction and
+// returns how many rows went.
+func (r *SQLiteRepository) deleteCounted(query string, keys []purgeKey) (int64, error) {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var n int64
+	for _, k := range keys {
+		res, err := tx.Exec(query, k.rowid, k.stamp)
+		if err != nil {
+			return 0, err
+		}
+		c, _ := res.RowsAffected()
+		n += c
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	if purgeCommitted != nil {
+		purgeCommitted()
+	}
+	return n, nil
+}
