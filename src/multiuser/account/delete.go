@@ -145,7 +145,10 @@ func (d *Deleter) Delete(ctx context.Context, userID string) error {
 		}
 	}
 
-	// 5. phase 4: delete the person's waitlist row here, once that table exists.
+	// 5. The person's waitlist row, if they came in that way.
+	if err := d.Store.RemoveFromWaitlist(ctx, u.Phone); err != nil {
+		return fmt.Errorf("waitlist row: %w", err)
+	}
 
 	// 6. One transaction: scrub their audit detail, write account_deleted
 	// (user id only), delete the user row. Cascades take passkeys and

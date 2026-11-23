@@ -389,3 +389,24 @@ func TestMediaSymlinkIsNotFollowed(t *testing.T) {
 	require.False(t, exists(filepath.Join(f.root, "d_link")))
 	require.True(t, exists(filepath.Join(elsewhere, "keep.txt")))
 }
+
+// Behaviour (phase 4): a deleted person leaves no waitlist row behind, and
+// nobody else's is touched.
+func TestDeleteAccountRemovesWaitlistRow(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	p := f.seed(t, "+27825550101", "d_a")
+	for _, phone := range []string{"+27825550101", "+27825550102"} {
+		_, _, err := f.st.JoinWaitlist(ctx, phone)
+		require.NoError(t, err)
+	}
+	_, _, err := f.st.AdmitFromWaitlist(ctx, "+27825550101", "admin", 2)
+	require.NoError(t, err)
+	require.NoError(t, f.d.Delete(ctx, p.user.ID))
+	n, err := f.st.WaitlistCount(ctx, store.WaitlistAdmitted)
+	require.NoError(t, err)
+	require.Zero(t, n, "their row is gone")
+	n, err = f.st.WaitlistCount(ctx, store.WaitlistWaiting)
+	require.NoError(t, err)
+	require.Equal(t, 1, n, "someone else's place is kept")
+}
