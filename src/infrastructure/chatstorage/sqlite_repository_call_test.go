@@ -1,6 +1,7 @@
 package chatstorage
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -153,11 +154,8 @@ func TestGetCallRecordsPaginatesDeterministicallyWithEqualTimestamps(t *testing.
 	require.Equal(t, int64(5), total)
 	require.Len(t, page2, 2)
 
-	seen := make(map[string]bool)
 	var ids []string
-	for _, record := range append(append([]*domainChatStorage.Message{}, page1...), page2...) {
-		require.Falsef(t, seen[record.ID], "record %s duplicated across pages", record.ID)
-		seen[record.ID] = true
+	for _, record := range slices.Concat(page1, page2) {
 		ids = append(ids, record.ID)
 	}
 	require.Equal(t, []string{"call:5", "call:4", "call:3", "call:2", "call:1"}, ids)

@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"path/filepath"
 	"slices"
 	"testing"
 
@@ -37,10 +36,6 @@ func (callLogsLIDs) GetPNForLID(_ context.Context, lid types.JID) (types.JID, er
 }
 
 func TestListCallLogsNormalizesChatFilter(t *testing.T) {
-	// NormalizeJIDFromLID logs through the package logger that InitWaDB sets.
-	container := whatsapp.InitWaDB(context.Background(), "file:"+filepath.Join(t.TempDir(), "wa.db"))
-	t.Cleanup(func() { _ = container.Close() })
-
 	own := types.NewADJID("628999", 0, 3)
 	client := &whatsmeow.Client{Store: &store.Device{ID: &own, LIDs: callLogsLIDs{}}}
 	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("slot-a", client, nil))

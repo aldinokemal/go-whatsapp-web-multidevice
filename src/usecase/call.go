@@ -123,7 +123,7 @@ func callLogChatJIDs(ctx context.Context, chatJID string) []string {
 	if err != nil {
 		return []string{chatJID}
 	}
-	resolved := whatsapp.NormalizeJIDFromLID(ctx, parsed, whatsapp.ClientFromContext(ctx)).String()
+	resolved := utils.ResolveLIDToPhone(ctx, parsed, whatsapp.ClientFromContext(ctx)).String()
 	if resolved == chatJID {
 		return []string{chatJID}
 	}

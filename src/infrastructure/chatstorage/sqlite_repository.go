@@ -87,11 +87,7 @@ func (r *SQLiteRepository) GetChatByDevice(deviceID, jid string) (*domainChatSto
 // GetMessageByID retrieves a message by its ID from any chat
 // This is more efficient than searching through all chats
 func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-		FROM messages
+	query := selectMessages + `
 		WHERE id = ?
 		LIMIT 1
 	`
@@ -107,11 +103,7 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 // GetMessageByIDAndDevice retrieves a message by its ID scoped to a specific device,
 // so a message ID belonging to another device cannot be read from device-isolated flows.
 func (r *SQLiteRepository) GetMessageByIDAndDevice(deviceID, id string) (*domainChatStorage.Message, error) {
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-		FROM messages
+	query := selectMessages + `
 		WHERE id = ? AND device_id = ?
 		LIMIT 1
 	`
@@ -614,11 +606,7 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 		args = append(args, *filter.IsFromMe)
 	}
 
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-		FROM messages
+	query := selectMessages + `
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
 	`
@@ -687,11 +675,7 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 	conditions = append(conditions, "LOWER(content) LIKE ?")
 	args = append(args, "%"+strings.ToLower(searchText)+"%")
 
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-		FROM messages
+	query := selectMessages + `
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		ORDER BY timestamp DESC
 	`
@@ -1366,6 +1350,12 @@ func (r *SQLiteRepository) getCount(query string, args ...any) (int64, error) {
 	err := r.db.QueryRow(query, args...).Scan(&count)
 	return count, err
 }
+
+// selectMessages lists columns in the order expected by scanMessage.
+const selectMessages = `SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+	media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+	file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+	FROM messages`
 
 // scanMessage is a private helper for scanning message rows
 func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) (*domainChatStorage.Message, error) {
@@ -2660,11 +2650,7 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 }
 
 func (r *SQLiteRepository) getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, messageID string) (*domainChatStorage.Message, error) {
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-		FROM messages
+	query := selectMessages + `
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 		LIMIT 1
 	`
@@ -2936,25 +2922,12 @@ func (r *SQLiteRepository) GetCallRecords(filter *domainChatStorage.CallRecordFi
 		return nil, 0, err
 	}
 
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-		FROM messages` + whereClause + `
-		ORDER BY timestamp DESC, id DESC
-	`
+	query := selectMessages + whereClause + " ORDER BY timestamp DESC, id DESC"
 
 	if filter.Limit > 0 {
-		if filter.Limit > 1000 {
-			filter.Limit = 1000
-		}
-		query += " LIMIT ?"
-		args = append(args, filter.Limit)
-
-		if filter.Offset > 0 {
-			query += " OFFSET ?"
-			args = append(args, filter.Offset)
-		}
+		filter.Limit = min(filter.Limit, 1000)
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, filter.Limit, max(filter.Offset, 0))
 	}
 
 	rows, err := r.db.Query(query, args...)
