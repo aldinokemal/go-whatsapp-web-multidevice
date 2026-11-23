@@ -1,5 +1,6 @@
 {{define "signin.html"}}{{template "head" .}}{{template "auth_start" .}}
   <div class="auth-main">
+  {{if .Data.Deleted}}<p class="notice notice-ok" role="status">{{icon "circle-check-big"}}<span>Your account was deleted.</span></p>{{end}}
   <h1 class="auth-title">Sign in to {{.Product}}</h1>
   {{if .Data.WALink}}
   <p class="auth-sub">Send us a WhatsApp message and we'll reply with a sign-in link.</p>

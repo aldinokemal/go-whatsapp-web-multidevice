@@ -97,3 +97,6 @@ func (s *Store) ListUsersPage(ctx context.Context, q UsersQuery) (total int, ite
 	}
 	return total, items, rows.Err()
 }
+
+// DigitsOnly keeps only the digits 0-9 of s.
+func DigitsOnly(s string) string { return digitsOnly(s) }

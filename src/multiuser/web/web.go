@@ -40,7 +40,8 @@ var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
 	"since": func(t time.Time) string { return humanAgo(&t) },
 	// recent is true for a moment within the last ten minutes, for marking
 	// something "Just linked" / "Just added" from real timestamps.
-	"recent": func(t time.Time) bool { return !t.IsZero() && time.Since(t) < 10*time.Minute },
+	"recent":        func(t time.Time) bool { return !t.IsZero() && time.Since(t) < 10*time.Minute },
+	"deleteConfirm": deleteConfirm,
 }).ParseFS(templatesFS, "templates/*.html"))
 
 // icon renders one of the vendored Lucide icons (ISC licence, icons/LICENSE-lucide.txt)
@@ -141,6 +142,9 @@ type Deps struct {
 	Grants GrantStore
 	// MCPURL is the MCP endpoint people connect Claude to.
 	MCPURL string
+	// DeleteAccount deletes an account and everything tied to it
+	// (account.Deleter.Delete). Nil hides Delete account.
+	DeleteAccount func(ctx context.Context, userID string) error
 }
 
 // GrantStore is the part of the MCP OAuth server the Account page uses.
@@ -205,7 +209,8 @@ func Mount(app *fiber.App, d Deps) {
 	mountSignin(app, d)
 	mountDevices(app, d) // Task 10
 	mountAccount(app, d) // Task 11
-	mountAdmin(app, d)   // Task 11
+	mountAccountDelete(app, d)
+	mountAdmin(app, d) // Task 11
 	mountAdminManage(app, d)
 	mountActivity(app, d)
 	mountSessions(app, d)

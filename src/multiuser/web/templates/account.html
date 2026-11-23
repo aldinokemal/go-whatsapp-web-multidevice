@@ -93,8 +93,26 @@
     </ul>
   </section>
 
+  {{with .Data.Delete}}
+  <section class="card card-danger" aria-labelledby="delete-account-title">
+    <div class="card-head card-head-row">
+      <div>
+        <h2 class="card-title" id="delete-account-title">Delete account</h2>
+        <p class="card-sub">Removes your account, unlinks every WhatsApp number and deletes their messages. This can't be undone.</p>
+      </div>
+      {{if not .OwnsService}}<button type="button" class="btn btn-danger" data-open-dialog="delete-account">{{icon "trash-2"}}<span>Delete account</span></button>{{end}}
+    </div>
+    {{if .OwnsService}}<p class="notice">{{icon "info"}}<span>Your account has the sign-in number. <a href="/admin/settings">Choose another one in Settings</a> before you delete it.</span></p>{{end}}
+  </section>
+  {{if not .OwnsService}}{{template "confirm" (deleteConfirm . $.CSRF)}}{{end}}
+  {{end}}
+
   {{template "confirm" (dict "ID" "signout-session" "Action" "" "CSRF" .CSRF "Icon" "log-out"
        "Title" "Sign out this device?" "Body" "It will need to sign in again." "Button" "Sign out")}}
   {{template "confirm" (dict "ID" "signout-everywhere" "Action" "/account/signout-everywhere" "CSRF" .CSRF "Icon" "log-out"
        "Title" "Sign out everywhere?" "Body" "Every device you're signed in on, this one included, will need to sign in again." "Button" "Sign out everywhere")}}
 {{template "app_end" .}}{{template "foot" .}}{{end}}
+
+{{/* delete_account_form.html is the Delete account dialog's form again, with
+     its error, for htmx (POST /account/delete). */}}
+{{define "delete_account_form.html"}}{{template "confirm_form" (deleteConfirm .Data .CSRF)}}{{end}}

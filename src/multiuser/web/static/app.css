@@ -1076,3 +1076,24 @@ main:focus { outline: none; }
 .connect-step-title { display: flex; align-items: center; gap: var(--s-2); font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--ink); }
 .connect-step-title .icon { width: 18px; height: 18px; color: var(--ink-3); }
 .connect-step-hint { color: var(--ink-2); font-size: var(--text-sm); }
+
+/* ------------------------------------------------- delete account (phase 3) */
+.card-danger { border-color: var(--danger-line); }
+.card-danger .card-title { color: var(--danger-ink); }
+.card-danger > .notice { margin-top: var(--s-1); }
+.notice a, .form-error a { color: inherit; font-weight: var(--weight-medium); text-decoration: underline; text-underline-offset: 2px; }
+.dialog-main { min-width: 0; flex: 1; }
+.dialog-list { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-3) 0 var(--s-1); padding: 0; list-style: none; }
+.dialog-list li { display: flex; gap: var(--s-2); align-items: flex-start; color: var(--ink); }
+.dialog-list .icon { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--danger-ink); }
+.dialog-typed { margin-top: var(--s-4); }
+.dialog-main > .form-error { margin-top: var(--s-3); }
+/* A typed confirm's button says what it is doing while its request runs. */
+.when-busy { display: none; }
+.htmx-request .when-idle { display: none; }
+.htmx-request .when-busy { display: inline; }
+.htmx-request .btn-danger::after {
+  content: ""; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: spin 0.7s linear infinite;
+}

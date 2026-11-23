@@ -115,28 +115,44 @@
 {{/* confirm draws a destructive confirmation dialog: one per thing it acts
      on, opened by a data-open-dialog button (or one shared by many rows, with
      an empty Action that the opener's data-dialog-action fills). An optional
-     Check/CheckName adds one ticked-by-default option. Cancel takes focus first so an
-     accidental Enter never destroys anything. */}}
+     Check/CheckName adds one ticked-by-default option; Items lists plainly
+     what goes. Typed asks the person to type something first (its label;
+     TypedName names the field): the form then posts with htmx, an error
+     comes back as this form again (confirm_form) and Busy is what the button
+     says while the request runs. Cancel takes focus first so an accidental
+     Enter never destroys anything. */}}
 {{define "confirm"}}
 <dialog id="{{.ID}}" class="dialog dialog-confirm" aria-labelledby="{{.ID}}-title">
-  <form method="post" action="{{.Action}}" class="dialog-panel">
+  {{template "confirm_form" .}}
+</dialog>
+{{end}}
+
+{{define "confirm_form"}}
+  <form method="post" action="{{.Action}}" class="dialog-panel"{{if .Busy}} aria-live="polite"{{end}}{{if .Typed}} hx-post="{{.Action}}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button"{{end}}>
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     {{if .Status}}<input type="hidden" name="status" value="{{.Status}}">{{end}}
     <div class="dialog-body">
       <span class="badge-icon badge-icon-danger" aria-hidden="true">{{icon .Icon}}</span>
-      <div>
+      <div class="dialog-main">
         <h2 class="dialog-title" id="{{.ID}}-title">{{.Title}}</h2>
         {{if not .Action}}<p class="dialog-subject" data-dialog-subject></p>{{end}}
+        {{if .Items}}<ul class="dialog-list" role="list">{{range .Items}}<li>{{icon "x"}}<span>{{.}}</span></li>{{end}}</ul>{{end}}
         <p class="dialog-text">{{.Body}}</p>
         {{if .Check}}<label class="check"><input type="checkbox" name="{{.CheckName}}" value="on" checked><span>{{.Check}}</span></label>{{end}}
+        {{if .Typed}}
+        <div class="field dialog-typed">
+          <label class="label" for="{{.ID}}-typed">{{.Typed}}</label>
+          <input class="input" id="{{.ID}}-typed" name="{{.TypedName}}" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" required{{if .Invalid}} aria-invalid="true"{{end}}{{if .Error}} aria-describedby="{{.ID}}-error"{{end}}>
+        </div>
+        {{end}}
+        {{if .Error}}<p class="form-error" id="{{.ID}}-error" role="alert"><span>{{.Error}}{{if .ErrorHref}} <a href="{{.ErrorHref}}">{{.ErrorLinkText}}</a>.{{end}}</span></p>{{end}}
       </div>
     </div>
     <div class="dialog-foot">
       <button type="button" class="btn btn-secondary" data-close-dialog autofocus>Cancel</button>
-      <button type="submit" class="btn btn-danger">{{.Button}}</button>
+      <button type="submit" class="btn btn-danger">{{if .Busy}}<span class="when-idle">{{.Button}}</span><span class="when-busy">{{.Busy}}</span>{{else}}{{.Button}}{{end}}</button>
     </div>
   </form>
-</dialog>
 {{end}}
 
 {{/* theme_switcher is the System / Light / Dark choice (house rule B4: a row

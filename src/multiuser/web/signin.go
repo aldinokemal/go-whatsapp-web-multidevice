@@ -51,7 +51,7 @@ func mountSignin(app *fiber.App, d Deps) {
 		}
 		link := d.waLink(c)
 		next := signinNext(c)
-		data := map[string]any{"WALink": link, "Next": next}
+		data := map[string]any{"WALink": link, "Next": next, "Deleted": c.Query("deleted") == "1"}
 		if link != "" {
 			data["WALinkButton"] = waLinkButton(link)
 		}

@@ -125,7 +125,11 @@ func mountAccount(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		return d.render(c, fiber.StatusOK, "account.html", "Account", map[string]any{"Passkeys": passkeyViews(list), "Sessions": sessions, "APIKeys": keys, "Connections": conns})
+		del, err := deleteAccountData(c.Context(), d, u)
+		if err != nil {
+			return err
+		}
+		return d.render(c, fiber.StatusOK, "account.html", "Account", map[string]any{"Passkeys": passkeyViews(list), "Sessions": sessions, "APIKeys": keys, "Connections": conns, "Delete": del})
 	})
 	mountAPIKeys(app, d)
 	mountConnections(app, d)
