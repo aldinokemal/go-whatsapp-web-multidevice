@@ -1,0 +1,32 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} &middot; {{.Product}}</title>
+<link rel="stylesheet" href="/ui/static/app.css">
+<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to main content</a>
+<header class="topbar">
+  <a class="brand" href="/">{{.Product}}</a>
+  {{if .User}}
+  <nav class="topnav" aria-label="Primary">
+    <a href="/">My WhatsApp</a>
+    <a href="/account">Account</a>
+    {{if .Superadmin}}<a href="/admin/users">Admin</a>{{end}}
+  </nav>
+  <form method="post" action="/signout" class="signout-form">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button type="submit" class="btn btn-ghost">Sign out</button>
+  </form>
+  {{end}}
+</header>
+{{end}}
+{{define "foot"}}
+<script src="/ui/static/htmx.min.js" defer></script>
+<script src="/ui/static/app.js" defer></script>
+</body>
+</html>
+{{end}}
