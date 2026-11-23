@@ -159,7 +159,7 @@ func TestAdminSettingsPageShowsCallerDevicesAndStats(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, body, "27 82 555 0100", "the linked device is offered as a service number")
 	require.NotContains(t, body, `value="d_unlinked"`, "an unlinked device slot is not offered")
-	require.Contains(t, body, "Linked numbers")
+	require.Contains(t, body, "Numbers linked")
 }
 
 func TestDeviceName(t *testing.T) {

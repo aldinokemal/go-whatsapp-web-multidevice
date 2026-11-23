@@ -1183,3 +1183,16 @@ main:focus { outline: none; }
   .list-search { max-width: none; flex: none; }
   .switcher-nav .switcher-select { min-width: 0; }
 }
+
+/* Capacity tiles: a tile that counts a list opens it (the whole tile is the
+   link); one near its limit turns amber and says so. */
+.stat-link { transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.stat-link:hover { border-color: var(--accent-line); box-shadow: var(--shadow-lg); }
+.stat-anchor { color: inherit; text-decoration: none; }
+.stat-anchor::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.stat-anchor:focus-visible { outline: none; }
+.stat-link:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stat-note { margin-left: auto; align-self: center; color: var(--ink-3); font-size: var(--text-sm); }
+.stat-warn { border-color: color-mix(in srgb, var(--warn-dot) 45%, transparent); background: var(--warn-soft); }
+.stat-warn .stat-icon { background: color-mix(in srgb, var(--warn-dot) 18%, transparent); color: var(--warn-ink); }
+.stat-warn .stat-note { color: var(--warn-ink); font-weight: var(--weight-medium); }

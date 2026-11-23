@@ -12,6 +12,7 @@ import (
 	"time"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/capacity"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	"github.com/gofiber/fiber/v3"
@@ -396,7 +397,11 @@ func settingsPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error
 	if err != nil {
 		return nil, err
 	}
-	total, err := d.Store.OwnedDeviceCount(ctx)
+	var capReader CapacityReader = capacity.Service{Store: d.Store}
+	if d.Capacity != nil {
+		capReader = d.Capacity
+	}
+	snap, err := capReader.Snapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -406,12 +411,15 @@ func settingsPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error
 		"Devices":         linked,
 		"ServiceDeviceID": serviceDeviceID,
 		"ServiceStatus":   serviceStatus(c, d, serviceDeviceID),
-		"LinkedTotal":     total,
-		"AllocMB":         mem.Alloc / bytesPerMB,
-		"SysMB":           mem.Sys / bytesPerMB,
-		"Goroutines":      runtime.NumGoroutine(),
-		"DiskMB":          diskUsage(d.StorageDir) / bytesPerMB,
-		"Error":           errMsg,
+		"Capacity":        snap,
+		// Almost full from 90% of the cap; the tile warns (house rule T2:
+		// derived here, never stored).
+		"NearFull":   snap.Max > 0 && snap.Linked*10 >= snap.Max*9,
+		"AllocMB":    mem.Alloc / bytesPerMB,
+		"SysMB":      mem.Sys / bytesPerMB,
+		"Goroutines": runtime.NumGoroutine(),
+		"DiskMB":     diskUsage(d.StorageDir) / bytesPerMB,
+		"Error":      errMsg,
 	}, nil
 }
 
