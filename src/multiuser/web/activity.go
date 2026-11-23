@@ -13,10 +13,10 @@ import (
 const activityPageSize = 50
 
 // wordPart is one piece of an activity sentence: plain words, or a person
-// (UserID set) rendered as a link to their row on Users.
+// (Href set) rendered as a link to their row on Users.
 type wordPart struct {
-	Text   string
-	UserID string
+	Text string
+	Href string
 }
 
 type activityRow struct {
@@ -64,6 +64,9 @@ func mountActivity(app *fiber.App, d Deps) {
 			base += "user=" + userID + "&"
 		}
 		data := map[string]any{"Rows": rows, "Total": total, "First": first, "Last": last, "Who": who}
+		if who != nil {
+			data["WhoHref"] = userRowURL(who)
+		}
 		if pageNo > 1 {
 			data["Prev"] = base + "page=" + strconv.Itoa(pageNo-1)
 		}
@@ -95,7 +98,7 @@ func activityRows(ctx context.Context, st *store.Store, events []store.AuditRow)
 func describe(e store.AuditRow, users map[string]store.User) []wordPart {
 	person := func(id string) wordPart {
 		if u, ok := users[id]; ok {
-			return wordPart{Text: displayPhone(u.Phone), UserID: id}
+			return wordPart{Text: displayPhone(u.Phone), Href: userRowURL(&u)}
 		}
 		if id == "" {
 			return wordPart{Text: "Someone"}

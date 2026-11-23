@@ -143,7 +143,7 @@ func TestAdminSigninLinkIsShownNotSent(t *testing.T) {
 	resp, body := postForm(t, e, admin, "/admin/users/"+otherID+"/signin-link", url.Values{"csrf": {tok}})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, body, "/signin/verify?t=")
-	require.Contains(t, body, "Valid once, for 15 minutes")
+	require.Contains(t, body, "It works once, for 15 minutes.")
 }
 
 func TestAdminSettingsPageShowsCallerDevicesAndStats(t *testing.T) {

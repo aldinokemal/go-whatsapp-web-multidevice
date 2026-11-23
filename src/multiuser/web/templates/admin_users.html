@@ -37,7 +37,7 @@
       <span role="columnheader" class="end"><span class="visually-hidden">Actions</span></span>
     </div>
     {{range .Data.Rows}}
-    <div class="trow" role="row" id="user-{{.ID}}">
+    <div class="trow{{if .Highlight}} trow-hl{{end}}" role="row" id="user-{{.ID}}">
       <span role="cell" class="cell-user">
         <span class="row-icon{{if .Active}} row-icon-ok{{else}} row-icon-muted{{end}}" aria-hidden="true">{{icon "user-round"}}</span>
         <span class="cell-phone">{{phone .Phone}}</span>
@@ -160,7 +160,7 @@
 {{if .Data.Error}}
 <p class="form-error" role="alert">{{.Data.Error}}</p>
 {{else}}
-<p class="dialog-text">Valid once, for 15 minutes. Send it to them yourself.</p>
+<p class="dialog-text">Send them this link. {{oneTimeLinkNote}}</p>
 {{template "copy_link" (dict "ID" "signin-link-value" "Link" .Data.Link)}}
 {{end}}
 {{end}}
@@ -176,12 +176,13 @@
 {{/* add_user.html is the htmx fragment POST /admin/users returns into
      #add-user-body: the form again with its error and what was typed, or the
      new user's one-time sign-in link. Closing the dialog after a success
-     reloads the list (data-reload-on-close), which shows the new row first. */}}
+     opens the list with the new row pinned first and highlighted
+     (data-reload-on-close, house rule D4). */}}
 {{define "add_user.html"}}
 {{if .Data.Link}}
-<div data-reload-on-close>
+<div data-reload-on-close="/admin/users?new={{.Data.ID}}">
   <p class="added-line">{{icon "circle-check-big"}}<span>{{phone .Data.Phone}} can now sign in.</span></p>
-  <p class="dialog-text">Send them this link. It works once, for 15 minutes.</p>
+  <p class="dialog-text">Send them this link. {{oneTimeLinkNote}}</p>
   {{template "copy_link" (dict "ID" "new-user-link" "Link" .Data.Link)}}
   <div class="dialog-foot"><button type="button" class="btn btn-secondary" data-close-dialog>Done</button></div>
 </div>

@@ -43,6 +43,7 @@ var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
 	"recent":             func(t time.Time) bool { return !t.IsZero() && time.Since(t) < 10*time.Minute },
 	"deleteConfirm":      deleteConfirm,
 	"adminDeleteConfirm": adminDeleteConfirm,
+	"oneTimeLinkNote":    func() string { return OneTimeLinkNote },
 }).ParseFS(templatesFS, "templates/*.html"))
 
 // icon renders one of the vendored Lucide icons (ISC licence, icons/LICENSE-lucide.txt)

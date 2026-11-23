@@ -35,7 +35,7 @@ func mountAdminManage(app *fiber.App, d Deps) {
 			}
 			return err
 		}
-		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
+		return c.Redirect().Status(fiber.StatusSeeOther).To(userRowURL(target))
 	})
 
 	app.Post("/admin/users/:id/limit", page, admin, csrf, func(c fiber.Ctx) error {
@@ -53,7 +53,7 @@ func mountAdminManage(app *fiber.App, d Deps) {
 		}
 		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: target.ID, ActorID: caller.ID, Action: "user_limit_set",
 			Detail: strconv.Itoa(n), IP: c.IP()})
-		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
+		return c.Redirect().Status(fiber.StatusSeeOther).To(userRowURL(target))
 	})
 
 	app.Post("/admin/users/:id/phone", page, admin, csrf, func(c fiber.Ctx) error {
@@ -78,7 +78,7 @@ func mountAdminManage(app *fiber.App, d Deps) {
 			return renderUsers(c, d, "That number belongs to an admin.")
 		}
 		if phone == target.Phone {
-			return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
+			return c.Redirect().Status(fiber.StatusSeeOther).To(userRowURL(target))
 		}
 		old, err := d.Store.SetUserPhone(c.Context(), target.ID, phone)
 		if errors.Is(err, store.ErrPhoneTaken) {
@@ -96,7 +96,7 @@ func mountAdminManage(app *fiber.App, d Deps) {
 		}
 		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: target.ID, ActorID: caller.ID, Action: "user_phone_changed",
 			Detail: old + " " + phone, IP: c.IP()})
-		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
+		return c.Redirect().Status(fiber.StatusSeeOther).To(userRowURL(target))
 	})
 }
 

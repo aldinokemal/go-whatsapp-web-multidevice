@@ -3,7 +3,7 @@
 ## WTF fork
 
 This fork turns upstream GOWA into a small multi-user server: people sign in by
-messaging a WhatsApp "service number" (then register a passkey for next time),
+messaging a WhatsApp "sign-in number" (then register a passkey for next time),
 link their own WhatsApp device, and can only ever reach their own device and
 data — never another user's. Upstream's single-device behaviour is completely
 unchanged when multi-user mode is off (the default).
@@ -54,7 +54,8 @@ listed in `WTF_SUPERADMIN_PHONES`) without starting a WhatsApp connection.
 Open the link, sign in, register a passkey, then link your own WhatsApp number
 from the "My WhatsApp" page.
 
-**Everyone else** messages the service number. Someone with an account gets a
+**Everyone else** messages the sign-in number (an admin picks it from their
+own linked numbers in Admin › Settings). Someone with an account gets a
 sign-in link; someone without one joins the waitlist and is told their place.
 An admin lets people in from Admin › Waitlist, one click per person: that
 creates the account and sends the sign-in link in the chat they started. Admins
@@ -62,7 +63,7 @@ can also add someone directly from Users › Add user.
 
 **Retention** — in multi-user mode, messages and media are deleted once they
 are older than `WTF_RETENTION_HOURS` (24 by default), for every account and
-number, the service number included. An hourly run deletes messages and what
+number, the sign-in number included. An hourly run deletes messages and what
 hangs off them (reactions, edits, polls), chats left empty, downloaded media,
 sent files, history sync dumps, and scheduled sends that have finished (sent,
 failed or cancelled), along with expired sessions and sign-in links. History
@@ -73,7 +74,9 @@ webhooks, API keys, connected apps, scheduled sends still to go, and the audit
 log. My WhatsApp says how long messages are kept.
 
 **Leaving** — Account › Delete account removes the account, unlinks every
-number it holds and deletes their messages and media here. Disabling someone,
+number it holds and deletes their messages and media here. An admin can delete
+a disabled person's account the same way, from the ⋯ menu on their row in
+Users. Disabling someone,
 or changing their number, revokes their API keys and connected apps for good.
 
 See `docs/superpowers/specs/` and `docs/superpowers/plans/` for the full
