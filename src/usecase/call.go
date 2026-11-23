@@ -108,24 +108,26 @@ func (service serviceCall) ListCallLogs(ctx context.Context, request domainCall.
 	return response, nil
 }
 
-// callLogChatJIDs returns the chat JIDs a filter matches. A LID filter also matches its
-// resolved phone JID: CreateIncomingCallRecord stores the raw LID only while the mapping
-// is still unknown, so one chat can have rows under both forms.
+// A call can be stored under its LID before the device learns the phone mapping.
 func callLogChatJIDs(ctx context.Context, chatJID string) []string {
 	chatJID = strings.TrimSpace(chatJID)
 	if chatJID == "" {
 		return nil
 	}
+	jids := []string{chatJID}
 	if !strings.Contains(chatJID, "@") {
-		return []string{chatJID}
+		return jids
 	}
 	parsed, err := utils.ParseJID(chatJID)
 	if err != nil {
-		return []string{chatJID}
+		return jids
 	}
-	resolved := utils.ResolveLIDToPhone(ctx, parsed, whatsapp.ClientFromContext(ctx)).String()
-	if resolved == chatJID {
-		return []string{chatJID}
+	client := whatsapp.ClientFromContext(ctx)
+	if phone := utils.ResolveLIDToPhone(ctx, parsed, client); phone.String() != chatJID {
+		jids = append(jids, phone.String())
 	}
-	return []string{chatJID, resolved}
+	if lid := utils.ResolvePhoneToLID(ctx, parsed, client); !lid.IsEmpty() {
+		jids = append(jids, lid.String())
+	}
+	return jids
 }

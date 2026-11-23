@@ -87,7 +87,7 @@ func (r *SQLiteRepository) GetChatByDevice(deviceID, jid string) (*domainChatSto
 // GetMessageByID retrieves a message by its ID from any chat
 // This is more efficient than searching through all chats
 func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message, error) {
-	query := selectMessages + `
+	const query = selectMessages + `
 		WHERE id = ?
 		LIMIT 1
 	`
@@ -103,7 +103,7 @@ func (r *SQLiteRepository) GetMessageByID(id string) (*domainChatStorage.Message
 // GetMessageByIDAndDevice retrieves a message by its ID scoped to a specific device,
 // so a message ID belonging to another device cannot be read from device-isolated flows.
 func (r *SQLiteRepository) GetMessageByIDAndDevice(deviceID, id string) (*domainChatStorage.Message, error) {
-	query := selectMessages + `
+	const query = selectMessages + `
 		WHERE id = ? AND device_id = ?
 		LIMIT 1
 	`
@@ -576,40 +576,30 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 		return nil, fmt.Errorf("device_id is required for message queries (data isolation)")
 	}
 
-	var conditions []string
-	var args []any
-
-	conditions = append(conditions, "chat_jid = ?")
-	args = append(args, filter.ChatJID)
-
-	// Filter by device_id to ensure data isolation between devices
-	conditions = append(conditions, "device_id = ?")
-	args = append(args, filter.DeviceID)
+	query := selectMessages + " WHERE chat_jid = ? AND device_id = ?"
+	args := []any{filter.ChatJID, filter.DeviceID}
 
 	// Timestamps are stored as UTC text and compared as strings, so bounds must be UTC too.
 	if filter.StartTime != nil {
-		conditions = append(conditions, "timestamp >= ?")
+		query += " AND timestamp >= ?"
 		args = append(args, filter.StartTime.UTC())
 	}
 
 	if filter.EndTime != nil {
-		conditions = append(conditions, "timestamp <= ?")
+		query += " AND timestamp <= ?"
 		args = append(args, filter.EndTime.UTC())
 	}
 
 	if filter.MediaOnly {
-		conditions = append(conditions, "media_type NOT IN ('', 'call')")
+		query += " AND media_type NOT IN ('', 'call')"
 	}
 
 	if filter.IsFromMe != nil {
-		conditions = append(conditions, "is_from_me = ?")
+		query += " AND is_from_me = ?"
 		args = append(args, *filter.IsFromMe)
 	}
 
-	query := selectMessages + `
-		WHERE ` + strings.Join(conditions, " AND ") + `
-		ORDER BY timestamp DESC
-	`
+	query += " ORDER BY timestamp DESC"
 
 	// Safely add LIMIT and OFFSET using parameterized values
 	if filter.Limit > 0 {
@@ -662,23 +652,10 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 		return []*domainChatStorage.Message{}, nil
 	}
 
-	var conditions []string
-	var args []any
-
-	conditions = append(conditions, "chat_jid = ?")
-	args = append(args, chatJID)
-
-	conditions = append(conditions, "device_id = ?")
-	args = append(args, deviceID)
-
-	// Add search condition using LIKE operator for case-insensitive search
-	conditions = append(conditions, "LOWER(content) LIKE ?")
-	args = append(args, "%"+strings.ToLower(searchText)+"%")
-
 	query := selectMessages + `
-		WHERE ` + strings.Join(conditions, " AND ") + `
-		ORDER BY timestamp DESC
-	`
+		WHERE chat_jid = ? AND device_id = ? AND LOWER(content) LIKE ?
+		ORDER BY timestamp DESC`
+	args := []any{chatJID, deviceID, "%" + strings.ToLower(searchText) + "%"}
 
 	// Add limit with validation
 	if limit > 0 {
@@ -2650,7 +2627,7 @@ func (r *SQLiteRepository) storeEditedMessage(ctx context.Context, evt *events.M
 }
 
 func (r *SQLiteRepository) getMessageByDeviceAndChatIDAndMessageID(deviceID, chatJID, messageID string) (*domainChatStorage.Message, error) {
-	query := selectMessages + `
+	const query = selectMessages + `
 		WHERE id = ? AND chat_jid = ? AND device_id = ?
 		LIMIT 1
 	`
@@ -2905,25 +2882,28 @@ func (r *SQLiteRepository) GetCallRecords(filter *domainChatStorage.CallRecordFi
 		return nil, 0, fmt.Errorf("device_id is required for call record queries (data isolation)")
 	}
 
-	conditions := []string{"device_id = ?", "media_type = 'call'"}
+	const callScope = " WHERE device_id = ? AND media_type = 'call'"
+	const chatFilter = " AND chat_jid IN (SELECT value FROM json_each(?))"
+	countQuery := "SELECT COUNT(*) FROM messages" + callScope
+	query := selectMessages + callScope
 	args := []any{filter.DeviceID}
-
 	if len(filter.ChatJIDs) > 0 {
-		conditions = append(conditions, "chat_jid IN (?"+strings.Repeat(", ?", len(filter.ChatJIDs)-1)+")")
-		for _, chatJID := range filter.ChatJIDs {
-			args = append(args, chatJID)
+		// Bind the alias list as one parameter, keeping the indexed chat_jid predicate.
+		jids, err := json.Marshal(filter.ChatJIDs)
+		if err != nil {
+			return nil, 0, err
 		}
+		countQuery += chatFilter
+		query += chatFilter
+		args = append(args, string(jids))
 	}
 
-	whereClause := " WHERE " + strings.Join(conditions, " AND ")
-
-	total, err := r.getCount("SELECT COUNT(*) FROM messages"+whereClause, args...)
+	total, err := r.getCount(countQuery, args...)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	query := selectMessages + whereClause + " ORDER BY timestamp DESC, id DESC"
-
+	query += " ORDER BY timestamp DESC, id DESC"
 	if filter.Limit > 0 {
 		filter.Limit = min(filter.Limit, 1000)
 		query += " LIMIT ? OFFSET ?"
