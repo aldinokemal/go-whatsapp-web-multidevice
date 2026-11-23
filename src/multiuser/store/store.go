@@ -121,6 +121,17 @@ var migrations = []string{
 	// Phase 3: a name the owner gives each linked number. Self-contained (no
 	// dependency on the entry before it), so it can be reordered when merging.
 	`ALTER TABLE device_owners ADD COLUMN label TEXT NOT NULL DEFAULT ''`,
+	// Phase 4: people who asked the service number for an account. Not an
+	// account: no sign-in, no session, not counted against capacity. These
+	// two entries are a pair; keep them together and in this order.
+	`CREATE TABLE waitlist (
+		phone TEXT PRIMARY KEY,
+		status TEXT NOT NULL DEFAULT 'waiting',
+		created_at TIMESTAMP NOT NULL,
+		last_asked_at TIMESTAMP NOT NULL,
+		decided_at TIMESTAMP NULL,
+		decided_by TEXT NOT NULL DEFAULT '')`,
+	`CREATE INDEX waitlist_status_created ON waitlist(status, created_at)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

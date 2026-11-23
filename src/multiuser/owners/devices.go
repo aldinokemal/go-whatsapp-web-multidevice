@@ -18,12 +18,35 @@ import (
 type ScopedDevices struct {
 	inner domainDevice.IDeviceUsecase
 	st    *store.Store
+	// MaxTotal is the server-wide cap on linked numbers (WTF_MAX_PHONES).
+	// Nil or 0 means no cap.
+	MaxTotal func() int
+	// reserve is st.ReserveOwner; tests swap it to prove the race harness.
+	reserve reserveFunc
 }
+
+type reserveFunc func(ctx context.Context, deviceID, userID string, maxPerUser, maxTotal int) (store.Reservation, error)
 
 var ErrDeviceLimitReached = pkgError.ValidationError("you have reached your limit of linked WhatsApp accounts")
 
+// ErrServerFull: the server holds as many numbers as it has memory for.
+var ErrServerFull = pkgError.ValidationError("There's no room for another number right now. Try again later.")
+
 func NewScopedDevices(inner domainDevice.IDeviceUsecase, st *store.Store) domainDevice.IDeviceUsecase {
-	return &ScopedDevices{inner: inner, st: st}
+	return NewScopedDevicesCapped(inner, st, nil)
+}
+
+// NewScopedDevicesCapped is NewScopedDevices with a server-wide cap on linked
+// numbers, read on every add so a changed setting applies at once.
+func NewScopedDevicesCapped(inner domainDevice.IDeviceUsecase, st *store.Store, maxTotal func() int) domainDevice.IDeviceUsecase {
+	return &ScopedDevices{inner: inner, st: st, MaxTotal: maxTotal, reserve: st.ReserveOwner}
+}
+
+func (s *ScopedDevices) maxTotal() int {
+	if s.MaxTotal == nil {
+		return 0
+	}
+	return s.MaxTotal()
 }
 
 func (s *ScopedDevices) own(ctx context.Context, deviceID string) error {
@@ -64,8 +87,9 @@ func (s *ScopedDevices) ListDevices(ctx context.Context) ([]domainDevice.Device,
 
 // AddDevice ignores the requested id: the server picks it. Ownership is
 // reserved before the device is created, in one statement that also enforces
-// the user's limit, so concurrent adds cannot exceed it and a device never
-// exists without an owner.
+// the user's limit and the server-wide cap, so concurrent adds cannot exceed
+// either and a device never exists without an owner. Superadmins are held to
+// both, as everyone is: the memory a number costs is the same.
 func (s *ScopedDevices) AddDevice(ctx context.Context, _ string, webhook *chatstorage.DeviceWebhookConfig) (*domainDevice.Device, error) {
 	u, ok := auth.UserFrom(ctx)
 	if !ok {
@@ -75,11 +99,19 @@ func (s *ScopedDevices) AddDevice(ctx context.Context, _ string, webhook *chatst
 		return nil, err
 	}
 	id := NewDeviceID()
-	reserved, err := s.st.ReserveOwner(ctx, id, u.ID, u.MaxDevices)
+	reserve := s.reserve
+	if reserve == nil {
+		reserve = s.st.ReserveOwner
+	}
+	r, err := reserve(ctx, id, u.ID, u.MaxDevices, s.maxTotal())
 	if err != nil {
 		return nil, err
 	}
-	if !reserved {
+	switch r {
+	case store.Reserved:
+	case store.ServerFull:
+		return nil, ErrServerFull
+	default:
 		return nil, ErrDeviceLimitReached
 	}
 	dev, err := s.inner.AddDevice(ctx, id, webhook)

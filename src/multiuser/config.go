@@ -39,6 +39,11 @@ type Settings struct {
 	// (WTF_RETENTION_HOURS, default 24, 0 = off; off is refused when sign-up
 	// is open). Configuration is never subject to it.
 	RetentionHours int
+	// MaxPhones caps linked numbers server-wide (WTF_MAX_PHONES; 0 = no cap).
+	// DefaultMaxDevices is each new user's own limit (WTF_DEFAULT_MAX_DEVICES).
+	// Both are read by loadCapacity (config_capacity.go).
+	MaxPhones         int
+	DefaultMaxDevices int
 }
 
 // maxRetentionHours keeps the window well inside what time.Duration holds.
@@ -102,6 +107,8 @@ func Load(getenv func(string) string) (Settings, error) {
 		ProductName: "WTF",
 		Superadmins: map[string]bool{},
 		SignupOpen:  strings.EqualFold(strings.TrimSpace(getenv("WTF_SIGNUP_OPEN")), "true"),
+
+		DefaultMaxDevices: defaultMaxDevices,
 	}
 	if !s.Enabled {
 		return s, nil
@@ -155,6 +162,9 @@ func Load(getenv func(string) string) (Settings, error) {
 			return s, errors.New("WTF_SUPERADMIN_PHONES holds an invalid number")
 		}
 		s.Superadmins[phone] = true
+	}
+	if err := loadCapacity(getenv, &s); err != nil {
+		return s, err
 	}
 	return s, nil
 }

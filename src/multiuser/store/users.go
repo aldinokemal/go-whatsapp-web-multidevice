@@ -50,14 +50,31 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 }
 
 func (s *Store) CreateUser(ctx context.Context, phone string) (*User, error) {
-	u := &User{ID: newID("u_"), Phone: phone, Status: StatusActive, MaxDevices: 2, CreatedAt: s.now()}
-	_, err := s.db.ExecContext(ctx,
+	return createUser(ctx, s.db, phone, 2, s.now()) // 2 is the column default
+}
+
+// CreateUserWithLimit creates a user who may link up to maxDevices numbers
+// (1 to MaxDevicesLimit).
+func (s *Store) CreateUserWithLimit(ctx context.Context, phone string, maxDevices int) (*User, error) {
+	if maxDevices < 1 || maxDevices > MaxDevicesLimit {
+		return nil, ErrInvalid
+	}
+	return createUser(ctx, s.db, phone, maxDevices, s.now())
+}
+
+func createUser(ctx context.Context, db execer, phone string, maxDevices int, now time.Time) (*User, error) {
+	u := &User{ID: newID("u_"), Phone: phone, Status: StatusActive, MaxDevices: maxDevices, CreatedAt: now}
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO users (id, phone, status, max_devices, created_at) VALUES (?, ?, ?, ?, ?)`,
 		u.ID, u.Phone, u.Status, u.MaxDevices, u.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 	return u, nil
+}
+
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 func (s *Store) UserByPhone(ctx context.Context, phone string) (*User, error) {

@@ -50,23 +50,51 @@ func (s *Store) OwnedDeviceCount(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// Reservation is ReserveOwner's answer.
+type Reservation int
+
+const (
+	Reserved   Reservation = iota + 1 // the slot is the user's
+	UserLimit                         // the user already has maxPerUser numbers
+	ServerFull                        // the server already has maxTotal numbers
+)
+
 // ReserveOwner records userID as deviceID's owner only while the user owns
-// fewer than max devices. The count and the insert are one SQL statement, and
+// fewer than maxPerUser devices and, when maxTotal > 0, the server holds
+// fewer than maxTotal. Both counts and the insert are one SQL statement, and
 // SQLite takes the write lock before the statement reads, so concurrent calls
-// can never take a user past max. ok is false when the limit is reached.
-func (s *Store) ReserveOwner(ctx context.Context, deviceID, userID string, max int) (ok bool, err error) {
+// can never take a user past their limit or the server past its cap. Every
+// owner row counts, including a slot whose QR code was never scanned: it
+// holds a reservation.
+//
+// When nothing was inserted, a second read names the limit that was hit, for
+// the message only; the decision was already made atomically. When both
+// were hit, the user's own limit is named.
+func (s *Store) ReserveOwner(ctx context.Context, deviceID, userID string, maxPerUser, maxTotal int) (Reservation, error) {
 	res, err := s.db.ExecContext(ctx,
 		`INSERT INTO device_owners (device_id, user_id, created_at)
-		 SELECT ?, ?, ? WHERE (SELECT COUNT(*) FROM device_owners WHERE user_id = ?) < ?`,
-		deviceID, userID, s.now(), userID, max)
+		 SELECT ?, ?, ?
+		 WHERE (SELECT COUNT(*) FROM device_owners WHERE user_id = ?) < ?
+		   AND (? = 0 OR (SELECT COUNT(*) FROM device_owners) < ?)`,
+		deviceID, userID, s.now(), userID, maxPerUser, maxTotal, maxTotal)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	return n == 1, nil
+	if n == 1 {
+		return Reserved, nil
+	}
+	var mine int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_owners WHERE user_id = ?`, userID).Scan(&mine); err != nil {
+		return 0, err
+	}
+	if mine >= maxPerUser {
+		return UserLimit, nil
+	}
+	return ServerFull, nil
 }
 
 // SetLabel names one of the user's own devices; "" clears the name. The label
