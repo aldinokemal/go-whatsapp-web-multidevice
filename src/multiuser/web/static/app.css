@@ -929,6 +929,9 @@ main:focus { outline: none; }
 .field-hint { color: var(--ink-3); font-size: var(--text-sm); }
 .check { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-3); color: var(--ink); cursor: pointer; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+/* A quiet line at the foot of a page (how long messages are kept). */
+.page-note { display: flex; align-items: center; gap: var(--s-2); margin: var(--s-6) 0 0; color: var(--ink-3); font-size: var(--text-sm); }
+.page-note .icon { --icon: 16px; }
 .notice-ok { background: var(--ok-soft); color: var(--ok-ink); border-color: var(--accent-line); }
 .notice-ok .icon { color: var(--ok-ink); }
 .webhook-form { display: flex; flex-direction: column; gap: var(--s-4); }

@@ -357,7 +357,9 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 	// account is already refused by the scoped one once it is "deleting".
 	// Retention: history sync stores nothing already past the window. The
 	// worker itself starts in Start.
+	retentionHours := 0
 	if window, on := s.RetentionWindow(); on {
+		retentionHours = s.RetentionHours
 		whatsapp.HistoryCutoffHook = func() (time.Time, bool) {
 			return time.Now().UTC().Add(-window), true
 		}
@@ -371,7 +373,7 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		Web: web.Deps{Store: st, Auth: am, Passkeys: pk, Devices: devices, ProductName: s.ProductName,
 			PublicURL: s.PublicURL, ServicePhone: servicePhone, Paired: pairs.Paired, StorageDir: storageDir,
 			DeleteAccount: deleter.Delete, SendWhatsApp: sendFromService, Capacity: capSvc,
-			DefaultMaxDevices: s.DefaultMaxDevices}}
+			DefaultMaxDevices: s.DefaultMaxDevices, RetentionHours: retentionHours}}
 
 	if s.MCPEnabled {
 		authn := &mcpauth.Authenticator{Auth: am, Store: st}

@@ -22,6 +22,9 @@ services:
         sync: false
       - key: WTF_DEFAULT_MAX_DEVICES
         value: "2"
+      # Messages and media are deleted after this many hours.
+      - key: WTF_RETENTION_HOURS
+        value: "24"
       - key: WTF_PRODUCT_NAME
         value: WTF
       - key: SESSION_SECRET

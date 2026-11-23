@@ -46,6 +46,7 @@ func (p *purgeRecorder) runs() (messages, scheduled []time.Time) {
 func TestRetentionOffStartsNoWorker(t *testing.T) {
 	rt, _ := phase34Runtime(t, func(s *Settings) { s.RetentionHours = 0 })
 	require.Nil(t, whatsapp.HistoryCutoffHook)
+	require.Zero(t, rt.Web.RetentionHours, "My WhatsApp says nothing about retention")
 	chats := &purgeRecorder{}
 	rt.Start(chats)
 	require.Nil(t, rt.Retention)
@@ -65,6 +66,7 @@ func TestRetentionOnStartsTheWorkerAndSetsTheHook(t *testing.T) {
 	cutoff, ok := whatsapp.HistoryCutoffHook()
 	require.True(t, ok)
 	require.WithinDuration(t, time.Now().Add(-24*time.Hour), cutoff, time.Minute)
+	require.Equal(t, 24, rt.Web.RetentionHours, "My WhatsApp says how long messages are kept")
 
 	require.Equal(t, []string{config.PathMedia, config.PathSendItems}, rt.RetentionRoots)
 	require.Equal(t, config.PathStorages, rt.HistoryDumpDir)

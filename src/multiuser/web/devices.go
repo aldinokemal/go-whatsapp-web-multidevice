@@ -180,6 +180,7 @@ func homeData(c fiber.Ctx, d Deps) (map[string]any, error) {
 	atLimit := u != nil && u.MaxDevices > 0 && len(list) >= u.MaxDevices
 	data := map[string]any{
 		"Devices": list, "Connected": connected, "AtLimit": atLimit, "LimitMessage": deviceLimitMessage, "ServiceID": "",
+		"Retention": retentionNote(d.RetentionHours),
 	}
 	if u != nil {
 		// What each slot remembers (signed out from the phone, refused link).
@@ -198,6 +199,21 @@ func homeData(c fiber.Ctx, d Deps) (map[string]any, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+// retentionNote says how long messages and media are kept, or "" while
+// retention is off. Whole days read as days past one day.
+func retentionNote(hours int) string {
+	switch {
+	case hours <= 0:
+		return ""
+	case hours == 1:
+		return "Messages and media are deleted after 1 hour."
+	case hours > 24 && hours%24 == 0:
+		return "Messages and media are deleted after " + strconv.Itoa(hours/24) + " days."
+	default:
+		return "Messages and media are deleted after " + strconv.Itoa(hours) + " hours."
+	}
 }
 
 // addServiceState adds, for a superadmin only, the sign-in (service) number

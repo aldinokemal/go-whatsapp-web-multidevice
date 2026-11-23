@@ -195,6 +195,8 @@ func TestPreviewSite(t *testing.T) {
 	e.d.SendWhatsApp = sent.Send
 	e.d.Capacity = capacity.Service{Store: e.st, MaxPhones: 20}
 	e.d.DefaultMaxDevices = 2
+	// Phase 3 retention at its production default: My WhatsApp says so.
+	e.d.RetentionHours = 24
 	// People waiting, so the admin's menu shows the count everywhere.
 	join(t, e.st, "+447700900311", "+15555550312", "+27825550313", "+5511955550314", "+15555550315", "+919855550316")
 	appWithBoom := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(e.d)})
@@ -254,6 +256,7 @@ func TestPreviewSite(t *testing.T) {
 	home := get(t, e, other, "/")
 	p.write("home", home)
 	p.shot(previewShot{Name: "home", Page: "home"})
+	p.shot(previewShot{Name: "retention-home", Page: "home"})
 	p.write("home-just-linked", get(t, e, fresh, "/"))
 	p.shot(previewShot{Name: "home-just-linked", Page: "home-just-linked"})
 
@@ -298,6 +301,7 @@ func TestPreviewSite(t *testing.T) {
 	empty, _ := signedIn(t, e, "+15555550155")
 	p.write("home-empty", get(t, e, empty, "/"))
 	p.shot(previewShot{Name: "home-empty", Page: "home-empty"})
+	p.shot(previewShot{Name: "retention-home-empty", Page: "home-empty"})
 
 	// Account, with passkeys and without.
 	used := time.Now().Add(-2 * time.Hour)

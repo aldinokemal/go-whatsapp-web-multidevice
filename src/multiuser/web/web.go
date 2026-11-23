@@ -152,6 +152,9 @@ type Deps struct {
 	Capacity CapacityReader
 	// DefaultMaxDevices is a new account's own limit (WTF_DEFAULT_MAX_DEVICES).
 	DefaultMaxDevices int
+	// RetentionHours is how long messages and media are kept
+	// (WTF_RETENTION_HOURS); 0 means retention is off and nothing is said.
+	RetentionHours int
 }
 
 // GrantStore is the part of the MCP OAuth server the Account page uses.

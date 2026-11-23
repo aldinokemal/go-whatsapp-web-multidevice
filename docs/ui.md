@@ -90,6 +90,7 @@ one `<select>` below 600px (house rule B4).
 
 | `.notice`, `.banner-danger` | Neutral notices (device limit) and blocking problems (sign-in is down). |
 | `consent.html` (`.consent-facts`, `.consent-actions`, `data-no-disable`) | The OAuth consent card. Its form never disables a submitter (the decision value would be dropped); its CSP widens `form-action` to the validated redirect origin only (`web.RenderStandalone`). |
+| `.page-note` | A quiet line at the foot of a page, icon first (My WhatsApp: "Messages and media are deleted after 24 hours.", from `WTF_RETENTION_HOURS`, hidden when off). |
 | `.nudge` (`data-nudge`, `data-dismiss`) | A dismissible suggestion card (add a passkey); dismissal is remembered per browser. |
 | `.row-flash` | In-row feedback (Reconnecting…, Reconnected., Couldn't reconnect). |
 | `confirm` with `Items`, `Typed`/`TypedName`, `Busy`, `HX`, `Primary` | `Items` lists plainly what goes; `Typed` asks for typed confirmation (Delete account: the number or DELETE) and posts with htmx, an error coming back as the form (`confirm_form`); `Busy` is the button's words while it runs; `HX` posts into the opener's `data-dialog-target` row and closes on success; `Primary` is a confirmation that is not destructive (Let in). A danger button outside a dialog only ever opens one (shape test). |

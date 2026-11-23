@@ -48,6 +48,8 @@
   </div>
   {{end}}
 
+  {{with .Data.Retention}}<p class="page-note">{{icon "clock"}}<span>{{.}}</span></p>{{end}}
+
   {{template "sheet" (dict "Title" "Link WhatsApp")}}
 {{template "app_end" .}}{{template "foot" .}}{{end}}
 
