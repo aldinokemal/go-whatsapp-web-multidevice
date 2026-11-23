@@ -1337,6 +1337,7 @@ func TestFallbackMimeType(t *testing.T) {
 		".m4a":    "audio/mp4",
 		".aac":    "audio/aac",
 		".amr":    "audio/amr",
+		".awb":    "audio/amr-wb",
 		".xyz123": "application/octet-stream",
 		"":        "application/octet-stream",
 	}

@@ -1089,6 +1089,8 @@ func fallbackMimeType(ext string) string {
 		return "audio/aac"
 	case ".amr":
 		return "audio/amr"
+	case ".awb":
+		return "audio/amr-wb"
 	default:
 		return "application/octet-stream"
 	}

@@ -171,9 +171,10 @@ func KnownDocumentMIMEByExtension(ext string) (string, bool) {
 // the subtype fallback turns audio/mpeg into ".mpeg" and audio/mp4 into ".mp4",
 // and with one ExtensionsByType's sorted first match is ".m2a" or ".m4v".
 var knownMediaExtensionByMIME = map[string]string{
-	"audio/mpeg": ".mp3",
-	"audio/mp4":  ".m4a",
-	"video/mp4":  ".mp4",
+	"audio/amr-wb": ".awb",
+	"audio/mpeg":   ".mp3",
+	"audio/mp4":    ".m4a",
+	"video/mp4":    ".mp4",
 }
 
 func determineMediaExtension(originalFilename, mimeType string) string {

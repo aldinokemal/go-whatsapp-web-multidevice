@@ -80,6 +80,11 @@ func TestDetermineMediaExtension(t *testing.T) {
 			wantSuffix: ".oga",
 		},
 		{
+			name:       "AMRWideband",
+			mimeType:   "audio/amr-wb",
+			wantSuffix: ".awb",
+		},
+		{
 			name:       "ExeFromFilename",
 			filename:   "installer.exe",
 			mimeType:   "application/octet-stream",
