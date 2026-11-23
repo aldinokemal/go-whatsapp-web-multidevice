@@ -111,7 +111,8 @@ WHATSAPP_WEBHOOK_IGNORE_JIDS=@g.us,628123456789@s.whatsapp.net
 
 **Behavior:**
 
-- Matches the event's `chat_id`, `from`, `chat_lid` or `from_lid` against the list (so an `@lid`
+- Matches the event's `chat_id`, `from`, `chat_lid`, `from_lid` or `group_jid` (set on group
+  `call.offer` events) against the list (so an `@lid`
   pattern matches LID-migrated events, whose `@lid` JID lives in the `*_lid` fields).
 - An `@`-prefixed entry is an address-space **wildcard** (`@g.us`, `@s.whatsapp.net`, `@lid`); any other
   entry is an **exact** JID match.

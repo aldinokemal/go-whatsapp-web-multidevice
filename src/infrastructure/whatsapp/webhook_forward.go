@@ -422,6 +422,9 @@ func isEventWhitelistedForDevice(eventName string, deviceConfig *domainChatStora
 // empty, the inner payload is absent, or no JID matches — so events without a JID and the
 // default (no list configured) keep forwarding unchanged. This only gates the generic
 // webhook; the Chatwoot path keeps its own CHATWOOT_IGNORE_JIDS filter.
+//
+// group_jid is matched too: a group call.offer carries the group only there, with
+// from holding the caller.
 func shouldIgnoreWebhookJID(payload map[string]any) bool {
 	ignore := config.WhatsappWebhookIgnoreJids
 	if len(ignore) == 0 {
@@ -431,7 +434,7 @@ func shouldIgnoreWebhookJID(payload map[string]any) bool {
 	if !ok {
 		return false
 	}
-	for _, key := range payloadIdentityKeys {
+	for _, key := range webhookIgnoreJIDKeys {
 		if jid, _ := data[key].(string); utils.MatchesIgnoredJID(jid, ignore) {
 			return true
 		}
@@ -1236,6 +1239,11 @@ func deleteTargetMessageID(eventName string, data map[string]any) string {
 // is resolved to a phone JID and stored beside it. The first two are the
 // addresses the event is delivered under; the rest are aliases.
 var payloadIdentityKeys = []string{"chat_id", "from", "chat_lid", "from_lid", "sender_alt", "recipient_alt"}
+
+// webhookIgnoreJIDKeys are the fields WHATSAPP_WEBHOOK_IGNORE_JIDS is matched
+// against. group_jid stays out of payloadIdentityKeys so CHATWOOT_IGNORE_JIDS
+// keeps its current semantics.
+var webhookIgnoreJIDKeys = append(slices.Clone(payloadIdentityKeys), "group_jid")
 
 // addChatwootIdentityAliases copies original LID chats and alt JIDs onto a
 // webhook payload. chat_id/from may already be the phone; exclusion still has
