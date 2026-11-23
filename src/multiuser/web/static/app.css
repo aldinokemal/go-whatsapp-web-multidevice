@@ -523,6 +523,8 @@ main:focus { outline: none; }
   }
   .cell-count, .cell-seen { color: var(--ink-3); }
   .cell-seen::before { content: "\00b7"; margin-right: var(--s-2); }
+  .trow .cell-user { flex-wrap: wrap; row-gap: var(--s-1); }
+  .trow .cell-actions.end { justify-content: flex-start; }
   .cell-actions { width: 100%; justify-self: auto; justify-content: flex-start; padding-left: calc(40px + var(--s-3)); padding-top: var(--s-1); }
   .compact-label { display: inline; }
 }
@@ -892,3 +894,57 @@ main:focus { outline: none; }
 @media (min-width: 961px) {
   [data-rail] .sidebar-theme { display: none; }
 }
+
+/* ---------------------------------------------------------- banners, nudges */
+.banner {
+  display: flex; align-items: flex-start; gap: var(--s-3);
+  padding: var(--s-3) var(--s-4); border-radius: var(--radius);
+}
+.banner .icon { margin-top: 1px; }
+.banner-danger { background: var(--danger-soft); color: var(--danger-ink); border: 1px solid var(--danger-line); }
+.banner-danger a { color: inherit; font-weight: var(--weight-semibold); }
+
+.nudge {
+  display: flex; align-items: center; gap: var(--s-4);
+  padding: var(--s-4) var(--s-5); border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--accent-soft), var(--surface) 70%);
+  border: 1px solid var(--accent-line); box-shadow: var(--shadow);
+}
+.nudge .badge-icon { box-shadow: none; }
+.nudge-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nudge-title { font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.nudge-sub { color: var(--ink-2); font-size: var(--text-sm); }
+.nudge .form-error { margin-top: var(--s-2); }
+.nudge-actions { display: flex; align-items: center; gap: var(--s-1); }
+[data-dismissed-passkey] [data-nudge="passkey"] { display: none; }
+@media (max-width: 600px) {
+  .nudge { flex-wrap: wrap; align-items: flex-start; padding: var(--s-4); }
+  .nudge-actions { width: 100%; padding-left: calc(44px + var(--s-4)); justify-content: space-between; }
+}
+
+/* a small label beside a row title, e.g. the sign-in number */
+.tag {
+  display: inline-block; margin-left: var(--s-2); padding: 1px var(--s-2); vertical-align: 1px;
+  border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-ink);
+  font-size: var(--text-xs); font-weight: var(--weight-medium);
+}
+
+/* in-row feedback (reconnect) */
+.row-flash { display: inline-flex; align-items: center; gap: 6px; margin-top: var(--s-1); font-size: var(--text-sm); color: var(--ink-2); }
+.row-flash .icon { width: 15px; height: 15px; }
+.row-flash-ok { color: var(--ok-ink); }
+.row-flash-error { color: var(--danger-ink); }
+.spinner {
+  display: inline-block; width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid var(--line-strong); border-top-color: var(--accent); animation: spin 0.8s linear infinite;
+}
+.htmx-request .btn, .btn.htmx-request { opacity: 0.7; cursor: progress; }
+
+/* a linking session that ended (expired code, or the QR never loaded) */
+.link-ended { display: none; flex-direction: column; align-items: center; gap: var(--s-3); text-align: center; padding: var(--s-6) 0; }
+.link-ended-title { display: none; font-weight: var(--weight-semibold); }
+[data-ended] > .link-ended { display: flex; }
+[data-ended="expired"] .link-ended-expired, [data-ended="failed"] .link-ended-failed { display: block; }
+[data-ended] > .mode, [data-ended] > .mode-switch-btn,
+.pair-result[data-ended] > :not(.link-ended) { display: none !important; }
+.link-more { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s-2); }

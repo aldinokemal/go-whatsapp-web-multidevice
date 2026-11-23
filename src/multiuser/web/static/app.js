@@ -68,7 +68,7 @@
     if (el) el.textContent = message || "";
   }
 
-  async function signInWithPasskey() {
+  async function signInWithPasskey(button) {
     setError("");
     if (!window.PublicKeyCredential || !navigator.credentials) {
       setError("This browser doesn't support passkeys.");
@@ -102,7 +102,9 @@
 
       var payload = typeof credential.toJSON === "function" ? credential.toJSON() : encodeCredential(credential);
 
-      var finishResp = await fetch("/auth/passkey/login/finish", {
+      // The server validates next (same-origin relative paths only).
+      var next = (button && button.getAttribute("data-next")) || "/";
+      var finishResp = await fetch("/auth/passkey/login/finish?next=" + encodeURIComponent(next), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -229,7 +231,9 @@
     var base = img.getAttribute("src").split("?")[0];
     img.src = base + "?t=" + Date.now();
   }
-  function qrShowing(img) { return document.contains(img) && img.closest("[open], .auth") && img.getClientRects().length > 0; }
+  function qrShowing(img) {
+    return document.contains(img) && img.closest("[open], .auth") && !img.closest("[data-ended]") && img.getClientRects().length > 0;
+  }
   window.setInterval(function () {
     document.querySelectorAll("img[data-qr-refresh]").forEach(function (img) {
       if (qrShowing(img)) refreshQR(img);
@@ -364,12 +368,38 @@
     });
   });
 
+  // A linking session (a QR or a pairing code) ends after two minutes, or
+  // when its QR image keeps failing: show "Get a new code" and stop the
+  // status and QR polling by removing them.
+  function endLinkSession(el, why) {
+    if (!el || el.hasAttribute("data-ended")) return;
+    el.setAttribute("data-ended", why);
+    var body = el.closest(".link-body");
+    if (body) body.querySelectorAll("[hx-trigger^='every']").forEach(function (p) { p.remove(); });
+  }
+  function armLinkSessions(root) {
+    (root || document).querySelectorAll("[data-link-session]:not([data-armed])").forEach(function (el) {
+      el.setAttribute("data-armed", "");
+      var secs = parseInt(el.getAttribute("data-expires-in"), 10) || 120;
+      window.setTimeout(function () { if (document.contains(el)) endLinkSession(el, "expired"); }, secs * 1000);
+    });
+  }
+  armLinkSessions();
+  document.addEventListener("htmx:afterSettle", function (event) { armLinkSessions(event.target); });
+
   // Until WhatsApp has produced a code, the QR image fails to load: show a
-  // spinner in its frame instead of a broken image. The 20s poll retries.
+  // spinner in its frame instead of a broken image and retry; after five
+  // failures in a row, say so instead.
   document.addEventListener("error", function (event) {
     var img = event.target;
     if (img && img.hasAttribute && img.hasAttribute("data-qr-refresh") && img.parentElement) {
       img.parentElement.classList.add("is-loading");
+      var fails = (parseInt(img.getAttribute("data-fails"), 10) || 0) + 1;
+      img.setAttribute("data-fails", String(fails));
+      if (fails >= 5) {
+        endLinkSession(img.closest("[data-link-session]"), "failed");
+        return;
+      }
       // Until the code exists, try again sooner than the 20-second refresh.
       window.setTimeout(function () { if (qrShowing(img)) refreshQR(img); }, 3000);
     }
@@ -383,6 +413,7 @@
     var img = event.target;
     if (img && img.hasAttribute && img.hasAttribute("data-qr-refresh") && img.parentElement) {
       img.parentElement.classList.remove("is-loading");
+      img.removeAttribute("data-fails");
     }
   }, true);
 
@@ -390,7 +421,7 @@
     var loginBtn = event.target.closest("[data-passkey-login]");
     if (loginBtn) {
       event.preventDefault();
-      signInWithPasskey();
+      signInWithPasskey(loginBtn);
       return;
     }
     var registerBtn = event.target.closest("[data-passkey-register]");
@@ -414,6 +445,14 @@
     var copyBtn = event.target.closest("[data-copy]");
     if (copyBtn) {
       copyToClipboard(copyBtn);
+      return;
+    }
+    var dismiss = event.target.closest("[data-dismiss]");
+    if (dismiss) {
+      var key = dismiss.getAttribute("data-dismiss");
+      try { window.localStorage.setItem("wtf-dismiss-" + key, "1"); } catch (e) { /* hides for this page only */ }
+      var card = dismiss.closest("[data-nudge]");
+      if (card) card.remove();
       return;
     }
     var themeBtn = event.target.closest("[data-theme-choice]");

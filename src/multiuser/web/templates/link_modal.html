@@ -2,14 +2,14 @@
      GET /ui/devices/:id/link and POST /ui/devices/:id/pair-code: the body of
      the shared "Link WhatsApp" dialog, drawn by the "link_fragment"
      sub-template. */}}
-{{define "link_modal.html"}}{{template "link_fragment" (dict "ID" .Data.ID "Error" .Data.Error "PairCode" .Data.PairCode "CSRF" .CSRF)}}{{end}}
+{{define "link_modal.html"}}{{template "link_fragment" (dict "ID" .Data.ID "Error" .Data.Error "PairCode" .Data.PairCode "Mode" .Data.Mode "CSRF" .CSRF)}}{{end}}
 
 {{define "link_fragment"}}
 {{if .Error}}
 <p class="form-error" role="alert">{{.Error}}</p>
 <div class="dialog-foot"><button type="button" class="btn btn-secondary" data-close-dialog>Close</button></div>
 {{else if .PairCode}}
-<div class="pair-result">
+<div class="pair-result" data-link-session data-expires-in="120">
   <p class="pair-lead">Enter this code in WhatsApp on your phone</p>
   <div class="pair-code-row">
     <input class="pair-code" id="pair-code-value" type="text" value="{{.PairCode}}" readonly aria-label="Pairing code">
@@ -22,13 +22,17 @@
     <li>Tap Link with phone number instead, then enter the code</li>
   </ol>
   <p class="waiting" aria-live="polite"><span class="pulse" aria-hidden="true"></span>Waiting for your phone</p>
-  <button type="button" class="btn btn-ghost mode-switch-btn" hx-get="/ui/devices/{{.ID}}/link" hx-target="closest .link-body" hx-swap="innerHTML">{{icon "qr-code"}}<span>Use a QR code instead</span></button>
+  {{template "link_ended" (dict "ID" .ID "Mode" "pair")}}
+  <div class="link-more">
+    <button type="button" class="btn btn-ghost mode-switch-btn" hx-get="/ui/devices/{{.ID}}/link?mode=pair" hx-target="closest .link-body" hx-swap="innerHTML">{{icon "refresh-cw"}}<span>Get a new code</span></button>
+    <button type="button" class="btn btn-ghost mode-switch-btn" hx-get="/ui/devices/{{.ID}}/link?mode=qr" hx-target="closest .link-body" hx-swap="innerHTML">{{icon "qr-code"}}<span>Use a QR code instead</span></button>
+  </div>
 </div>
 {{else}}
 {{/* Two ways to link. A computer starts with the QR code (scanned with the
      phone); a phone starts with the pairing code, since it cannot scan its
      own screen. CSS picks the default; data-link-mode buttons switch. */}}
-<div class="link-modes" data-link-modes>
+<div class="link-modes" data-link-modes data-link-session data-expires-in="120"{{if .Mode}} data-mode="{{.Mode}}"{{end}}>
   <section class="mode mode-qr" aria-label="Scan a QR code">
     <div class="link-qr">
       <div class="qr-frame">
@@ -46,6 +50,7 @@
       </div>
     </div>
   </section>
+  {{template "link_ended" (dict "ID" .ID "Mode" "qr")}}
   <section class="mode mode-pair" aria-label="Use a pairing code">
     <form class="pair-form" hx-post="/ui/devices/{{.ID}}/pair-code" hx-target="closest .link-body" hx-swap="innerHTML"
           hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}' hx-disabled-elt="find button">
@@ -62,4 +67,16 @@
 </div>
 {{end}}
 <div hx-get="/ui/devices/{{.ID}}/status" hx-trigger="every 3s" hx-swap="none"></div>
+{{end}}
+
+{{/* link_ended is shown by app.js in place of a code that can no longer
+     work: the QR image kept failing (data-failed), or two minutes passed
+     (data-expired). Polling stops then; "Get a new code" starts again. */}}
+{{define "link_ended"}}
+<div class="link-ended" role="alert">
+  <span class="badge-icon badge-icon-warn" aria-hidden="true">{{icon "clock"}}</span>
+  <p class="link-ended-title link-ended-expired">This code has expired.</p>
+  <p class="link-ended-title link-ended-failed">We couldn't load a code.</p>
+  <button type="button" class="btn btn-primary" hx-get="/ui/devices/{{.ID}}/link?mode={{.Mode}}" hx-target="closest .link-body" hx-swap="innerHTML">{{icon "refresh-cw"}}<span>Get a new code</span></button>
+</div>
 {{end}}

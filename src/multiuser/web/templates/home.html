@@ -5,11 +5,28 @@
     <p class="page-sub">{{if .Data.Devices}}{{.Data.Connected}} of {{len .Data.Devices}} connected{{else}}Your linked WhatsApp numbers.{{end}}</p>
   </div>
 
+  {{if .Data.ServiceDown}}
+  <p class="banner banner-danger" role="alert">{{icon "triangle-alert"}}<span><strong>Sign-in is down: the sign-in number isn't connected.</strong> Reconnect it below, or <a href="/admin/settings">choose another number</a>.</span></p>
+  {{end}}
   {{if .Data.AtLimit}}<p class="notice">{{icon "info"}}<span>{{.Data.LimitMessage}}</span></p>{{end}}
+  {{if .Data.NoPasskeys}}
+  <section class="nudge" data-nudge="passkey" aria-labelledby="nudge-title">
+    <span class="badge-icon badge-icon-brand" aria-hidden="true">{{icon "fingerprint"}}</span>
+    <div class="nudge-text">
+      <h2 class="nudge-title" id="nudge-title">Sign in faster next time — add a passkey</h2>
+      <p class="nudge-sub">Use your fingerprint, face or screen lock instead of WhatsApp.</p>
+      <p data-passkey-register-error role="alert" class="form-error"></p>
+    </div>
+    <div class="nudge-actions">
+      <button type="button" class="btn btn-primary btn-sm" data-passkey-register data-csrf="{{.CSRF}}">Add a passkey</button>
+      <button type="button" class="icon-btn icon-btn-bare" data-dismiss="passkey" aria-label="Dismiss">{{icon "x"}}</button>
+    </div>
+  </section>
+  {{end}}
 
   {{if .Data.Devices}}
   <ul class="rows" role="list">
-    {{range .Data.Devices}}{{template "device_row" (dict "D" . "CSRF" $.CSRF)}}{{end}}
+    {{range .Data.Devices}}{{template "device_row" (dict "D" . "CSRF" $.CSRF "IsAdmin" $.Data.IsAdmin "ServiceID" $.Data.ServiceID)}}{{end}}
   </ul>
   {{range .Data.Devices}}
   {{if eq .PhoneNumber ""}}
@@ -17,7 +34,9 @@
        "Title" "Remove this unfinished link?" "Body" "This frees the slot. You can link a number again any time." "Button" "Remove")}}
   {{else}}
   {{template "confirm" (dict "ID" (printf "remove-%s" .ID) "Action" (printf "/ui/devices/%s/unlink" .ID) "CSRF" $.CSRF "Icon" "unlink"
-       "Title" (printf "Unlink %s?" (or .DisplayName (phone .PhoneNumber))) "Body" "To link this number again, scan a new QR code or use a pairing code." "Button" "Unlink")}}
+       "Title" (printf "Unlink %s?" (or .DisplayName (phone .PhoneNumber)))
+       "Body" (printf "%sTo link this number again, scan a new QR code or use a pairing code." (or (and (eq .ID $.Data.ServiceID) "This is the sign-in number. Nobody will be able to sign in by WhatsApp. ") ""))
+       "Button" "Unlink")}}
   {{end}}
   {{end}}
   {{else}}
@@ -39,8 +58,16 @@
 {{/* device_row is one linked (or half-linked) WhatsApp number. The state
      pill is derived from the device's live state at render time; "Just
      linked" is a connected number created in the last ten minutes. */}}
+{{/* device_row.html is one row on its own, for htmx (reconnect). */}}
+{{define "device_row.html"}}{{template "device_row" (dict "D" .Data.D "CSRF" .CSRF "IsAdmin" .Data.IsAdmin "ServiceID" .Data.ServiceID
+  "Flash" .Data.Flash "Checking" .Data.Checking "Failed" .Data.Failed)}}{{end}}
+
+{{/* device_row is one linked (or half-linked) WhatsApp number. The state
+     pill is derived from the device's live state at render time; "Just
+     linked" is a connected number created in the last ten minutes. While a
+     reconnect settles (Checking) the row re-checks itself every 3 seconds. */}}
 {{define "device_row"}}{{$d := .D}}
-<li class="row">
+<li class="row" id="row-{{$d.ID}}"{{if .Checking}} hx-get="/ui/devices/{{$d.ID}}/row?n={{.Checking}}" hx-trigger="load delay:3s" hx-swap="outerHTML"{{end}}>
   {{if eq $d.PhoneNumber ""}}
   <span class="row-icon row-icon-muted" aria-hidden="true">{{icon "smartphone"}}</span>
   <div class="row-main">
@@ -51,8 +78,11 @@
   {{else}}
   <span class="row-icon {{if eq $d.State "logged_in"}}row-icon-ok{{else}}row-icon-warn{{end}}" aria-hidden="true">{{icon "smartphone"}}</span>
   <div class="row-main">
-    <p class="row-title">{{if $d.DisplayName}}{{$d.DisplayName}}{{else}}{{phone $d.PhoneNumber}}{{end}}</p>
+    <p class="row-title">{{if $d.DisplayName}}{{$d.DisplayName}}{{else}}{{phone $d.PhoneNumber}}{{end}}{{if and .ServiceID (eq $d.ID .ServiceID)}} <span class="tag">Sign-in number</span>{{end}}</p>
     <p class="row-sub">{{if $d.DisplayName}}<span class="row-sub-part">{{phone $d.PhoneNumber}}</span>{{end}}{{if and (eq $d.State "logged_in") (recent $d.CreatedAt)}}<span class="row-sub-part row-sub-new">Just linked</span>{{else if not $d.CreatedAt.IsZero}}<span class="row-sub-part">Added {{since $d.CreatedAt}}</span>{{end}}</p>
+    {{if .Flash}}<p class="row-flash row-flash-ok" role="status">{{icon "check"}}<span>{{.Flash}}</span></p>{{end}}
+    {{if .Checking}}<p class="row-flash" role="status"><span class="spinner" aria-hidden="true"></span><span>Reconnecting…</span></p>{{end}}
+    {{if .Failed}}<p class="row-flash row-flash-error" role="alert">{{icon "circle-alert"}}<span>Couldn't reconnect — link it again.</span></p>{{end}}
   </div>
   {{if eq $d.State "logged_in"}}<span class="pill pill-ok">Connected</span>{{else}}<span class="pill pill-warn">Not connected</span>{{end}}
   {{end}}
@@ -62,10 +92,22 @@
             hx-get="/ui/devices/{{$d.ID}}/link" hx-target="#link-dialog-body" hx-swap="innerHTML">{{icon "link-2"}}<span>Finish linking</span></button>
     <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="remove-{{$d.ID}}">Remove</button>
     {{else}}
-    {{if ne $d.State "logged_in"}}
-    <form method="post" action="/ui/devices/{{$d.ID}}/reconnect" class="inline-form">
+    {{if .Failed}}
+    <button type="button" class="btn btn-primary btn-sm" data-open-dialog="link-dialog"
+            hx-get="/ui/devices/{{$d.ID}}/link" hx-target="#link-dialog-body" hx-swap="innerHTML">{{icon "link-2"}}<span>Link again</span></button>
+    {{else if and (ne $d.State "logged_in") (not .Checking)}}
+    <form method="post" action="/ui/devices/{{$d.ID}}/reconnect" class="inline-form"
+          hx-post="/ui/devices/{{$d.ID}}/reconnect" hx-target="#row-{{$d.ID}}" hx-swap="outerHTML" hx-disabled-elt="find button"
+          hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}'>
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <button type="submit" class="btn btn-secondary btn-sm">{{icon "refresh-cw"}}<span>Reconnect</span></button>
+    </form>
+    {{end}}
+    {{if and .IsAdmin (not .ServiceID) (eq $d.State "logged_in")}}
+    <form method="post" action="/admin/settings/service-number" class="inline-form">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <input type="hidden" name="device_id" value="{{$d.ID}}">
+      <button type="submit" class="btn btn-secondary btn-sm">{{icon "log-in"}}<span>Use as sign-in number</span></button>
     </form>
     {{end}}
     <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="remove-{{$d.ID}}">Unlink</button>

@@ -78,3 +78,24 @@ func TestAddUserCreatesTheAccountAndShowsItsSignInLink(t *testing.T) {
 	require.Contains(t, list, "Just added", "the new row is marked")
 	require.Less(t, strings.Index(list, "Just added"), strings.LastIndex(list, "+27 82 555 0100"), "and listed first")
 }
+
+func TestSigninLinkIsRefusedAndHiddenForADisabledUser(t *testing.T) {
+	e := withDevices(t, &devStub{})
+	admin, _ := signedIn(t, e, "+27825550100")
+	_, otherID := signedIn(t, e, "+27825550101")
+	require.NoError(t, e.st.SetUserStatus(context.Background(), otherID, "disabled"))
+	csrf := csrfFor(t, e, admin)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/"+otherID+"/signin-link", nil)
+	req.Header.Set("X-CSRF-Token", csrf)
+	req.AddCookie(admin)
+	resp, body := e.do(t, req)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, body, "Enable this account first")
+	require.NotContains(t, body, "/signin/verify?t=", "no link is minted")
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	req.AddCookie(admin)
+	_, list := e.do(t, req)
+	require.NotContains(t, list, `hx-post="/admin/users/`+otherID+`/signin-link"`, "the button is hidden")
+}

@@ -153,6 +153,11 @@ func TestPreviewSite(t *testing.T) {
 	p.shot(previewShot{Name: "verify", Page: "verify"})
 	p.write("verify-expired", get(t, e, nil, "/signin/verify?t=expired"))
 	p.shot(previewShot{Name: "verify-expired", Page: "verify-expired"})
+	off, _ := e.st.CreateUser(ctx, "+15555550124")
+	rawOff, _ := e.st.CreateLoginToken(ctx, "+15555550124", 15*time.Minute)
+	require.NoError(t, e.st.SetUserStatus(ctx, off.ID, store.StatusDisabled))
+	p.write("verify-disabled", get(t, e, nil, "/signin/verify?t="+url.QueryEscape(rawOff)))
+	p.shot(previewShot{Name: "verify-disabled", Page: "verify-disabled"})
 
 	// --- Signed-in pages --------------------------------------------------
 	// Each person may link two numbers (the store's default), so the fixtures
@@ -199,6 +204,15 @@ func TestPreviewSite(t *testing.T) {
 	p.shot(previewShot{Name: "home-menu-open", Page: "home-at-limit", Attr: "data-nav-open"})
 	p.shot(previewShot{Name: "home-rail", Page: "home-at-limit", Attr: "data-rail"})
 
+	// Reconnect, drawn in place: checking, then a way to link again.
+	rowRE := regexp.MustCompile(`(?s)<li class="row" id="row-d_personal".*?</li>`)
+	checking := get(t, e, admin, "/ui/devices/d_personal/row?n=1")
+	p.write("home-reconnecting", rowRE.ReplaceAllLiteralString(homeLimit, strings.ReplaceAll(checking, `hx-trigger="load delay:3s"`, "")))
+	p.shot(previewShot{Name: "home-reconnecting", Page: "home-reconnecting"})
+	failed := get(t, e, admin, "/ui/devices/d_personal/row?n=5")
+	p.write("home-reconnect-failed", rowRE.ReplaceAllLiteralString(homeLimit, failed))
+	p.shot(previewShot{Name: "home-reconnect-failed", Page: "home-reconnect-failed"})
+
 	// A member with one unfinished link; another with a number linked just now.
 	home := get(t, e, other, "/")
 	p.write("home", home)
@@ -219,6 +233,10 @@ func TestPreviewSite(t *testing.T) {
 	// Before WhatsApp has produced a code the QR request fails: a spinner shows.
 	p.write("home-link-qr-loading", withDialogBody(home, strings.Replace(strings.ReplaceAll(linkFrag, "/ui/devices/d_new/qr.png", "/ui/devices/d_pending/qr.png"), "data-link-modes", `data-link-modes data-mode="qr"`, 1)))
 	p.shot(previewShot{Name: "home-link-qr-loading", Page: "home-link-qr-loading", Dialog: "link-dialog"})
+	p.write("home-link-expired", withDialogBody(home, strings.Replace(linkFrag, "data-link-session", `data-link-session data-ended="expired"`, 1)))
+	p.shot(previewShot{Name: "home-link-expired", Page: "home-link-expired", Dialog: "link-dialog"})
+	p.write("home-link-failed", withDialogBody(home, strings.Replace(linkFrag, "data-link-session", `data-link-session data-ended="failed"`, 1)))
+	p.shot(previewShot{Name: "home-link-failed", Page: "home-link-failed", Dialog: "link-dialog"})
 	pair := htmxPost(t, e, other, csrfFor(t, e, other), "/ui/devices/d_slot/pair-code", url.Values{"phone": {"+15555550142"}})
 	p.write("home-link-pair-code", withDialogBody(home, pair))
 	p.shot(previewShot{Name: "home-link-pair-code", Page: "home-link-pair-code", Dialog: "link-dialog"})
@@ -267,7 +285,9 @@ func TestPreviewSite(t *testing.T) {
 	p.shot(previewShot{Name: "admin-users-link", Page: "admin-users-link", Dialog: "link-dialog",
 		Set: map[string]string{"[data-copy-feedback]": "Copied."}})
 
-	// Admin settings, with linked numbers and without.
+	// Admin settings: no sign-in number yet, one set, and one set but down.
+	p.write("admin-settings-unset", get(t, e, admin, "/admin/settings"))
+	p.shot(previewShot{Name: "admin-settings-unset", Page: "admin-settings-unset"})
 	require.NoError(t, e.st.SetSetting(ctx, store.SettingServiceDeviceID, "d_work", adminID))
 	p.write("admin-settings", get(t, e, admin, "/admin/settings"))
 	p.shot(previewShot{Name: "admin-settings", Page: "admin-settings"})
@@ -285,6 +305,14 @@ func TestPreviewSite(t *testing.T) {
 	p.shot(previewShot{Name: "error-404", Page: "error-404"})
 	p.write("error-500", get(t, e, admin, "/boom"))
 	p.shot(previewShot{Name: "error-500", Page: "error-500"})
+
+	// Sign-in is down: the saved sign-in number is not connected.
+	e.d.ServicePhone = func(context.Context) string { return "" }
+	remount(e, stub)
+	p.write("admin-settings-down", get(t, e, admin, "/admin/settings"))
+	p.shot(previewShot{Name: "admin-settings-down", Page: "admin-settings-down"})
+	p.write("home-signin-down", get(t, e, admin, "/"))
+	p.shot(previewShot{Name: "home-signin-down", Page: "home-signin-down"})
 
 	b, err := json.MarshalIndent(p.shots, "", "  ")
 	require.NoError(t, err)

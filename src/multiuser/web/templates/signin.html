@@ -16,7 +16,7 @@
   {{end}}
   <p class="divider"><span>or</span></p>
   <div class="auth-actions">
-    <button type="button" class="btn btn-secondary btn-lg btn-block" data-passkey-login>{{icon "fingerprint"}}<span>Sign in with a passkey</span></button>
+    <button type="button" class="btn btn-secondary btn-lg btn-block" data-passkey-login data-next="{{.Data.Next}}">{{icon "fingerprint"}}<span>Sign in with a passkey</span></button>
   </div>
   <p data-passkey-error role="alert" class="form-error"></p>
   </div>

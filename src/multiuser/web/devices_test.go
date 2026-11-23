@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,9 +22,10 @@ import (
 )
 
 type devStub struct {
-	devices  []domainDevice.Device
-	qrPath   string
-	loggedIn bool
+	devices      []domainDevice.Device
+	reconnectErr error
+	qrPath       string
+	loggedIn     bool
 }
 
 func (s *devStub) ListDevices(context.Context) ([]domainDevice.Device, error) { return s.devices, nil }
@@ -42,7 +44,7 @@ func (s *devStub) LoginDeviceWithCode(context.Context, string, string) (string, 
 	return "ABCD-EFGH", nil
 }
 func (s *devStub) LogoutDevice(context.Context, string) error    { return nil }
-func (s *devStub) ReconnectDevice(context.Context, string) error { return nil }
+func (s *devStub) ReconnectDevice(context.Context, string) error { return s.reconnectErr }
 func (s *devStub) GetStatus(context.Context, string) (bool, bool, error) {
 	return s.loggedIn, s.loggedIn, nil
 }
@@ -292,4 +294,58 @@ func TestLinkRouteReopensExistingDeviceOwnerChecked(t *testing.T) {
 	req.AddCookie(ck)
 	resp, _ = e.do(t, req)
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func htmxReconnect(t *testing.T, e *env, ck *http.Cookie, id string) (*http.Response, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/ui/devices/"+id+"/reconnect", nil)
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("X-CSRF-Token", csrfFor(t, e, ck))
+	req.AddCookie(ck)
+	return e.do(t, req)
+}
+
+func TestReconnectAnswersHtmxWithTheRowNeverAPageError(t *testing.T) {
+	stub := &devStub{devices: []domainDevice.Device{{ID: "d_mine", PhoneNumber: "27825550199", State: domainDevice.DeviceStateLoggedIn}}}
+	e := withDevices(t, stub)
+	ck, me := signedIn(t, e, "+27825550101")
+	require.NoError(t, e.st.SetOwner(context.Background(), "d_mine", me))
+
+	resp, body := htmxReconnect(t, e, ck, "d_mine")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, body, `id="row-d_mine"`)
+	require.Contains(t, body, "Reconnected.")
+	require.NotContains(t, body, "<html", "a row, not a page")
+
+	stub.devices[0].State = domainDevice.DeviceStateDisconnected
+	_, body = htmxReconnect(t, e, ck, "d_mine")
+	require.Contains(t, body, "Reconnecting…")
+	require.Contains(t, body, `hx-get="/ui/devices/d_mine/row?n=2"`, "checks again")
+
+	stub.reconnectErr = errors.New("socket closed")
+	resp, body = htmxReconnect(t, e, ck, "d_mine")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Contains(t, body, "Couldn't reconnect — link it again.")
+	require.Contains(t, body, "Link again")
+
+	// Without htmx the form still works: back home, no 500.
+	form := url.Values{"csrf": {csrfFor(t, e, ck)}}
+	req := httptest.NewRequest(http.MethodPost, "/ui/devices/d_mine/reconnect", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(ck)
+	resp, _ = e.do(t, req)
+	require.Equal(t, http.StatusSeeOther, resp.StatusCode)
+	require.Equal(t, "/", resp.Header.Get("Location"))
+}
+
+func TestReconnectingRowGivesUpAfterItsChecks(t *testing.T) {
+	stub := &devStub{devices: []domainDevice.Device{{ID: "d_mine", PhoneNumber: "27825550199", State: domainDevice.DeviceStateDisconnected}}}
+	e := withDevices(t, stub)
+	ck, me := signedIn(t, e, "+27825550101")
+	require.NoError(t, e.st.SetOwner(context.Background(), "d_mine", me))
+	req := httptest.NewRequest(http.MethodGet, "/ui/devices/d_mine/row?n=5", nil)
+	req.AddCookie(ck)
+	_, body := e.do(t, req)
+	require.Contains(t, body, "Couldn't reconnect")
+	require.NotContains(t, body, "hx-trigger=\"load delay:3s\"", "stops checking")
 }

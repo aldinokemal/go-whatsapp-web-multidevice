@@ -45,9 +45,11 @@
         </form>
         {{end}}
         {{end}}
+        {{if .Active}}
         <button type="button" class="btn btn-secondary btn-sm" data-open-dialog="link-dialog"
                 hx-post="/admin/users/{{.ID}}/signin-link" hx-target="#link-dialog-body" hx-swap="innerHTML"
                 hx-headers='{"X-CSRF-Token":"{{$.CSRF}}"}'>{{icon "link-2"}}<span>Get sign-in link</span></button>
+        {{end}}
       </span>
     </div>
     {{end}}

@@ -15,6 +15,14 @@ import (
 
 const pkCookie = "wtf_pk"
 
+// nextCookie carries where to go after sign-in from /signin to the verify
+// page in the same browser, since the WhatsApp reply link cannot carry it.
+// Only SafeNext's same-origin relative paths are ever stored or followed.
+const nextCookie = "wtf_next"
+
+// signinNext is the validated ?next= of a request, or "/" .
+func signinNext(c fiber.Ctx) string { return auth.SafeNext(c.Query("next")) }
+
 func (d Deps) waLink(c fiber.Ctx) string {
 	phone := d.ServicePhone(c.Context())
 	if phone == "" {
@@ -42,9 +50,14 @@ func mountSignin(app *fiber.App, d Deps) {
 			return c.Redirect().Status(fiber.StatusSeeOther).To("/")
 		}
 		link := d.waLink(c)
-		data := map[string]any{"WALink": link}
+		next := signinNext(c)
+		data := map[string]any{"WALink": link, "Next": next}
 		if link != "" {
 			data["WALinkButton"] = waLinkButton(link)
+		}
+		if next != "/" {
+			c.Cookie(&fiber.Cookie{Name: nextCookie, Value: next, Path: "/signin", HTTPOnly: true, Secure: d.Auth.Secure(),
+				SameSite: fiber.CookieSameSiteLaxMode, MaxAge: int((15 * time.Minute).Seconds())})
 		}
 		return d.render(c, fiber.StatusOK, "signin.html", "Sign in", data)
 	})
@@ -62,12 +75,21 @@ func mountSignin(app *fiber.App, d Deps) {
 	})
 	app.Get("/signin/verify", func(c fiber.Ctx) error {
 		raw := c.Query("t")
-		ok, err := d.Store.LoginTokenValid(c.Context(), raw)
+		phone, ok, err := d.Store.LoginTokenPhone(c.Context(), raw)
 		if err != nil {
 			return err
 		}
+		if ok {
+			if u, err := d.Store.UserByPhone(c.Context(), phone); err == nil && u.Status == store.StatusDisabled {
+				return d.render(c, fiber.StatusOK, "verify.html", "Sign in", map[string]any{"Disabled": true})
+			}
+		}
+		next := signinNext(c)
+		if next == "/" {
+			next = auth.SafeNext(c.Cookies(nextCookie))
+		}
 		return d.render(c, fiber.StatusOK, "verify.html", "Sign in", map[string]any{
-			"Token": raw, "Valid": ok, "Next": auth.SafeNext(c.Query("next")),
+			"Token": raw, "Valid": ok, "Next": next,
 		})
 	})
 	app.Post("/signin/verify", d.Auth.RequireSameOrigin(), func(c fiber.Ctx) error {
@@ -76,12 +98,16 @@ func mountSignin(app *fiber.App, d Deps) {
 			return d.render(c, fiber.StatusOK, "verify.html", "Sign in", map[string]any{"Valid": false})
 		}
 		u, err := d.Store.UserByPhone(c.Context(), phone)
+		if err == nil && u.Status == store.StatusDisabled {
+			return d.render(c, fiber.StatusOK, "verify.html", "Sign in", map[string]any{"Disabled": true})
+		}
 		if err != nil || u.Status != store.StatusActive {
 			return d.render(c, fiber.StatusOK, "verify.html", "Sign in", map[string]any{"Valid": false})
 		}
 		if err := d.Auth.StartSession(c, u); err != nil {
 			return err
 		}
+		c.Cookie(&fiber.Cookie{Name: nextCookie, Value: "", Path: "/signin", HTTPOnly: true, Secure: d.Auth.Secure(), MaxAge: -1})
 		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: u.ID, Action: "signin", IP: c.IP()})
 		return c.Redirect().Status(fiber.StatusSeeOther).To(auth.SafeNext(c.FormValue("next")))
 	})
@@ -110,6 +136,6 @@ func mountSignin(app *fiber.App, d Deps) {
 			return err
 		}
 		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: u.ID, Action: "signin_passkey", IP: c.IP()})
-		return c.JSON(fiber.Map{"ok": true, "next": "/"})
+		return c.JSON(fiber.Map{"ok": true, "next": signinNext(c)})
 	})
 }

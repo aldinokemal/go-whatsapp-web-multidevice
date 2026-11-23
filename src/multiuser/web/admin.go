@@ -92,6 +92,11 @@ func mountAdmin(app *fiber.App, d Deps) {
 			}
 			return err
 		}
+		if target.Status != store.StatusActive {
+			return d.render(c, fiber.StatusOK, "signin_link.html", "", map[string]any{
+				"Error": "Enable this account first, then get a sign-in link.",
+			})
+		}
 		link, err := signinLinkFor(c, d, target.Phone)
 		if err != nil {
 			return err
@@ -243,6 +248,7 @@ func settingsPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error
 	return map[string]any{
 		"Devices":         linked,
 		"ServiceDeviceID": serviceDeviceID,
+		"ServiceStatus":   serviceStatus(c, d, serviceDeviceID),
 		"LinkedTotal":     total,
 		"AllocMB":         mem.Alloc / bytesPerMB,
 		"SysMB":           mem.Sys / bytesPerMB,
@@ -262,4 +268,17 @@ func renderSettings(c fiber.Ctx, d Deps, errMsg string) error {
 		status = fiber.StatusBadRequest
 	}
 	return d.render(c, status, "admin_settings.html", "Settings", data)
+}
+
+// serviceStatus says whether sign-in by WhatsApp works: "Not set", or the
+// saved number's live state ("Connected" / "Not connected").
+func serviceStatus(c fiber.Ctx, d Deps, id string) string {
+	switch {
+	case id == "":
+		return "Not set"
+	case d.ServicePhone != nil && d.ServicePhone(c.Context()) != "":
+		return "Connected"
+	default:
+		return "Not connected"
+	}
 }

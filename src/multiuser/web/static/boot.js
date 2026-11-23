@@ -6,6 +6,8 @@
   root.classList.add("js");
   try {
     if (window.localStorage.getItem("wtf-nav") === "rail") root.setAttribute("data-rail", "");
+    // A dismissed nudge card stays hidden (CSS reads this attribute).
+    if (window.localStorage.getItem("wtf-dismiss-passkey") === "1") root.setAttribute("data-dismissed-passkey", "");
   } catch (e) { /* storage refused: full menu */ }
 
   // Theme: "light" or "dark" pins it (data-theme sets color-scheme, which
