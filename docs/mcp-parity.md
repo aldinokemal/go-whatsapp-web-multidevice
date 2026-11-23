@@ -61,7 +61,7 @@ How the tools are built:
 | Capability | GUI | REST | MCP tool | Notes |
 |---|---|---|---|---|
 | List and search users, paged | `/admin/users` | — | `wtf_admin_list_users` | search digits, status filter, sort, 50 a page, each user's numbers |
-| Add a user (sign-in link) | `POST /admin/users` | — | `wtf_admin_add_user` | returns the one-time link (15 minutes) |
+| Add a user (sign-in link) | `POST /admin/users` | — | `wtf_admin_add_user` | returns the new `user_id` and the one-time link (15 minutes); the page then shows the new row on top (`?new=`) |
 | Get a sign-in link | `POST /admin/users/:id/signin-link` | — | `wtf_admin_signin_link` | active accounts only |
 | Disable / enable (also unlink) | `POST /admin/users/:id/status` | — | `wtf_admin_set_user_status` | disabling ends sessions, keys and connected apps; `also_unlink` |
 | Set the number limit | `POST /admin/users/:id/limit` | — | `wtf_admin_set_number_limit` | 0 to 20 |
@@ -75,9 +75,9 @@ How the tools are built:
 | Set the sign-in number | `POST /admin/settings/service-number` | — | `wtf_admin_set_signin_number` | one of the admin's own linked numbers |
 | Capacity | `/admin/settings`, `/admin/waitlist` | — | `wtf_admin_capacity` | linked against the cap, users, waiting, near full |
 
-`POST /admin/users/:id/delete` arrives with the admin Delete account branch;
-`wtf_admin_delete_user` runs the same guards (`web.Deps.AdminDeleteUser`) and
-the same `account.Deleter`.
+`POST /admin/users/:id/delete` and `wtf_admin_delete_user` both call
+`web.Deps.AdminDeleteUser`: one copy of the guards, the same
+`account.Deleter`, the same audit line.
 
 ## WhatsApp (upstream REST)
 

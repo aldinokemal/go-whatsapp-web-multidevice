@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -68,6 +69,7 @@ type waitlistState struct {
 	Items                    []store.WaitlistEntry
 	Capacity                 *capacity.Capacity
 	Full                     bool
+	Counts                   map[string]any // waitlistCounts: the page head and switcher
 }
 
 // loadWaitlist reads page pageNo (from 1) of Waiting, or of Declined when
@@ -85,17 +87,12 @@ func loadWaitlist(ctx context.Context, d Deps, status string, pageNo int) (waitl
 	if w.Total, w.Items, err = d.Store.WaitlistPage(ctx, w.Status, w.Offset, listPageSize); err != nil {
 		return w, err
 	}
-	if w.Waiting, err = d.Store.WaitlistCount(ctx, store.WaitlistWaiting); err != nil {
+	if w.Counts, err = waitlistCounts(ctx, d, w.Status); err != nil {
 		return w, err
 	}
-	if w.Declined, err = d.Store.WaitlistCount(ctx, store.WaitlistDeclined); err != nil {
-		return w, err
-	}
-	if d.Capacity != nil {
-		snap, err := d.Capacity.Snapshot(ctx)
-		if err != nil {
-			return w, err
-		}
+	w.Waiting, _ = w.Counts["Waiting"].(int)
+	w.Declined, _ = w.Counts["Declined"].(int)
+	if snap, ok := w.Counts["Capacity"].(capacity.Capacity); ok {
 		w.Capacity = &snap
 		w.Full = snap.Max > 0 && snap.Linked >= snap.Max
 	}
@@ -118,10 +115,8 @@ func mountWaitlist(app *fiber.App, d Deps) {
 			return err
 		}
 		status := w.Status
-		data := map[string]any{"Status": status, "Total": w.Total, "Waiting": w.Waiting, "Declined": w.Declined}
-		if w.Capacity != nil {
-			data["Capacity"] = *w.Capacity
-		}
+		data := w.Counts
+		data["Total"] = w.Total
 		data["Full"] = w.Full
 		data["Rows"] = waitlistRows(w.Items, w.Offset, status == store.WaitlistWaiting, !w.Full)
 		base := "/admin/waitlist?"
@@ -129,15 +124,22 @@ func mountWaitlist(app *fiber.App, d Deps) {
 			base += "status=declined&"
 		}
 		data["Pager"] = newPager(base, w.Page, len(w.Items), w.Total)
-		data["Tabs"] = []switchItem{
-			{Href: "/admin/waitlist", Text: "Waiting", Count: w.Waiting, Current: status == store.WaitlistWaiting},
-			{Href: "/admin/waitlist?status=declined", Text: "Declined", Count: w.Declined, Current: status == store.WaitlistDeclined},
-		}
 		return d.render(c, fiber.StatusOK, "admin_waitlist.html", "Waitlist", data)
 	})
 
+	// row answers an action with the row again and, out of band, the counts
+	// it changed. The tab the page shows comes from htmx's HX-Current-URL.
 	row := func(c fiber.Ctx, r waitlistRow) error {
-		return d.render(c, fiber.StatusOK, "waitlist_row.html", "", r)
+		status := store.WaitlistWaiting
+		if u, err := url.Parse(c.Get("HX-Current-URL")); err == nil && u.Query().Get("status") == store.WaitlistDeclined {
+			status = store.WaitlistDeclined
+		}
+		counts, err := waitlistCounts(c.Context(), d, status)
+		if err != nil {
+			return err
+		}
+		counts["OOB"] = true
+		return d.render(c, fiber.StatusOK, "waitlist_row.html", "", map[string]any{"Row": r, "Counts": counts})
 	}
 
 	app.Post("/admin/waitlist/:digits/admit", page, admin, csrf, func(c fiber.Ctx) error {
@@ -182,6 +184,37 @@ func mountWaitlist(app *fiber.App, d Deps) {
 }
 
 // switchItem is one choice of a navigating switcher (house rule B4).
+// waitlistCounts is what the page head, the Waiting / Declined switcher and
+// the menu count show, for the tab status: Status, Total (that tab's
+// count), Waiting, Declined, Tabs and, with a cap, Capacity.
+func waitlistCounts(ctx context.Context, d Deps, status string) (map[string]any, error) {
+	waitingN, err := d.Store.WaitlistCount(ctx, store.WaitlistWaiting)
+	if err != nil {
+		return nil, err
+	}
+	declinedN, err := d.Store.WaitlistCount(ctx, store.WaitlistDeclined)
+	if err != nil {
+		return nil, err
+	}
+	total := waitingN
+	if status == store.WaitlistDeclined {
+		total = declinedN
+	}
+	data := map[string]any{"Status": status, "Total": total, "Waiting": waitingN, "Declined": declinedN,
+		"Tabs": []switchItem{
+			{Href: "/admin/waitlist", Text: "Waiting", Count: waitingN, Current: status == store.WaitlistWaiting},
+			{Href: "/admin/waitlist?status=declined", Text: "Declined", Count: declinedN, Current: status == store.WaitlistDeclined},
+		}}
+	if d.Capacity != nil {
+		snap, err := d.Capacity.Snapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		data["Capacity"] = snap
+	}
+	return data, nil
+}
+
 type switchItem struct {
 	Href    string
 	Text    string

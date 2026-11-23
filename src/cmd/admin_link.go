@@ -12,6 +12,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/web"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +23,7 @@ var adminLinkForce bool
 var adminLinkCmd = &cobra.Command{
 	Use:   "admin-link <phone>",
 	Short: "Print a one-time WTF sign-in link for a phone number (bootstrap and recovery)",
-	Long: `Print a one-time sign-in link (valid once, 15 minutes) for a phone number.
+	Long: `Print a one-time sign-in link for a phone number. It works once, for 15 minutes.
 
 Run it from the server's working directory so it opens the server's accounts
 database, e.g. on Render:  cd /app && ./whatsapp admin-link <phone>
@@ -64,10 +65,14 @@ printed to stderr on every run.`,
 			return err
 		}
 		fmt.Println(link)
-		fmt.Fprintln(os.Stderr, "valid once, for 15 minutes")
+		fmt.Fprintln(os.Stderr, adminLinkNote)
 		return nil
 	},
 }
+
+// adminLinkNote is what the command says about the link it printed: the
+// same words as the web's Add user and Get sign-in link.
+const adminLinkNote = "Open this link, or send it to them. " + web.OneTimeLinkNote
 
 func init() {
 	adminLinkCmd.Flags().BoolVar(&adminLinkForce, "force", false, "allow a number that is not in WTF_SUPERADMIN_PHONES")

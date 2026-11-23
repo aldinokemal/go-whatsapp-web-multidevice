@@ -375,9 +375,13 @@
 
   document.addEventListener("close", function (event) {
     var dialog = event.target;
-    // A finished add (data-reload-on-close) refreshes the list behind it.
-    if (dialog && dialog.querySelector && dialog.querySelector("[data-reload-on-close]")) {
-      window.location.reload();
+    // A finished add (data-reload-on-close) refreshes the list behind it;
+    // a value is where to land instead (Users with the new row pinned).
+    var reload = dialog && dialog.querySelector && dialog.querySelector("[data-reload-on-close]");
+    if (reload) {
+      var to = reload.getAttribute("data-reload-on-close");
+      if (to && to.charAt(0) === "/" && to.charAt(1) !== "/") window.location.assign(to);
+      else window.location.reload();
       return;
     }
     // Emptying the htmx-filled body stops its QR refresh and status polling.

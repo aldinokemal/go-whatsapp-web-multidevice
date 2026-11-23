@@ -334,6 +334,9 @@ func TestAdminUsersAddAndSigninLink(t *testing.T) {
 
 	sc = e.okCall(e.adminKey, AdminAddUserTool, map[string]any{"phone": "+27 82 555 0177"})
 	assert.Contains(t, sc, `"phone":"+27825550177"`)
+	added, err := e.st.UserByPhone(context.Background(), "+27825550177")
+	require.NoError(t, err)
+	assert.Contains(t, sc, `"user_id":"`+added.ID+`"`)
 	assert.Contains(t, sc, testPublic+"/signin/verify?t=")
 	assert.Equal(t, "That number already has an account. Use Get sign-in link on its row instead.",
 		e.refused(e.adminKey, AdminAddUserTool, map[string]any{"phone": "+27825550177"}))

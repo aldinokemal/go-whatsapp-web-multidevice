@@ -269,7 +269,7 @@ func TestActivityPagesAuditInPlainWords(t *testing.T) {
 	require.Contains(t, body, "58 events", "55 + the disable + two sign-ins")
 	require.Contains(t, body, "Admin")
 	require.Contains(t, body, "disabled")
-	require.Contains(t, body, `href="/admin/users#user-`+userID+`"`, "people link to their row")
+	require.Contains(t, body, `href="/admin/users?q=27825550101#user-`+userID+`"`, "people link to their row, found by number on any page")
 	require.Contains(t, body, "page=2")
 	require.Equal(t, 50, strings.Count(body, `class="row activity-row"`))
 
@@ -278,6 +278,8 @@ func TestActivityPagesAuditInPlainWords(t *testing.T) {
 
 	_, body = fetchPage(t, e, admin, "/admin/activity?user="+userID)
 	require.Contains(t, body, "2 events", "their sign-in and being disabled")
+	require.Contains(t, body, "&#43;27 82 555 0101", "the filter names the number as everywhere else")
+	require.NotContains(t, body, "+27825550101")
 	resp, _ = fetchPage(t, e, admin, "/admin/activity?user=u_nobody")
 	require.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

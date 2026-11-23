@@ -32,7 +32,7 @@ func mountAdminManage(app *fiber.App, d Deps) {
 			}
 			return err
 		}
-		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
+		return c.Redirect().Status(fiber.StatusSeeOther).To(userRowURL(target))
 	})
 
 	app.Post("/admin/users/:id/limit", page, admin, csrf, func(c fiber.Ctx) error {
@@ -52,7 +52,7 @@ func mountAdminManage(app *fiber.App, d Deps) {
 			}
 			return err
 		}
-		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
+		return c.Redirect().Status(fiber.StatusSeeOther).To(userRowURL(target))
 	})
 
 	app.Post("/admin/users/:id/phone", page, admin, csrf, func(c fiber.Ctx) error {
@@ -68,7 +68,58 @@ func mountAdminManage(app *fiber.App, d Deps) {
 			}
 			return err
 		}
-		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
+		return c.Redirect().Status(fiber.StatusSeeOther).To(userRowURL(target))
+	})
+}
+
+// mountAdminDelete registers POST /admin/users/:id/delete: a superadmin
+// deletes a disabled account (never their own, never the sign-in number's
+// owner) with the same Deleter as Delete my account, after typing its
+// number. Page-gated, superadmin-only (404 to anyone else), CSRF-checked and
+// audited with the admin as the actor. The guards live in
+// Deps.AdminDeleteUser, shared with the MCP tool. The dialog posts with
+// htmx: an error comes back as its form again, success as HX-Redirect to
+// Users.
+func mountAdminDelete(app *fiber.App, d Deps) {
+	app.Post("/admin/users/:id/delete", d.Auth.RequirePage(), d.Auth.RequireSuperadmin(), d.Auth.VerifyCSRF(), func(c fiber.Ctx) error {
+		if d.DeleteAccount == nil {
+			return fiber.ErrNotFound
+		}
+		caller, _ := userOf(c)
+		target, err := targetUser(c, d)
+		if err != nil {
+			return err
+		}
+		ctx := c.Context()
+		err = d.AdminDeleteUser(ctx, caller, target.ID, c.FormValue("confirm"), c.IP())
+		var r *Refusal
+		if errors.As(err, &r) {
+			v, verr := deleteAccountData(ctx, d, target)
+			if verr != nil {
+				return verr
+			}
+			v.Their, v.UserID, v.Phone = true, target.ID, target.Phone
+			msg, link := r.Msg, errors.Is(err, ErrOwnsSigninNumber)
+			if link {
+				msg = ""
+			}
+			v.Error, v.ErrorLink, v.Invalid = msg, link, msg == typeTheirToConfirm
+			if c.Get("HX-Request") != "true" {
+				if link {
+					msg = "This account has the sign-in number. Choose another one in Settings."
+				}
+				return renderUsers(c, d, msg)
+			}
+			return d.render(c, fiber.StatusOK, "admin_delete_form.html", "", v)
+		}
+		if err != nil {
+			return err
+		}
+		if c.Get("HX-Request") == "true" {
+			c.Set("HX-Redirect", "/admin/users")
+			return c.SendStatus(fiber.StatusOK)
+		}
+		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users")
 	})
 }
 

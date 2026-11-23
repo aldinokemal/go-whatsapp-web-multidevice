@@ -215,3 +215,8 @@ func auditCount(t *testing.T, dbPath, action string) int {
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = ?`, action).Scan(&n))
 	return n
 }
+
+// Behaviour: the command describes its link in the same words as the web.
+func TestAdminLinkSaysWhatTheWebSays(t *testing.T) {
+	require.Equal(t, "Open this link, or send it to them. It works once, for 15 minutes.", adminLinkNote)
+}

@@ -32,12 +32,22 @@ type CIMDConfig struct {
 	// input to a server-side fetch). Redirects are never followed whatever
 	// the client's own policy.
 	HTTPClient *http.Client
-	// MaxBytes caps the document; default 16 KiB. The body is abandoned
-	// mid-stream past the cap.
+	// MaxBytes caps the document; default 16 KiB (multi-user mode sets 64
+	// KiB, multiuser.CIMDMaxBytes). The body is abandoned mid-stream past
+	// the cap.
 	MaxBytes int64
-	// CacheTTL keeps a good document this long; default 5 minutes. Failures
-	// are not cached.
+	// CacheTTL keeps a good document this long; default 5 minutes.
 	CacheTTL time.Duration
+	// FailureTTL remembers a refused document this long, so repeating it
+	// costs no fetch; default 1 minute.
+	FailureTTL time.Duration
+	// FetchesPerIP caps the documents one address may make the server
+	// fetch per FetchWindow (default 10 per minute); a cached document
+	// costs nothing. Past it the request is refused without a fetch
+	// (errCIMDBusy). Behind a proxy whose address is not trusted, every
+	// request shares one address, and the cap is then a global one.
+	FetchesPerIP int
+	FetchWindow  time.Duration
 	// UserAgent is sent on every fetch; default "WTF-connector-check/1".
 	UserAgent string
 }
@@ -45,6 +55,10 @@ type CIMDConfig struct {
 const (
 	defaultCIMDMaxBytes  = 16 * 1024
 	defaultCIMDCacheTTL  = 5 * time.Minute
+	defaultCIMDFailTTL   = time.Minute
+	defaultCIMDFetches   = 10
+	defaultCIMDWindow    = time.Minute
+	maxCIMDFailEntries   = 1024
 	defaultCIMDUserAgent = "WTF-connector-check/1"
 	maxCIMDCacheEntries  = 32
 	maxCIMDRedirectURIs  = 10
@@ -53,6 +67,9 @@ const (
 // errCIMD is the one error a refused document surfaces as: the details stay
 // in the wrapped error for logs, never in the browser.
 var errCIMD = errors.New("client metadata document refused")
+
+// errCIMDBusy is a fetch refused because its address made too many.
+var errCIMDBusy = fmt.Errorf("%w: too many fetches from this address", errCIMD)
 
 type cimdDocument struct {
 	ClientID                string   `json:"client_id"`
@@ -76,8 +93,17 @@ type cimdResolver struct {
 	userAgent string
 	now       func() time.Time
 
-	mu    sync.Mutex
-	cache map[string]cimdEntry
+	failTTL time.Duration
+	limiter *fetchLimiter
+
+	mu       sync.Mutex
+	cache    map[string]cimdEntry
+	failures map[string]cimdFailure
+}
+
+type cimdFailure struct {
+	err     error
+	expires time.Time
 }
 
 func newCIMDResolver(cfg *CIMDConfig, now func() time.Time) (*cimdResolver, error) {
@@ -94,7 +120,23 @@ func newCIMDResolver(cfg *CIMDConfig, now func() time.Time) (*cimdResolver, erro
 		userAgent: strings.TrimSpace(cfg.UserAgent),
 		now:       now,
 		cache:     map[string]cimdEntry{},
+		failTTL:   cfg.FailureTTL,
+		failures:  map[string]cimdFailure{},
 	}
+	if r.now == nil {
+		r.now = time.Now
+	}
+	if r.failTTL <= 0 {
+		r.failTTL = defaultCIMDFailTTL
+	}
+	fetches, window := cfg.FetchesPerIP, cfg.FetchWindow
+	if fetches <= 0 {
+		fetches = defaultCIMDFetches
+	}
+	if window <= 0 {
+		window = defaultCIMDWindow
+	}
+	r.limiter = newFetchLimiter(fetches, window)
 	for _, h := range cfg.AllowedHosts {
 		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
 			r.allowed[h] = true
@@ -153,8 +195,9 @@ func (r *cimdResolver) hostAllowed(clientID string) bool {
 	return err == nil
 }
 
-// resolve returns the client a CIMD client_id describes.
-func (r *cimdResolver) resolve(ctx context.Context, clientID string) (Client, error) {
+// resolve returns the client a CIMD client_id describes. ip is the address
+// asking; a fetch it is not allowed (FetchesPerIP) is errCIMDBusy.
+func (r *cimdResolver) resolve(ctx context.Context, clientID, ip string) (Client, error) {
 	if _, err := r.checkURL(clientID); err != nil {
 		return Client{}, err
 	}
@@ -164,19 +207,28 @@ func (r *cimdResolver) resolve(ctx context.Context, clientID string) (Client, er
 		r.mu.Unlock()
 		return e.client, nil
 	}
+	if f, ok := r.failures[clientID]; ok && now.Before(f.expires) {
+		r.mu.Unlock()
+		return Client{}, f.err
+	}
 	r.mu.Unlock()
 
-	doc, err := r.fetch(ctx, clientID)
-	if err != nil {
-		return Client{}, err
+	if !r.limiter.allow(ip, now) {
+		return Client{}, errCIMDBusy
 	}
-	client, err := validateCIMDDocument(clientID, doc)
+	doc, err := r.fetch(ctx, clientID)
+	var client Client
+	if err == nil {
+		client, err = validateCIMDDocument(clientID, doc)
+	}
 	if err != nil {
+		r.rememberFailure(clientID, err, now)
 		return Client{}, err
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	delete(r.failures, clientID)
 	if len(r.cache) >= maxCIMDCacheEntries {
 		for k, e := range r.cache {
 			if !now.Before(e.expires) {
@@ -192,6 +244,72 @@ func (r *cimdResolver) resolve(ctx context.Context, clientID string) (Client, er
 	}
 	r.cache[clientID] = cimdEntry{client: client, expires: now.Add(r.ttl)}
 	return client, nil
+}
+
+// rememberFailure keeps a refused document's error for failTTL. The table
+// is bounded: expired entries go first, then arbitrary ones.
+func (r *cimdResolver) rememberFailure(clientID string, err error, now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.failures) >= maxCIMDFailEntries {
+		for k, f := range r.failures {
+			if !now.Before(f.expires) {
+				delete(r.failures, k)
+			}
+		}
+		for k := range r.failures {
+			if len(r.failures) < maxCIMDFailEntries {
+				break
+			}
+			delete(r.failures, k)
+		}
+	}
+	r.failures[clientID] = cimdFailure{err: err, expires: now.Add(r.failTTL)}
+}
+
+// fetchLimiter is a per-address fixed window, in memory. Its table is
+// bounded: past maxKeys, stale windows are swept, and if every window is
+// still live a new address is refused (fail closed).
+type fetchLimiter struct {
+	mu      sync.Mutex
+	max     int
+	window  time.Duration
+	maxKeys int
+	hits    map[string]*fetchWindow
+}
+
+type fetchWindow struct {
+	start time.Time
+	n     int
+}
+
+func newFetchLimiter(max int, window time.Duration) *fetchLimiter {
+	return &fetchLimiter{max: max, window: window, maxKeys: 10000, hits: map[string]*fetchWindow{}}
+}
+
+func (l *fetchLimiter) allow(key string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	w, ok := l.hits[key]
+	if ok && now.Sub(w.start) < l.window {
+		if w.n >= l.max {
+			return false
+		}
+		w.n++
+		return true
+	}
+	if !ok && len(l.hits) >= l.maxKeys {
+		for k, v := range l.hits {
+			if now.Sub(v.start) >= l.window {
+				delete(l.hits, k)
+			}
+		}
+		if len(l.hits) >= l.maxKeys {
+			return false
+		}
+	}
+	l.hits[key] = &fetchWindow{start: now, n: 1}
+	return true
 }
 
 func (r *cimdResolver) fetch(ctx context.Context, clientID string) (cimdDocument, error) {

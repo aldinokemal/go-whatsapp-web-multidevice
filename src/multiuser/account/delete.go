@@ -5,7 +5,7 @@
 // account (sessions, API keys, passkeys, sign-in links, OAuth), and no admin
 // can set it back (store.ErrDeleting). Every step after that is idempotent, so
 // a deletion that stops half way (a crash, a WhatsApp error) is finished by
-// the next Delete call or by ResumePending at start-up.
+// the next Delete call or by ResumePending (at start-up, then hourly).
 package account
 
 import (
@@ -51,10 +51,10 @@ type Deleter struct {
 	}
 
 	// Grants revokes every OAuth grant (authorisation codes, access and
-	// refresh tokens) issued to the user, by subject = user id. Per-user
-	// OAuth for /mcp is phase 2 work not yet on this branch; Task 8 wires
-	// oauth.Store.RevokeSubject here once it exists. Until then nil, and
-	// the "deleting" status is what refuses any token (Active check).
+	// refresh tokens) issued to the user, by subject = user id. Setup wires
+	// the MCP OAuth server here when MCP is on; nil when it is off (there
+	// are no grants then), and the "deleting" status refuses any token
+	// regardless (Active check).
 	Grants interface {
 		RevokeSubject(ctx context.Context, subject string) error
 	}
@@ -160,7 +160,8 @@ func (d *Deleter) Delete(ctx context.Context, userID string) error {
 	return nil
 }
 
-// ResumePending finishes every account left in "deleting", for start-up. It
+// ResumePending finishes every account left in "deleting" (the runtime calls
+// it at start-up and then hourly). It
 // carries on past a failure and returns them all joined.
 func (d *Deleter) ResumePending(ctx context.Context) error {
 	users, err := d.Store.UsersWithStatus(ctx, store.StatusDeleting)

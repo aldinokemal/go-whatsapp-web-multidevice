@@ -13,6 +13,12 @@ services:
     envVars:
       - key: APP_PORT
         value: "10000"
+      # Render's proxy reaches the app from its private network. Trusting these
+      # ranges makes X-Forwarded-For count (the right-most entry that is not
+      # itself a proxy is the client), so rate limits are per real client, not
+      # shared. A direct connection from outside these ranges cannot spoof it.
+      - key: APP_TRUSTED_PROXIES
+        value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
       - key: WTF_MULTIUSER
         value: "true"
       - key: WTF_SIGNUP_OPEN

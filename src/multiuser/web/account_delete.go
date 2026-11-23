@@ -12,12 +12,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const typeToConfirm = "Type your number, or DELETE, to confirm."
+// The typed-confirmation label and its error say the same thing.
+const (
+	typeLabel          = "Type your number or DELETE"
+	typeToConfirm      = typeLabel + " to confirm."
+	typeTheirLabel     = "Type their number to confirm"
+	typeTheirToConfirm = typeTheirLabel + "."
+)
 
-// deleteView is what the Delete account card and its dialog show.
+// deleteView is what the Delete account card and its dialog show, for the
+// person's own account or (Their) for an admin deleting someone else's.
 type deleteView struct {
-	OwnsService bool // the account holds the sign-in number: refused
-	Numbers     int  // how many numbers are unlinked
+	Their       bool   // an admin deleting another account
+	UserID      string // whose account (Their only)
+	Phone       string // their number (Their only)
+	OwnsService bool   // the account holds the sign-in number: refused
+	Numbers     int    // how many numbers are unlinked
 	Error       string
 	ErrorLink   bool // the error points to Settings
 	Invalid     bool // what was typed does not confirm
@@ -105,16 +115,19 @@ func mountAccountDelete(app *fiber.App, d Deps) {
 
 // Items says plainly what deleting removes.
 func (v deleteView) Items() []string {
-	nums := "Your linked WhatsApp numbers, with their messages and media here"
+	whose, they := "Your", "you"
+	if v.Their {
+		whose, they = "Their", "they"
+	}
+	var nums string
 	switch v.Numbers {
 	case 0:
-		nums = ""
 	case 1:
-		nums = "Your 1 linked WhatsApp number: unlinked, with its messages and media here"
+		nums = whose + " 1 linked WhatsApp number: unlinked, with its messages and media here"
 	default:
-		nums = "Your " + strconv.Itoa(v.Numbers) + " linked WhatsApp numbers: unlinked, with their messages and media here"
+		nums = whose + " " + strconv.Itoa(v.Numbers) + " linked WhatsApp numbers: unlinked, with their messages and media here"
 	}
-	out := []string{"Your account and how you sign in: passkeys, sessions, API keys and connected apps"}
+	out := []string{whose + " account and how " + they + " sign in: passkeys, sessions, API keys and connected apps"}
 	if nums != "" {
 		out = append(out, nums)
 	}
@@ -128,7 +141,7 @@ func deleteConfirm(v *deleteView, csrf string) map[string]any {
 		"ID": "delete-account", "Action": "/account/delete", "CSRF": csrf, "Icon": "trash-2",
 		"Title": "Delete your account?", "Items": v.Items(),
 		"Body":  "This can't be undone. Your WhatsApp account and the chats on your phone stay as they are.",
-		"Typed": "Type your phone number or DELETE", "TypedName": "confirm",
+		"Typed": typeLabel, "TypedName": "confirm",
 		"Button": "Delete account", "Busy": "Deleting…", "Error": v.Error, "Invalid": v.Invalid,
 	}
 	if v.ErrorLink {
@@ -136,4 +149,29 @@ func deleteConfirm(v *deleteView, csrf string) map[string]any {
 		m["ErrorHref"], m["ErrorLinkText"] = "/admin/settings", "Choose another one in Settings"
 	}
 	return m
+}
+
+// adminDeleteConfirm is the confirm dialog for an admin's Delete account on
+// a disabled user's row, built once for the page and for the htmx answer
+// that redraws its form: the same list of what goes, their number to type.
+func adminDeleteConfirm(v *deleteView, csrf string) map[string]any {
+	m := map[string]any{
+		"ID": "delete-" + v.UserID, "Action": "/admin/users/" + v.UserID + "/delete", "CSRF": csrf, "Icon": "trash-2",
+		"Title": "Delete " + displayPhone(v.Phone) + "?", "Items": v.Items(),
+		"Body":  "This can't be undone. Their WhatsApp account and the chats on their phone stay as they are.",
+		"Typed": typeTheirLabel, "TypedName": "confirm",
+		"Button": "Delete account", "Busy": "Deleting…", "Error": v.Error, "Invalid": v.Invalid,
+	}
+	if v.ErrorLink {
+		m["Error"] = "This account has the sign-in number."
+		m["ErrorHref"], m["ErrorLinkText"] = "/admin/settings", "Choose another one in Settings"
+	}
+	return m
+}
+
+// confirmsTheirNumber: the admin typed the account's own number (any
+// spelling). DELETE alone is not enough when it is someone else's account.
+func confirmsTheirNumber(typed, phone string) bool {
+	d := store.DigitsOnly(strings.TrimSpace(typed))
+	return len(d) >= 8 && d == store.DigitsOnly(phone)
 }

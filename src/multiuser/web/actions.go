@@ -34,6 +34,10 @@ func (r *Refusal) Error() string { return r.Msg }
 
 func refuse(msg string) error { return &Refusal{Msg: msg} }
 
+// ErrOwnsSigninNumber refuses deleting the account that holds the sign-in
+// number; the page links to Settings for it.
+var ErrOwnsSigninNumber error = &Refusal{Msg: "This account has the sign-in number. Choose another one in Settings first."}
+
 // ErrNotSuperadmin: the caller is not a superadmin (or not active).
 var ErrNotSuperadmin = errors.New("not available")
 
@@ -388,19 +392,19 @@ func (d Deps) signinLink(ctx context.Context, phone string) (string, error) {
 }
 
 // AdminAddUser creates an account for typed (any spelling of a full number)
-// and returns its number and a one-time sign-in link.
-func (d Deps) AdminAddUser(ctx context.Context, caller *store.User, typed, ip string) (string, string, error) {
+// and returns its number, a one-time sign-in link and its user id.
+func (d Deps) AdminAddUser(ctx context.Context, caller *store.User, typed, ip string) (phone, link, userID string, err error) {
 	if err := d.CheckSuperadmin(caller); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	phone, err := store.NormalizePhone(typed)
+	phone, err = store.NormalizePhone(typed)
 	if err != nil {
-		return "", "", refuse("Enter a full number with its country code, like +27 82 555 0100.")
+		return "", "", "", refuse("Enter a full number with its country code, like +27 82 555 0100.")
 	}
 	if _, err := d.Store.UserByPhone(ctx, phone); err == nil {
-		return "", "", refuse("That number already has an account. Use Get sign-in link on its row instead.")
+		return "", "", "", refuse("That number already has an account. Use Get sign-in link on its row instead.")
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return "", "", err
+		return "", "", "", err
 	}
 	var u *store.User
 	if d.DefaultMaxDevices > 0 {
@@ -409,14 +413,14 @@ func (d Deps) AdminAddUser(ctx context.Context, caller *store.User, typed, ip st
 		u, err = d.Store.CreateUser(ctx, phone)
 	}
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	_ = d.Store.Audit(ctx, store.AuditEvent{UserID: u.ID, ActorID: caller.ID, Action: "user_added", IP: ip})
-	link, err := d.signinLink(ctx, phone)
+	link, err = d.signinLink(ctx, phone)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return phone, link, nil
+	return phone, link, u.ID, nil
 }
 
 // AdminSigninLink mints a one-time sign-in link for an active account.
@@ -574,15 +578,14 @@ func (d Deps) AdminDeleteUser(ctx context.Context, caller *store.User, targetID,
 		return err
 	}
 	if v != nil && v.OwnsService {
-		return refuse("This account has the sign-in number. Choose another one in Settings first.")
+		return ErrOwnsSigninNumber
 	}
-	typed := store.DigitsOnly(strings.TrimSpace(confirm))
-	if len(typed) < 8 || typed != store.DigitsOnly(target.Phone) {
-		return refuse("Type their number to confirm.")
+	if !confirmsTheirNumber(confirm, target.Phone) {
+		return refuse(typeTheirToConfirm)
 	}
 	if err := d.DeleteAccount(ctx, target.ID); err != nil {
 		if errors.Is(err, account.ErrOwnsServiceNumber) {
-			return refuse("This account has the sign-in number. Choose another one in Settings first.")
+			return ErrOwnsSigninNumber
 		}
 		// Stopped half way: the account is already refused everywhere and the
 		// retry finishes it. Anything earlier changed nothing.

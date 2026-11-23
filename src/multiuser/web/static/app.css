@@ -498,6 +498,9 @@ main:focus { outline: none; }
 }
 .trow + .trow { border-top: 1px solid var(--line); }
 .trow:not(.thead):hover { background: var(--surface-2); }
+/* The row a link was for (just added, or the number searched from Activity). */
+.trow.trow-hl, .trow.trow-hl:hover { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.trow:target { scroll-margin-top: var(--s-16); }
 .thead {
   min-height: 40px; background: var(--surface-2);
   font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--ink-3);
@@ -1188,7 +1191,9 @@ main:focus { outline: none; }
 @media (max-width: 600px) {
   .list-tools { flex-direction: column; align-items: stretch; }
   .list-search { max-width: none; flex: none; }
-  .switcher-nav .switcher-select { min-width: 0; }
+  /* One width for every page's switcher on a phone: the full column. */
+  .switcher-nav { align-self: stretch; width: 100%; }
+  .switcher-nav .switcher-select { min-width: 0; width: 100%; }
 }
 
 /* Capacity tiles: a tile that counts a list opens it (the whole tile is the

@@ -6,7 +6,7 @@
 
   {{if .Data.Who}}
   <p class="filter-chip">
-    <span>For <a href="/admin/users#user-{{.Data.Who.ID}}">{{.Data.Who.Phone}}</a></span>
+    <span>For <a href="{{.Data.WhoHref}}">{{phone .Data.Who.Phone}}</a></span>
     <a class="icon-btn icon-btn-bare" href="/admin/activity" aria-label="Show everyone">{{icon "x"}}</a>
   </p>
   {{end}}
@@ -17,7 +17,7 @@
     <li class="row activity-row">
       <span class="row-icon" aria-hidden="true">{{icon "activity"}}</span>
       <div class="row-main">
-        <p class="activity-text">{{range .Parts}}{{if .UserID}}<a href="/admin/users#user-{{.UserID}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}{{end}}</p>
+        <p class="activity-text">{{range .Parts}}{{if .Href}}<a href="{{.Href}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}{{end}}</p>
         <p class="row-sub"><time datetime="{{.At.Format "2006-01-02T15:04:05Z07:00"}}">{{since .At}}</time></p>
       </div>
     </li>

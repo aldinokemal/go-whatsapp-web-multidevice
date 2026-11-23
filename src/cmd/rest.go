@@ -72,10 +72,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	}
 
 	// Configure proxy settings if trusted proxies are specified
-	if len(config.AppTrustedProxies) > 0 {
-		fiberConfig.TrustProxyConfig = fiber.TrustProxyConfig{Proxies: config.AppTrustedProxies}
-		fiberConfig.ProxyHeader = fiber.HeaderXForwardedHost
-	}
+	applyTrustedProxies(&fiberConfig, config.AppTrustedProxies, config.MultiUserEnabled)
 
 	app := fiber.New(fiberConfig)
 
@@ -272,6 +269,26 @@ func restServer(_ *cobra.Command, _ []string) {
 			}
 		}
 	}
+}
+
+// applyTrustedProxies configures proxy trust. Single-user keeps upstream's
+// behaviour exactly. WTF: in multi-user mode c.IP() must be the real client,
+// because the sign-in audit and the OAuth CIMD fetch limiter key on it: it reads
+// X-Forwarded-For with IP validation on. Fiber v3 honours the header only when
+// the immediate peer is in proxies, then walks the chain right to left and
+// returns the first address that is not itself a trusted proxy, so a client
+// cannot spoof it by prepending entries.
+func applyTrustedProxies(cfg *fiber.Config, proxies []string, multiUser bool) {
+	if len(proxies) == 0 {
+		return
+	}
+	cfg.TrustProxyConfig = fiber.TrustProxyConfig{Proxies: proxies}
+	if multiUser { // WTF
+		cfg.ProxyHeader = fiber.HeaderXForwardedFor
+		cfg.EnableIPValidation = true
+		return
+	}
+	cfg.ProxyHeader = fiber.HeaderXForwardedHost
 }
 
 func registerDeviceScopedRoutes(r fiber.Router) {

@@ -3,6 +3,7 @@ package multiuser
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -138,4 +139,32 @@ func (c *chatsRecorder) ids() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.got...)
+}
+
+// Wiring: an account that gets stuck "deleting" while the server runs (a
+// WhatsApp error half way) is finished by the next hourly pass, not only at
+// the next restart, with retention on or off.
+func TestStuckDeletionsAreRetriedWhileRunning(t *testing.T) {
+	for _, hours := range []int{0, 24} {
+		t.Run(fmt.Sprintf("retention %dh", hours), func(t *testing.T) {
+			rt, _ := phase34Runtime(t, func(s *Settings) { s.RetentionHours = hours })
+			rt.ResumeDeletionsEvery = 50 * time.Millisecond
+			ctx := context.Background()
+			rt.Start(&purgeRecorder{})
+			// Start's own resume has had its chance; this account goes stuck after it.
+			time.Sleep(100 * time.Millisecond)
+			u, err := rt.Store.CreateUser(ctx, "+27825550101")
+			require.NoError(t, err)
+			require.NoError(t, rt.Store.SetUserStatus(ctx, u.ID, store.StatusDeleting))
+			require.Eventually(t, func() bool {
+				_, err := rt.Store.UserByID(ctx, u.ID)
+				return errors.Is(err, store.ErrNotFound)
+			}, 5*time.Second, 20*time.Millisecond)
+		})
+	}
+}
+
+// The default retry interval is the hour retention runs on.
+func TestStuckDeletionsAreRetriedHourly(t *testing.T) {
+	require.Equal(t, time.Hour, resumeDeletionsEvery)
 }

@@ -19,6 +19,17 @@ import (
 
 const signinLinkTTL = 15 * time.Minute
 
+// OneTimeLinkNote is how every one-time sign-in link is described: Add
+// user, Get sign-in link and the admin-link command.
+const OneTimeLinkNote = "It works once, for 15 minutes."
+
+// userRowURL is where a person's row on Users is found from anywhere: the
+// list searched by their number (their row may be on any page), scrolled to
+// the row, which is highlighted.
+func userRowURL(u *store.User) string {
+	return "/admin/users?q=" + store.DigitsOnly(u.Phone) + "#user-" + u.ID
+}
+
 // mountAdmin registers "/admin/users" and "/admin/settings" behind the page
 // gate and the superadmin gate. Task 9 already installed those gates (so an
 // anonymous or non-superadmin visitor is refused correctly from that task
@@ -38,7 +49,7 @@ func mountAdmin(app *fiber.App, d Deps) {
 	app.Post("/admin/users", page, admin, csrf, func(c fiber.Ctx) error {
 		caller, _ := userOf(c)
 		typed := strings.Clone(c.FormValue("phone"))
-		phone, link, err := d.AdminAddUser(c.Context(), caller, typed, c.IP())
+		phone, link, id, err := d.AdminAddUser(c.Context(), caller, typed, c.IP())
 		var r *Refusal
 		if errors.As(err, &r) {
 			return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{"Phone": typed, "Error": r.Msg})
@@ -46,7 +57,7 @@ func mountAdmin(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{"Link": link, "Phone": phone})
+		return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{"Link": link, "Phone": phone, "ID": id})
 	})
 
 	app.Post("/admin/users/:id/status", page, admin, csrf, func(c fiber.Ctx) error {
@@ -145,6 +156,10 @@ type userRow struct {
 	Added       time.Time
 	Numbers     []numberView
 	JustAdded   bool // created in the last ten minutes and never signed in
+	Highlight   bool // the row the link was for: the one just added, or the exact number searched
+	// Delete is the Delete account dialog, for a disabled user other than
+	// the caller who does not hold the sign-in number; nil hides it.
+	Delete *deleteView
 }
 
 func userRows(ctx context.Context, d Deps, users []store.User, caller *store.User) ([]userRow, error) {
@@ -174,6 +189,16 @@ func userRows(ctx context.Context, d Deps, users []store.User, caller *store.Use
 			}
 			row.DeviceCount = len(ids)
 		}
+		if !row.Active && !row.IsSelf && u.Status == store.StatusDisabled {
+			v, err := deleteAccountData(ctx, d, u)
+			if err != nil {
+				return nil, err
+			}
+			if v != nil && !v.OwnsService {
+				v.Their, v.UserID, v.Phone = true, u.ID, u.Phone
+				row.Delete = v
+			}
+		}
 		rows = append(rows, row)
 	}
 	return rows, nil
@@ -187,10 +212,11 @@ type usersQuery struct {
 	Sort   string // "", created, last_login, phone (the store's allowlist)
 	Desc   bool
 	Page   int
+	New    string // a user just added: pinned first, highlighted (not kept in links)
 }
 
 func parseUsersQuery(c fiber.Ctx) usersQuery {
-	q := usersQuery{Q: strings.TrimSpace(c.Query("q")), Status: c.Query("status"), Sort: c.Query("sort"), Desc: c.Query("dir") == "desc"}
+	q := usersQuery{Q: strings.TrimSpace(c.Query("q")), Status: c.Query("status"), Sort: c.Query("sort"), Desc: c.Query("dir") == "desc", New: c.Query("new")}
 	q.Page, _ = strconv.Atoi(c.Query("page"))
 	return q.clean()
 }
@@ -268,6 +294,23 @@ func usersPage(ctx context.Context, d Deps, q usersQuery, caller *store.User) (i
 	if err != nil {
 		return 0, nil, nil, err
 	}
+	// House rule D4: after Add user the new row is shown on top, whatever
+	// the list's filter, sort or page would have done with it.
+	if q.New != "" {
+		if nu, err := d.Store.UserByID(ctx, q.New); err == nil {
+			kept := []store.User{*nu}
+			for _, u := range users {
+				if u.ID != nu.ID {
+					kept = append(kept, u)
+				}
+			}
+			users = kept
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return 0, nil, nil, err
+		} else {
+			q.New = ""
+		}
+	}
 	rows, err := userRows(ctx, d, users, caller)
 	if err != nil {
 		return 0, nil, nil, err
@@ -281,6 +324,11 @@ func usersPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error) {
 	total, _, rows, err := usersPage(c.Context(), d, q, caller)
 	if err != nil {
 		return nil, err
+	}
+	searched := store.DigitsOnly(q.Q)
+	for i := range rows {
+		rows[i].Highlight = (q.New != "" && rows[i].ID == q.New) ||
+			(len(searched) >= 8 && store.DigitsOnly(rows[i].Phone) == searched)
 	}
 	pg := pager{Total: total}
 	if len(rows) > 0 {

@@ -442,11 +442,11 @@ func (t tools) addAdminTools(s *server.MCPServer) {
 			"Use this when sign-ups are closed."+adminNote, once,
 		mcpg.WithString("phone", mcpg.Required(), mcpg.Description("The person's full number with its country code, e.g. +27825550100")),
 	), t.admin(func(ctx context.Context, u *store.User, req mcpg.CallToolRequest) (*mcpg.CallToolResult, error) {
-		phone, link, err := t.d.AdminAddUser(ctx, u, req.GetString("phone", ""), "")
+		phone, link, id, err := t.d.AdminAddUser(ctx, u, req.GetString("phone", ""), "")
 		if err != nil {
 			return fail(err), nil
 		}
-		return ok(map[string]any{"phone": phone, "signin_link": link}, "Added "+phone+". Sign-in link (works once, 15 minutes): "+link)
+		return ok(map[string]any{"user_id": id, "phone": phone, "signin_link": link}, "Added "+phone+". Sign-in link (works once, 15 minutes): "+link)
 	}))
 
 	s.AddTool(newTool(AdminSigninLinkTool, "Get a sign-in link",
