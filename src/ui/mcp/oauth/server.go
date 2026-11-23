@@ -553,7 +553,10 @@ func (s *Server) lookupClient(c fiber.Ctx, req *authorizationRequest) (Client, b
 		if s.cimd == nil {
 			return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id", badConnectRequest)
 		}
-		client, err := s.cimd.resolve(c.Context(), req.ClientID)
+		client, err := s.cimd.resolve(c.Context(), req.ClientID, c.IP())
+		if errors.Is(err, errCIMDBusy) {
+			return Client{}, false, s.browserError(c, fiber.StatusTooManyRequests, "temporarily_unavailable", "too many client metadata fetches", "Too many requests to connect an app. Try again in a minute.")
+		}
 		if err != nil {
 			// The client_id is a public URL, never a secret: log why, so a
 			// failed connect can be diagnosed from the server log.

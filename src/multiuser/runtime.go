@@ -73,6 +73,13 @@ type Runtime struct {
 	stop context.CancelFunc // ends Start's background work
 }
 
+// CIMDMaxBytes caps a client ID metadata document, both in the outbound
+// guard and in the OAuth server's own read (docs/mcp-oauth.md). Claude's
+// documents are well under 1 KiB; 64 KiB leaves room for a client with many
+// redirect URIs and still bounds what one anonymous request can make the
+// server download.
+const CIMDMaxBytes int64 = 64 << 10
+
 // resumeDeletionsEvery is how often a deletion left half done (a WhatsApp
 // error mid way) is retried while the server runs: hourly, like retention.
 const resumeDeletionsEvery = time.Hour
@@ -406,7 +413,7 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		authn := &mcpauth.Authenticator{Auth: am, Store: st}
 		// The client_id is attacker-chosen: fetch it only through the
 		// outbound guard, never following a redirect.
-		cimdClient := netguard.NewClient(netguard.Options{Timeout: 10 * time.Second, MaxRedirects: 0, MaxBody: 64 << 10})
+		cimdClient := netguard.NewClient(netguard.Options{Timeout: 10 * time.Second, MaxRedirects: 0, MaxBody: CIMDMaxBytes})
 		if s.CIMDHTTPClient != nil {
 			cimdClient = s.CIMDHTTPClient
 		}
@@ -419,6 +426,7 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 			CIMD: &oauth.CIMDConfig{
 				AllowedHosts: s.MCPClientHosts,
 				HTTPClient:   cimdClient,
+				MaxBytes:     CIMDMaxBytes,
 				UserAgent:    userAgentToken(s.ProductName) + "-connector-check/1",
 			},
 		}, nil)

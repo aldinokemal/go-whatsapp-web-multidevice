@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -398,14 +399,87 @@ func TestCacheServesWithinTTLAndRefetchesAfter(t *testing.T) {
 	assert.EqualValues(t, 2, d.requests.Load(), "after the TTL the document is fetched again")
 }
 
-func TestFailuresAreNotCached(t *testing.T) {
+// Security: a refused document is remembered for a short while, so a
+// browser hammering /oauth/authorize with it costs one fetch, not one per
+// request; a fixed document is picked up once that while is over.
+func TestFailuresAreCachedBriefly(t *testing.T) {
 	d := newDocServer(t)
 	d.serveJSON("/oauth/mcp-oauth-client-metadata", desktopDoc("https://example.com/wrong", testRedirect))
-	_, app, _, _ := newCIMDTestServer(t, d, nil)
+	srv, app, _, _ := newCIMDTestServer(t, d, nil)
+	clock := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	srv.now = func() time.Time { return clock }
 	q, _ := cimdQuery(desktopClientID, testRedirect)
-	require.Equal(t, fiber.StatusBadRequest, getAuthorize(t, app, q).StatusCode)
+	for i := 0; i < 5; i++ {
+		require.Equal(t, fiber.StatusBadRequest, getAuthorize(t, app, q).StatusCode)
+	}
+	assert.EqualValues(t, 1, d.requests.Load(), "a failure is fetched once while it is remembered")
 	d.serveJSON("/oauth/mcp-oauth-client-metadata", desktopDoc(desktopClientID, testRedirect))
-	assert.Equal(t, fiber.StatusOK, getAuthorize(t, app, q).StatusCode, "a fixed document is picked up at once")
+	clock = clock.Add(59 * time.Second)
+	require.Equal(t, fiber.StatusBadRequest, getAuthorize(t, app, q).StatusCode)
+	assert.EqualValues(t, 1, d.requests.Load())
+	clock = clock.Add(2 * time.Second)
+	assert.Equal(t, fiber.StatusOK, getAuthorize(t, app, q).StatusCode, "after a minute the fixed document is picked up")
+	assert.EqualValues(t, 2, d.requests.Load())
+}
+
+// Security: anyone can make the server fetch a document by visiting
+// /oauth/authorize with a new path on an allowed host. Past a few fetches a
+// minute from one address the rest are refused without a request; another
+// address, and a document already cached, are unaffected.
+func TestFetchesAreLimitedPerAddress(t *testing.T) {
+	d := newDocServer(t)
+	d.serveJSON("/oauth/mcp-oauth-client-metadata", desktopDoc(desktopClientID, testRedirect))
+	r, err := newCIMDResolver(&CIMDConfig{AllowedHosts: []string{cimdHost}, HTTPClient: d.client(), FetchesPerIP: 3}, nil)
+	require.NoError(t, err)
+	clock := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	r.now = func() time.Time { return clock }
+	ctx := context.Background()
+
+	_, err = r.resolve(ctx, desktopClientID, "198.51.100.7")
+	require.NoError(t, err)
+	for i := 0; i < 2; i++ {
+		_, err = r.resolve(ctx, fmt.Sprintf("https://example.com/junk/%d", i), "198.51.100.7")
+		require.Error(t, err)
+	}
+	require.EqualValues(t, 3, d.requests.Load())
+	_, err = r.resolve(ctx, "https://example.com/junk/more", "198.51.100.7")
+	require.ErrorIs(t, err, errCIMDBusy)
+	require.EqualValues(t, 3, d.requests.Load(), "refused without a request")
+	_, err = r.resolve(ctx, desktopClientID, "198.51.100.7")
+	require.NoError(t, err, "a cached document needs no fetch")
+
+	_, err = r.resolve(ctx, "https://example.com/junk/other", "203.0.113.5")
+	require.ErrorIs(t, err, errCIMD)
+	require.NotErrorIs(t, err, errCIMDBusy, "another address has its own budget")
+	require.EqualValues(t, 4, d.requests.Load())
+
+	clock = clock.Add(time.Minute)
+	_, err = r.resolve(ctx, "https://example.com/junk/later", "198.51.100.7")
+	require.NotErrorIs(t, err, errCIMDBusy, "a minute later the address may fetch again")
+	require.EqualValues(t, 5, d.requests.Load())
+}
+
+// Behaviour: in the browser the limit is a 429, not a fetch.
+func TestTooManyFetchesAnswer429(t *testing.T) {
+	d := newDocServer(t)
+	_, app, _, _ := newCIMDTestServer(t, d, func(c *CIMDConfig) { c.FetchesPerIP = 2 })
+	for i := 0; i < 2; i++ {
+		q, _ := cimdQuery(fmt.Sprintf("https://example.com/junk/%d", i), testRedirect)
+		require.Equal(t, fiber.StatusBadRequest, getAuthorize(t, app, q).StatusCode)
+	}
+	q, _ := cimdQuery("https://example.com/junk/x", testRedirect)
+	require.Equal(t, fiber.StatusTooManyRequests, getAuthorize(t, app, q).StatusCode)
+	require.EqualValues(t, 2, d.requests.Load())
+}
+
+// The defaults: failures remembered for a minute, ten fetches a minute an
+// address.
+func TestCIMDLimitDefaults(t *testing.T) {
+	r, err := newCIMDResolver(&CIMDConfig{AllowedHosts: []string{cimdHost}, HTTPClient: http.DefaultClient}, nil)
+	require.NoError(t, err)
+	require.Equal(t, time.Minute, r.failTTL)
+	require.Equal(t, 10, r.limiter.max)
+	require.Equal(t, time.Minute, r.limiter.window)
 }
 
 func TestNewRefusesCIMDWithoutAClient(t *testing.T) {
