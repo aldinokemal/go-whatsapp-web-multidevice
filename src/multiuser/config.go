@@ -4,6 +4,7 @@ package multiuser
 
 import (
 	"errors"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,6 +30,10 @@ type Settings struct {
 	// MCPClientHosts are the exact hosts whose client ID metadata documents
 	// are accepted (WTF_MCP_CLIENT_HOSTS, default claude.ai: Claude only).
 	MCPClientHosts []string
+	// CIMDHTTPClient fetches client ID metadata documents. Nil (always, in
+	// production; no setting reaches it) means the netguard client. Tests set
+	// it to reach a local document server, which netguard rightly refuses.
+	CIMDHTTPClient *http.Client
 }
 
 // MCPResourceURL is the MCP endpoint's public address. The OAuth issuer,

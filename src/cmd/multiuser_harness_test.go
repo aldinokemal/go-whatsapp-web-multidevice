@@ -24,6 +24,10 @@ const muTestPublicURL = "https://wtf.test"
 // then the upstream REST routes, device group last. Devices d_alice and d_bob
 // exist; nobody owns them yet. mcpDeps are the usecases behind the MCP tools.
 func newMultiUserApp(t *testing.T, mcpDeps uimcp.Deps) (*fiber.App, *multiuser.Runtime, *whatsapp.DeviceManager) {
+	return newMultiUserAppWith(t, mcpDeps, nil)
+}
+
+func newMultiUserAppWith(t *testing.T, mcpDeps uimcp.Deps, mod func(*multiuser.Settings)) (*fiber.App, *multiuser.Runtime, *whatsapp.DeviceManager) {
 	t.Helper()
 	savedMU, savedDB, savedMedia := config.MultiUserEnabled, config.McpOAuthDBURI, config.PathMedia
 	t.Cleanup(func() { config.MultiUserEnabled, config.McpOAuthDBURI, config.PathMedia = savedMU, savedDB, savedMedia })
@@ -39,6 +43,9 @@ func newMultiUserApp(t *testing.T, mcpDeps uimcp.Deps) (*fiber.App, *multiuser.R
 	s := multiuser.Settings{Enabled: true, DBURI: "file:" + filepath.Join(t.TempDir(), "a.db"), ProductName: "WTF",
 		PublicURL: muTestPublicURL, SessionSecret: []byte("0123456789abcdef0123456789abcdef"), Superadmins: map[string]bool{},
 		MCPEnabled: true, MCPClientHosts: []string{"claude.ai"}}
+	if mod != nil {
+		mod(&s)
+	}
 	rt, err := multiuser.Setup(s, dm, usecase.NewDeviceService(dm, nil), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rt.Close() })

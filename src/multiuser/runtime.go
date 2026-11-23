@@ -242,6 +242,12 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 
 	if s.MCPEnabled {
 		authn := &mcpauth.Authenticator{Auth: am, Store: st}
+		// The client_id is attacker-chosen: fetch it only through the
+		// outbound guard, never following a redirect.
+		cimdClient := netguard.NewClient(netguard.Options{Timeout: 10 * time.Second, MaxRedirects: 0, MaxBody: 64 << 10})
+		if s.CIMDHTTPClient != nil {
+			cimdClient = s.CIMDHTTPClient
+		}
 		srv, err := oauth.New(oauth.Config{
 			IssuerURL:   s.PublicURL,
 			ResourceURL: s.MCPResourceURL(),
@@ -250,10 +256,8 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 			DisableDCR:  true,
 			CIMD: &oauth.CIMDConfig{
 				AllowedHosts: s.MCPClientHosts,
-				// The client_id is attacker-chosen: fetch it only through
-				// the outbound guard, never following a redirect.
-				HTTPClient: netguard.NewClient(netguard.Options{Timeout: 10 * time.Second, MaxRedirects: 0, MaxBody: 64 << 10}),
-				UserAgent:  userAgentToken(s.ProductName) + "-connector-check/1",
+				HTTPClient:   cimdClient,
+				UserAgent:    userAgentToken(s.ProductName) + "-connector-check/1",
 			},
 		}, nil)
 		if err != nil {
