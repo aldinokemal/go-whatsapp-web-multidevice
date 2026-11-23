@@ -124,6 +124,11 @@ type IChatStorageRepository interface {
 	TruncateAllChats() error
 	TruncateAllDataWithLogging(logPrefix string) error
 	DeleteDeviceData(deviceID string) error
+	// WTF: PurgeMessagesBefore deletes, across every device, messages whose
+	// own timestamp is strictly before cutoff, their dependent rows, and chats
+	// left empty whose last message time is also before cutoff. A zero cutoff
+	// is an error and deletes nothing.
+	PurgeMessagesBefore(cutoff time.Time) (PurgeResult, error)
 
 	// Device registry operations
 	SaveDeviceRecord(record *DeviceRecord) error
