@@ -1,0 +1,34 @@
+{{/* link_modal.html is the htmx fragment returned by POST /ui/devices and
+     POST /ui/devices/:id/pair-code: the body of the shared "Link WhatsApp"
+     dialog. It is also used, via the shared "link_fragment" sub-template,
+     to re-render the same content inline inside a per-device dialog on
+     home.html, so an unlinked device can be re-opened without another
+     round trip to the server. */}}
+{{define "link_modal.html"}}{{template "link_fragment" (dict "ID" .Data.ID "Error" .Data.Error "PairCode" .Data.PairCode "CSRF" .CSRF)}}{{end}}
+
+{{define "link_fragment"}}
+{{if .Error}}
+<p class="form-error" role="alert">{{.Error}}</p>
+{{else if .PairCode}}
+<p>On your phone: WhatsApp, Settings, Linked devices, Link with phone number, then enter:</p>
+<p class="pair-code">{{.PairCode}}</p>
+{{else}}
+<img class="qr-code" src="/ui/devices/{{.ID}}/qr.png" alt="QR code to link WhatsApp" width="280" height="280"
+     hx-get="/ui/devices/{{.ID}}/qr.png" hx-trigger="every 20s" hx-swap="none">
+<ol class="steps">
+  <li>Open WhatsApp on your phone</li>
+  <li>Tap Settings, then Linked devices</li>
+  <li>Tap Link a device, then scan this code</li>
+</ol>
+<details class="pair-alt">
+  <summary>Use a phone number instead</summary>
+  <form hx-post="/ui/devices/{{.ID}}/pair-code" hx-target="closest .link-body" hx-swap="innerHTML"
+        hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}'>
+    <label for="pair-phone-{{.ID}}">WhatsApp number</label>
+    <input id="pair-phone-{{.ID}}" type="tel" name="phone" placeholder="+1 555 555 0100" required>
+    <button type="submit" class="btn btn-secondary">Get code</button>
+  </form>
+</details>
+{{end}}
+<div hx-get="/ui/devices/{{.ID}}/status" hx-trigger="every 3s" hx-swap="none"></div>
+{{end}}

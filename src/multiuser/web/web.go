@@ -29,8 +29,28 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
-	"ago": humanAgo,
+	"ago":  humanAgo,
+	"dict": templateDict,
 }).ParseFS(templatesFS, "templates/*.html"))
+
+// templateDict builds a map[string]any from alternating string keys and
+// values, so a template can pass a small bundle of named fields into a
+// shared sub-template (used to reuse the device-linking fragment between
+// home.html and link_modal.html) without a dedicated Go type for each call site.
+func templateDict(pairs ...any) (map[string]any, error) {
+	if len(pairs)%2 != 0 {
+		return nil, errors.New("dict: odd number of arguments")
+	}
+	m := make(map[string]any, len(pairs)/2)
+	for i := 0; i < len(pairs); i += 2 {
+		key, ok := pairs[i].(string)
+		if !ok {
+			return nil, errors.New("dict: keys must be strings")
+		}
+		m[key] = pairs[i+1]
+	}
+	return m, nil
+}
 
 const csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
