@@ -101,10 +101,16 @@ func Mount(app *fiber.App, d Deps) {
 		if err != nil {
 			return fiber.ErrNotFound
 		}
-		c.Set(fiber.HeaderCacheControl, "public, max-age=3600")
-		c.Type(strings.TrimPrefix(extOf(name), "."))
+		cache := "public, max-age=3600"
+		if strings.HasPrefix(name, "brand/") {
+			cache = brandCache
+		}
+		c.Set(fiber.HeaderCacheControl, cache)
+		c.Set("X-Content-Type-Options", "nosniff")
+		c.Set(fiber.HeaderContentType, staticType(name))
 		return c.Send(b)
 	})
+	mountPWA(app, d)
 	mountSignin(app, d)
 	mountDevices(app, d) // Task 10
 	mountAccount(app, d) // Task 11
