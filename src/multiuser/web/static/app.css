@@ -1191,7 +1191,9 @@ main:focus { outline: none; }
 @media (max-width: 600px) {
   .list-tools { flex-direction: column; align-items: stretch; }
   .list-search { max-width: none; flex: none; }
-  .switcher-nav .switcher-select { min-width: 0; }
+  /* One width for every page's switcher on a phone: the full column. */
+  .switcher-nav { align-self: stretch; width: 100%; }
+  .switcher-nav .switcher-select { min-width: 0; width: 100%; }
 }
 
 /* Capacity tiles: a tile that counts a list opens it (the whole tile is the

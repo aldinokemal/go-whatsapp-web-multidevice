@@ -94,12 +94,15 @@ one `<select>` below 600px (house rule B4).
 | `.nudge` (`data-nudge`, `data-dismiss`) | A dismissible suggestion card (add a passkey); dismissal is remembered per browser. |
 | `.row-flash` | In-row feedback (Reconnecting…, Reconnected., Couldn't reconnect). |
 | `confirm` with `Items`, `Typed`/`TypedName`, `Busy`, `HX`, `Primary` | `Items` lists plainly what goes; `Typed` asks for typed confirmation (Delete account: the number or DELETE) and posts with htmx, an error coming back as the form (`confirm_form`); `Busy` is the button's words while it runs; `HX` posts into the opener's `data-dialog-target` row and closes on success; `Primary` is a confirmation that is not destructive (Let in). A danger button outside a dialog only ever opens one (shape test). |
-| `{{template "nav_switcher" (dict "Label" … "ID" … "Items" []switchItem)}}` | An either/or choice that navigates (Waiting / Declined, All / Active / Disabled): links on a wide screen, one select on a phone. |
+| `{{template "nav_switcher" (dict "Label" … "ID" … "Items" []switchItem)}}` | An either/or choice that navigates (Waiting / Declined, All / Active / Disabled): links on a wide screen, one full-width select on a phone, the same on every page (shape test). |
+| `.trow-hl` | The row a link was for: the user just added (Done after Add user opens `/admin/users?new=<id>`, the row pinned first) or the number searched from Activity (`/admin/users?q=<digits>#user-<id>`). |
+| `data-reload-on-close="<path>"` | Closing the dialog goes there (a bare attribute reloads the page). |
 | `{{template "pager" pager}}` and `sort_header` | Previous / Next with "51–100 of 120", filters kept; a sortable column header (ascending, then descending, `aria-sort`). |
 | `.list-tools` > `.list-search` (`data-typeahead`) | A search that types ahead: app.js waits 300ms, from two digits; the form's `hx-sync` drops a stale request; no Apply button. |
 | `.nav-count` | A count beside a menu entry (people waiting); a dot on the rail. |
 | `stat` with `Href`, `Warn`, `Note` | A tile that opens the list it counts (the whole tile is the link), and one near its limit. |
-| `.wl-table` rows (`waitlist_row`) | Admin › Waitlist: position, number, joined, status; after an action the row says what happened. |
+| `.wl-table` rows (`waitlist_row`) | Admin › Waitlist: position, number, joined, status; after an action the row says what happened, and the page head's count, the switcher and the menu's count are redrawn out of band. |
+| An admin's Delete account | On a disabled user's ⋯ menu (last, red; never your own row, hidden for the sign-in number's owner): the same confirm as Account's, typing their number. |
 
 Phone numbers are shown with the `{{phone}}` template func: `+`, country code,
 then digit groups (`+27 82 555 0100`); inputs and links keep the raw value.
