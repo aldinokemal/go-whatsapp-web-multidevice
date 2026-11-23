@@ -44,3 +44,6 @@ docs/superpowers/
 # whatsmeow store (legacy path)
 src/whatsapp/
 .mcp.json
+
+# UI preview site and screenshots (src/multiuser/web/preview_test.go)
+.preview/

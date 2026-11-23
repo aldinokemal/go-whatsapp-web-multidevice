@@ -32,7 +32,8 @@ func (d Deps) waLink(c fiber.Ctx) string {
 // and handed to the template as already-safe HTML rather than as a plain
 // string substituted into a href="" attribute.
 func waLinkButton(link string) template.HTML {
-	return template.HTML(`<a class="btn btn-primary" href="` + html.EscapeString(link) + `">Continue with WhatsApp</a>`)
+	glyph, _ := icon("message-circle")
+	return template.HTML(`<a class="btn btn-primary btn-lg btn-block" href="` + html.EscapeString(link) + `">` + string(glyph) + `<span>Continue with WhatsApp</span></a>`)
 }
 
 func mountSignin(app *fiber.App, d Deps) {

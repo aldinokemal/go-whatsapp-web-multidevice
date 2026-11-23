@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func get(t *testing.T, e *env, path string) (*http.Response, string) {
+func getPublic(t *testing.T, e *env, path string) (*http.Response, string) {
 	t.Helper()
 	return e.do(t, httptest.NewRequest(http.MethodGet, path, nil))
 }
 
 func TestManifestIsPublicValidAndUsesProductName(t *testing.T) {
 	e := newEnvWith(t, "Acme Chat")
-	resp, body := get(t, e, "/manifest.webmanifest")
+	resp, body := getPublic(t, e, "/manifest.webmanifest")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, resp.Header.Get("Content-Type"), "application/manifest+json")
 
@@ -44,7 +44,7 @@ func TestManifestIsPublicValidAndUsesProductName(t *testing.T) {
 		has192 = has192 || (sizes == "192x192" && purpose != "maskable")
 		has512 = has512 || (sizes == "512x512" && purpose != "maskable")
 		hasMaskable = hasMaskable || purpose == "maskable"
-		r, _ := get(t, e, src)
+		r, _ := getPublic(t, e, src)
 		require.Equal(t, http.StatusOK, r.StatusCode, src)
 		require.Equal(t, "image/png", r.Header.Get("Content-Type"), src)
 	}
@@ -65,13 +65,13 @@ func newEnvWith(t *testing.T, name string) *env {
 
 func TestManifestDefaultsProductNameToWTF(t *testing.T) {
 	e := newEnv(t)
-	_, body := get(t, e, "/manifest.webmanifest")
+	_, body := getPublic(t, e, "/manifest.webmanifest")
 	require.Contains(t, body, `"name":"WTF"`)
 }
 
 func TestServiceWorkerIsPublicJSAndNeverCached(t *testing.T) {
 	e := newEnv(t)
-	resp, body := get(t, e, "/sw.js")
+	resp, body := getPublic(t, e, "/sw.js")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, resp.Header.Get("Content-Type"), "javascript")
 	require.Contains(t, resp.Header.Get("Cache-Control"), "no-cache")
@@ -87,7 +87,7 @@ func TestServiceWorkerIsPublicJSAndNeverCached(t *testing.T) {
 
 func TestOfflinePageIsPublicAndOnBrand(t *testing.T) {
 	e := newEnv(t)
-	resp, body := get(t, e, "/offline")
+	resp, body := getPublic(t, e, "/offline")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/html")
 	require.Contains(t, body, "page page-centered")
@@ -99,17 +99,17 @@ func TestOfflinePageIsPublicAndOnBrand(t *testing.T) {
 
 func TestRootFaviconRobotsAndAppleIconArePublic(t *testing.T) {
 	e := newEnv(t)
-	resp, body := get(t, e, "/favicon.ico")
+	resp, body := getPublic(t, e, "/favicon.ico")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Equal(t, "image/x-icon", resp.Header.Get("Content-Type"))
 	require.Equal(t, []byte{0, 0, 1, 0}, []byte(body[:4]), "ICO header")
 
-	resp, body = get(t, e, "/robots.txt")
+	resp, body = getPublic(t, e, "/robots.txt")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, resp.Header.Get("Content-Type"), "text/plain")
 	require.Contains(t, body, "Disallow: /")
 
-	resp, _ = get(t, e, "/apple-touch-icon.png")
+	resp, _ = getPublic(t, e, "/apple-touch-icon.png")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Equal(t, "image/png", resp.Header.Get("Content-Type"))
 }
@@ -124,7 +124,7 @@ func TestStaticContentTypes(t *testing.T) {
 		"/ui/static/app.js":             "javascript",
 		"/ui/static/sw-register.js":     "javascript",
 	} {
-		resp, _ := get(t, e, path)
+		resp, _ := getPublic(t, e, path)
 		require.Equal(t, http.StatusOK, resp.StatusCode, path)
 		require.Contains(t, resp.Header.Get("Content-Type"), want, path)
 		require.Equal(t, "nosniff", resp.Header.Get("X-Content-Type-Options"), path)
@@ -132,7 +132,7 @@ func TestStaticContentTypes(t *testing.T) {
 	require.Equal(t, "font/woff2", staticType("fonts/x.woff2"))
 	require.Equal(t, "application/manifest+json", staticType("a.webmanifest"))
 	require.Contains(t, staticType("a.txt"), "text/plain")
-	resp, _ := get(t, e, "/ui/static/brand/mark.svg")
+	resp, _ := getPublic(t, e, "/ui/static/brand/mark.svg")
 	require.Contains(t, resp.Header.Get("Cache-Control"), "max-age=604800")
 }
 
@@ -141,10 +141,10 @@ func TestPWARoutesAreNotMachinePathsAndExistingRoutesUnaffected(t *testing.T) {
 		require.False(t, IsMachinePath(p), p)
 	}
 	e := newEnv(t)
-	resp, _ := get(t, e, "/signin")
+	resp, _ := getPublic(t, e, "/signin")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	resp, _ = get(t, e, "/ui/static/htmx.min.js")
+	resp, _ = getPublic(t, e, "/ui/static/htmx.min.js")
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	resp, _ = get(t, e, "/nope-nothing")
+	resp, _ = getPublic(t, e, "/nope-nothing")
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode) // gated API catch-all, as before
 }

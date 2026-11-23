@@ -28,10 +28,39 @@ var templatesFS embed.FS
 //go:embed static/*
 var staticFS embed.FS
 
+//go:embed icons/*.svg
+var iconsFS embed.FS
+
 var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
-	"ago":  humanAgo,
-	"dict": templateDict,
+	"ago":   humanAgo,
+	"dict":  templateDict,
+	"icon":  icon,
+	"phone": displayPhone,
+	"since": func(t time.Time) string { return humanAgo(&t) },
 }).ParseFS(templatesFS, "templates/*.html"))
+
+// icon renders one of the vendored Lucide icons (ISC licence, icons/LICENSE-lucide.txt)
+// as inline SVG, so it inherits currentColor and needs no extra request. The
+// icon is decorative: the control around it carries the accessible name. An
+// unknown name is an error, so a typo fails the render (and the tests) rather
+// than drawing nothing.
+func icon(name string) (template.HTML, error) {
+	body, err := iconsFS.ReadFile("icons/" + name + ".svg")
+	if err != nil {
+		return "", fmt.Errorf("icon %q: %w", name, err)
+	}
+	return template.HTML(`<svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">` +
+		string(body) + `</svg>`), nil
+}
+
+// displayPhone shows a stored number the way people write it: with its
+// leading "+". WhatsApp device numbers are stored as bare digits.
+func displayPhone(p string) string {
+	if p == "" || strings.HasPrefix(p, "+") {
+		return p
+	}
+	return "+" + p
+}
 
 // templateDict builds a map[string]any from alternating string keys and
 // values, so a template can pass a small bundle of named fields into a
@@ -73,12 +102,13 @@ type page struct {
 	User       *store.User
 	Superadmin bool
 	CSRF       string
+	Path       string // the request path, for marking the current menu entry
 	Data       any
 }
 
 func (d Deps) render(c fiber.Ctx, status int, name, title string, data any) error {
 	u, _ := auth.UserFrom(c.Context())
-	p := page{Product: d.ProductName, Title: title, User: u, Superadmin: d.Auth.IsSuperadmin(u), CSRF: d.Auth.CSRFToken(c), Data: data}
+	p := page{Product: d.ProductName, Title: title, User: u, Superadmin: d.Auth.IsSuperadmin(u), CSRF: d.Auth.CSRFToken(c), Path: c.Path(), Data: data}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, name, p); err != nil {
 		return err

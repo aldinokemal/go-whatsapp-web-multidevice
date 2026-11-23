@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/gofiber/fiber/v3"
 )
@@ -24,7 +25,13 @@ func mountDevices(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		return d.render(c, fiber.StatusOK, "home.html", "My WhatsApp", map[string]any{"Devices": list})
+		connected := 0
+		for _, dev := range list {
+			if dev.PhoneNumber != "" && dev.State == domainDevice.DeviceStateLoggedIn {
+				connected++
+			}
+		}
+		return d.render(c, fiber.StatusOK, "home.html", "My WhatsApp", map[string]any{"Devices": list, "Connected": connected})
 	})
 
 	app.Post("/ui/devices", page, csrf, func(c fiber.Ctx) error {

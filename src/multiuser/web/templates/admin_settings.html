@@ -1,39 +1,55 @@
-{{define "admin_settings.html"}}{{template "head" .}}
-<main id="main" tabindex="-1" class="page">
-  <div class="page-header">
-    <h1>Settings</h1>
+{{define "admin_settings.html"}}{{template "head" .}}{{template "app_start" .}}
+  <div class="page-head">
+    <h1 class="page-title">Settings</h1>
+    <p class="page-sub">The sign-in number and how the server is doing.</p>
   </div>
 
-  <p class="form-error" role="alert">{{.Data.Error}}</p>
+  {{if .Data.Error}}<p class="form-error" role="alert">{{.Data.Error}}</p>{{end}}
 
-  <div class="card">
-    <h2>Service number</h2>
-    <p>The WhatsApp number that replies to sign-in requests. Pick one of your own linked numbers.</p>
+  <section class="card" aria-labelledby="service-title">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title" id="service-title">Service number</h2>
+        <p class="card-sub">The WhatsApp number that replies to sign-in requests. Pick one of your own linked numbers.</p>
+      </div>
+    </div>
     {{if .Data.Devices}}
     <form method="post" action="/admin/settings/service-number" class="service-number-form">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <label for="service-device">Number</label>
-      <select id="service-device" name="device_id" class="field-select">
-        {{range .Data.Devices}}
-        <option value="{{.ID}}" {{if eq .ID $.Data.ServiceDeviceID}}selected{{end}}>{{if .DisplayName}}{{.DisplayName}}{{else}}{{.PhoneNumber}}{{end}}</option>
-        {{end}}
-      </select>
+      <div class="field">
+        <label class="label" for="service-device">Number</label>
+        <div class="select-wrap">
+          <select id="service-device" name="device_id" class="input field-select">
+            {{range .Data.Devices}}
+            <option value="{{.ID}}" {{if eq .ID $.Data.ServiceDeviceID}}selected{{end}}>{{if .DisplayName}}{{.DisplayName}} ({{phone .PhoneNumber}}){{else}}{{phone .PhoneNumber}}{{end}}</option>
+            {{end}}
+          </select>
+          {{icon "chevron-down"}}
+        </div>
+      </div>
       <button type="submit" class="btn btn-primary">Save</button>
     </form>
     {{else}}
-    <p class="empty-state">Link a WhatsApp number of your own on <a href="/">My WhatsApp</a> first.</p>
+    <div class="empty empty-inset">
+      <span class="empty-art empty-art-sm" aria-hidden="true">{{icon "smartphone"}}</span>
+      <p class="empty-text">Link a WhatsApp number of your own on <a href="/">My WhatsApp</a> first.</p>
+    </div>
     {{end}}
-  </div>
+  </section>
 
-  <div class="card">
-    <h2>Server</h2>
-    <dl class="stat-list">
-      <div class="stat"><dt>Memory in use</dt><dd>{{.Data.AllocMB}} MB</dd></div>
-      <div class="stat"><dt>Memory reserved</dt><dd>{{.Data.SysMB}} MB</dd></div>
-      <div class="stat"><dt>Goroutines</dt><dd>{{.Data.Goroutines}}</dd></div>
-      <div class="stat"><dt>Storage used</dt><dd>{{.Data.DiskMB}} MB</dd></div>
-      <div class="stat"><dt>Linked phones (all users)</dt><dd>{{.Data.LinkedTotal}}</dd></div>
+  <section aria-labelledby="server-title">
+    <h2 class="section-title" id="server-title">Server</h2>
+    <dl class="stats">
+      {{template "stat" (dict "Icon" "memory-stick" "Label" "Memory in use" "Value" .Data.AllocMB "Unit" "MB")}}
+      {{template "stat" (dict "Icon" "server" "Label" "Memory reserved" "Value" .Data.SysMB "Unit" "MB")}}
+      {{template "stat" (dict "Icon" "activity" "Label" "Goroutines" "Value" .Data.Goroutines "Unit" "")}}
+      {{template "stat" (dict "Icon" "hard-drive" "Label" "Storage used" "Value" .Data.DiskMB "Unit" "MB")}}
+      {{template "stat" (dict "Icon" "smartphone" "Label" "Linked phones (all users)" "Value" .Data.LinkedTotal "Unit" "")}}
     </dl>
-  </div>
-</main>
-{{template "foot" .}}{{end}}
+  </section>
+{{template "app_end" .}}{{template "foot" .}}{{end}}
+
+{{define "stat"}}<div class="stat">
+  <dt><span class="stat-icon" aria-hidden="true">{{icon .Icon}}</span>{{.Label}}</dt>
+  <dd><span class="stat-value">{{.Value}}</span>{{if .Unit}}<span class="stat-unit">{{.Unit}}</span>{{end}}</dd>
+</div>{{end}}
