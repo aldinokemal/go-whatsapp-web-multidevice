@@ -29,11 +29,11 @@
     {{if .Data.Passkeys}}
     <ul class="rows rows-flush" role="list">
       {{range .Data.Passkeys}}
-      <li class="row">
+      <li class="row row-compact">
         <span class="row-icon" aria-hidden="true">{{icon "key-round"}}</span>
         <div class="row-main">
           <p class="row-title">{{.Name}}</p>
-          <p class="row-sub">Added {{.Added}} <span aria-hidden="true">&middot;</span> Last used {{.LastUsed}}</p>
+          <p class="row-sub"><span class="row-sub-part">Added {{.Added}}</span><span class="row-sub-part">Last used {{.LastUsed}}</span></p>
         </div>
         <div class="row-actions">
           <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="remove-passkey-{{.CredentialID}}">Remove</button>

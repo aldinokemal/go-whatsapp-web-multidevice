@@ -3,6 +3,11 @@
   <h1 class="auth-title">Sign in to {{.Product}}</h1>
   {{if .Data.WALink}}
   <p class="auth-sub">Send us a WhatsApp message and we'll reply with a sign-in link.</p>
+  <ol class="steps auth-steps">
+    <li>Tap Continue with WhatsApp</li>
+    <li>Send the message that opens</li>
+    <li>Tap the sign-in link we reply with</li>
+  </ol>
   <div class="auth-actions">
     {{.Data.WALinkButton}}
   </div>

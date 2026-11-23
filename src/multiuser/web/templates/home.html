@@ -1,7 +1,7 @@
 {{define "home.html"}}{{template "head" .}}{{template "app_start" .}}
   <div class="page-head">
     <h1 class="page-title">My WhatsApp</h1>
-    <div class="page-actions">{{template "link_button" .}}</div>
+    {{if .Data.Devices}}<div class="page-actions">{{template "link_button" .}}</div>{{end}}
     <p class="page-sub">{{if .Data.Devices}}{{.Data.Connected}} of {{len .Data.Devices}} connected{{else}}Your linked WhatsApp numbers.{{end}}</p>
   </div>
 
@@ -49,14 +49,14 @@
   <span class="row-icon row-icon-ok" aria-hidden="true">{{icon "smartphone"}}</span>
   <div class="row-main">
     <p class="row-title">{{if $d.DisplayName}}{{$d.DisplayName}}{{else}}{{phone $d.PhoneNumber}}{{end}}</p>
-    <p class="row-sub">{{if $d.DisplayName}}{{phone $d.PhoneNumber}}{{if not $d.CreatedAt.IsZero}} <span aria-hidden="true">&middot;</span> {{end}}{{end}}{{if not $d.CreatedAt.IsZero}}Added {{since $d.CreatedAt}}{{end}}</p>
+    <p class="row-sub">{{if $d.DisplayName}}<span class="row-sub-part">{{phone $d.PhoneNumber}}</span>{{end}}{{if not $d.CreatedAt.IsZero}}<span class="row-sub-part">Added {{since $d.CreatedAt}}</span>{{end}}</p>
   </div>
   <span class="pill pill-ok">Connected</span>
   {{else}}
   <span class="row-icon row-icon-warn" aria-hidden="true">{{icon "smartphone"}}</span>
   <div class="row-main">
     <p class="row-title">{{if $d.DisplayName}}{{$d.DisplayName}}{{else}}{{phone $d.PhoneNumber}}{{end}}</p>
-    <p class="row-sub">{{if $d.DisplayName}}{{phone $d.PhoneNumber}}{{if not $d.CreatedAt.IsZero}} <span aria-hidden="true">&middot;</span> {{end}}{{end}}{{if not $d.CreatedAt.IsZero}}Added {{since $d.CreatedAt}}{{end}}</p>
+    <p class="row-sub">{{if $d.DisplayName}}<span class="row-sub-part">{{phone $d.PhoneNumber}}</span>{{end}}{{if not $d.CreatedAt.IsZero}}<span class="row-sub-part">Added {{since $d.CreatedAt}}</span>{{end}}</p>
   </div>
   <span class="pill pill-warn">Not connected</span>
   {{end}}

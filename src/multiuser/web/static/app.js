@@ -323,6 +323,26 @@
     });
   });
 
+  // Until WhatsApp has produced a code, the QR image fails to load: show a
+  // spinner in its frame instead of a broken image. The 20s poll retries.
+  document.addEventListener("error", function (event) {
+    var img = event.target;
+    if (img && img.hasAttribute && img.hasAttribute("data-qr-refresh") && img.parentElement) {
+      img.parentElement.classList.add("is-loading");
+    }
+  }, true);
+  // An image that already failed before this script ran (deferred) gets the
+  // same treatment.
+  document.querySelectorAll("img[data-qr-refresh]").forEach(function (img) {
+    if (img.complete && img.naturalWidth === 0 && img.parentElement) img.parentElement.classList.add("is-loading");
+  });
+  document.addEventListener("load", function (event) {
+    var img = event.target;
+    if (img && img.hasAttribute && img.hasAttribute("data-qr-refresh") && img.parentElement) {
+      img.parentElement.classList.remove("is-loading");
+    }
+  }, true);
+
   document.addEventListener("click", function (event) {
     var loginBtn = event.target.closest("[data-passkey-login]");
     if (loginBtn) {

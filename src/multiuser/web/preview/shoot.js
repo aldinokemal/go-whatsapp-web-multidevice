@@ -67,6 +67,7 @@ function serve() {
             for (const [sel, text] of Object.entries(set)) document.querySelectorAll(sel).forEach((el) => { el.textContent = text; });
           }, s.set);
         }
+        if (s.attr) await page.evaluate((a) => document.documentElement.setAttribute(a, ""), s.attr);
         if (s.dialog) {
           await page.evaluate((id) => {
             // Open directly: clicking the real opener would fire its htmx

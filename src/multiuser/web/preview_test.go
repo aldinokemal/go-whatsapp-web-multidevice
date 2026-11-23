@@ -35,6 +35,7 @@ type previewShot struct {
 	Page   string            `json:"page"`
 	Dialog string            `json:"dialog,omitempty"`
 	Set    map[string]string `json:"set,omitempty"` // CSS selector -> text
+	Attr   string            `json:"attr,omitempty"` // attribute set on <html>, e.g. data-nav-open
 }
 
 type previewSite struct {
@@ -184,12 +185,17 @@ func TestPreviewSite(t *testing.T) {
 	p.write("home", home)
 	p.shot(previewShot{Name: "home", Page: "home"})
 	p.shot(previewShot{Name: "home-unlink-dialog", Page: "home", Dialog: "remove-d_work"})
+	p.shot(previewShot{Name: "home-menu-open", Page: "home", Attr: "data-nav-open"})
+	p.shot(previewShot{Name: "home-rail", Page: "home", Attr: "data-rail"})
 
 	// The real AddDevice refusal (this user is at the limit) is the error state.
 	linkErr := htmxPost(t, e, admin, csrf, "/ui/devices", nil)
 	linkQR2 := tmplString(t, "link_modal.html", map[string]any{"ID": "d_new"})
 	p.write("home-link-qr", withDialogBody(home, linkQR2))
 	p.shot(previewShot{Name: "home-link-dialog", Page: "home-link-qr", Dialog: "link-dialog"})
+	// Before WhatsApp has produced a code the QR request fails: a spinner shows.
+	p.write("home-link-qr-loading", withDialogBody(home, strings.ReplaceAll(linkQR2, "/ui/devices/d_new/qr.png", "/ui/devices/d_pending/qr.png")))
+	p.shot(previewShot{Name: "home-link-qr-loading", Page: "home-link-qr-loading", Dialog: "link-dialog"})
 	p.write("home-link-pair-form", withDialogBody(home, strings.Replace(linkQR2, "<details class=\"pair-alt\"", "<details class=\"pair-alt\" open", 1)))
 	p.shot(previewShot{Name: "home-link-pair-form", Page: "home-link-pair-form", Dialog: "link-dialog"})
 	pair := htmxPost(t, e, admin, csrf, "/ui/devices/d_slot/pair-code", url.Values{"phone": {"+15555550142"}})
