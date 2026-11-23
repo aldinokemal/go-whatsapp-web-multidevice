@@ -11,8 +11,8 @@
     <div class="kv">
       <span class="row-icon" aria-hidden="true">{{icon "phone"}}</span>
       <div class="row-main">
-        <p class="row-sub">Phone</p>
-        <p class="row-title">{{.User.Phone}}</p>
+        <p class="row-sub">Phone number</p>
+        <p class="row-title">{{phone .User.Phone}}</p>
       </div>
     </div>
   </section>
@@ -29,11 +29,11 @@
     {{if .Data.Passkeys}}
     <ul class="rows rows-flush" role="list">
       {{range .Data.Passkeys}}
-      <li class="row row-compact">
+      <li class="row">
         <span class="row-icon" aria-hidden="true">{{icon "key-round"}}</span>
         <div class="row-main">
           <p class="row-title">{{.Name}}</p>
-          <p class="row-sub"><span class="row-sub-part">Added {{.Added}}</span><span class="row-sub-part">Last used {{.LastUsed}}</span></p>
+          <p class="row-sub"><span class="row-sub-part">Added {{.Added}}</span><span class="row-sub-part">{{if eq .LastUsed "never"}}Not used yet{{else}}Last used {{.LastUsed}}{{end}}</span></p>
         </div>
         <div class="row-actions">
           <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="remove-passkey-{{.CredentialID}}">Remove</button>
@@ -43,7 +43,7 @@
     </ul>
     {{range .Data.Passkeys}}
     {{template "confirm" (dict "ID" (printf "remove-passkey-%s" .CredentialID) "Action" (printf "/account/passkeys/%s/delete" .CredentialID) "CSRF" $.CSRF "Icon" "key-round"
-         "Title" "Remove this passkey?" "Body" (printf "\"%s\" will no longer be able to sign you in." .Name) "Button" "Remove")}}
+         "Title" (printf "Remove %s?" .Name) "Body" "This passkey will no longer be able to sign you in." "Button" "Remove")}}
     {{end}}
     {{else}}
     <div class="empty empty-inset">
@@ -51,6 +51,16 @@
       <p class="empty-text">No passkeys yet. Add one so you can sign in without WhatsApp.</p>
     </div>
     {{end}}
+  </section>
+
+  <section class="card" aria-labelledby="appearance-title">
+    <div class="card-head card-head-row">
+      <div>
+        <h2 class="card-title" id="appearance-title">Appearance</h2>
+        <p class="card-sub">Choose a theme for this browser.</p>
+      </div>
+      {{template "theme_switcher" "account"}}
+    </div>
   </section>
 
   <section class="card" aria-labelledby="sessions-title">

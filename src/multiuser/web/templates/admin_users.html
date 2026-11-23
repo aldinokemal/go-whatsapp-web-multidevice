@@ -1,6 +1,9 @@
 {{define "admin_users.html"}}{{template "head" .}}{{template "app_start" .}}
   <div class="page-head">
     <h1 class="page-title">Users</h1>
+    <div class="page-actions">
+      <button type="button" class="btn btn-primary" data-open-dialog="add-user">{{icon "user-plus"}}<span>Add user</span></button>
+    </div>
     <p class="page-sub list-count">{{len .Data.Rows}} user{{if ne (len .Data.Rows) 1}}s{{end}}</p>
   </div>
 
@@ -9,18 +12,19 @@
   {{if .Data.Rows}}
   <div class="table card card-flush" role="table" aria-label="Users">
     <div class="trow thead" role="row">
-      <span role="columnheader">Phone</span>
+      <span role="columnheader">Number</span>
       <span role="columnheader">Status</span>
-      <span role="columnheader" class="num">Linked phones</span>
+      <span role="columnheader" class="num">Linked numbers</span>
       <span role="columnheader">Last sign-in</span>
       <span role="columnheader" class="end"><span class="visually-hidden">Actions</span></span>
     </div>
     {{range .Data.Rows}}
     <div class="trow" role="row">
       <span role="cell" class="cell-user">
-        <span class="avatar{{if not .Active}} avatar-off{{end}}" aria-hidden="true">{{icon "user-round"}}</span>
-        <span class="cell-phone">{{.Phone}}</span>
+        <span class="row-icon{{if .Active}} row-icon-ok{{else}} row-icon-muted{{end}}" aria-hidden="true">{{icon "user-round"}}</span>
+        <span class="cell-phone">{{phone .Phone}}</span>
         {{if .IsSelf}}<span class="pill pill-brand">You</span>{{end}}
+        {{if .JustAdded}}<span class="pill pill-brand">Just added</span>{{end}}
       </span>
       <span role="cell" class="cell-status">
         {{if .Active}}<span class="pill pill-ok">Active</span>{{else}}<span class="pill pill-muted">Disabled</span>{{end}}
@@ -50,7 +54,7 @@
   </div>
   {{range .Data.Rows}}{{if .Active}}
   {{template "confirm" (dict "ID" (printf "disable-%s" .ID) "Action" (printf "/admin/users/%s/status" .ID) "CSRF" $.CSRF "Status" "disabled" "Icon" "user-x"
-       "Title" "Disable this user?" "Body" "They'll be signed out everywhere right away." "Button" "Disable")}}
+       "Title" (printf "Disable %s?" (phone .Phone)) "Body" "They'll be signed out everywhere right away." "Button" "Disable")}}
   {{end}}{{end}}
   {{else}}
   <div class="empty">
@@ -60,6 +64,16 @@
   {{end}}
 
   {{template "sheet" (dict "Title" "Sign-in link")}}
+
+  <dialog id="add-user" class="dialog dialog-sheet" aria-labelledby="add-user-title">
+    <div class="dialog-panel">
+      <div class="dialog-head">
+        <h2 class="dialog-title" id="add-user-title">Add user</h2>
+        <button type="button" class="icon-btn icon-btn-bare" data-close-dialog aria-label="Close">{{icon "x"}}</button>
+      </div>
+      <div id="add-user-body" class="link-body">{{template "add_user_form" (dict "CSRF" .CSRF)}}</div>
+    </div>
+  </dialog>
 {{template "app_end" .}}{{template "foot" .}}{{end}}
 
 {{/* signin_link.html is the htmx fragment POST /admin/users/:id/signin-link
@@ -71,10 +85,47 @@
 <p class="form-error" role="alert">{{.Data.Error}}</p>
 {{else}}
 <p class="dialog-text">Valid once, for 15 minutes. Send it to them yourself.</p>
+{{template "copy_link" (dict "ID" "signin-link-value" "Link" .Data.Link)}}
+{{end}}
+{{end}}
+
+{{define "copy_link"}}
 <div class="link-copy">
-  <input class="input input-mono" type="text" id="signin-link-value" value="{{.Data.Link}}" readonly aria-label="Sign-in link">
-  <button type="button" class="btn btn-primary" data-copy="signin-link-value">{{icon "copy"}}<span>Copy</span></button>
+  <input class="input input-mono" type="text" id="{{.ID}}" value="{{.Link}}" readonly aria-label="Sign-in link">
+  <button type="button" class="btn btn-primary" data-copy="{{.ID}}">{{icon "copy"}}<span>Copy</span></button>
 </div>
 <p class="copy-feedback" data-copy-feedback aria-live="polite"></p>
 {{end}}
+
+{{/* add_user.html is the htmx fragment POST /admin/users returns into
+     #add-user-body: the form again with its error and what was typed, or the
+     new user's one-time sign-in link. Closing the dialog after a success
+     reloads the list (data-reload-on-close), which shows the new row first. */}}
+{{define "add_user.html"}}
+{{if .Data.Link}}
+<div data-reload-on-close>
+  <p class="added-line">{{icon "circle-check-big"}}<span>{{phone .Data.Phone}} can now sign in.</span></p>
+  <p class="dialog-text">Send them this link. It works once, for 15 minutes.</p>
+  {{template "copy_link" (dict "ID" "new-user-link" "Link" .Data.Link)}}
+  <div class="dialog-foot"><button type="button" class="btn btn-secondary" data-close-dialog>Done</button></div>
+</div>
+{{else}}
+{{template "add_user_form" (dict "CSRF" .CSRF "Phone" .Data.Phone "Error" .Data.Error)}}
+{{end}}
+{{end}}
+
+{{define "add_user_form"}}
+<form class="add-user-form" hx-post="/admin/users" hx-target="#add-user-body" hx-swap="innerHTML"
+      hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}' hx-disabled-elt="find button[type=submit]">
+  <div class="field">
+    <label class="label" for="add-user-phone">WhatsApp number</label>
+    <input class="input" id="add-user-phone" type="tel" name="phone" inputmode="tel" autocomplete="off"
+           placeholder="+27 82 555 0100" value="{{.Phone}}" required{{if .Error}} aria-invalid="true" aria-describedby="add-user-error"{{end}}>
+  </div>
+  {{if .Error}}<p class="form-error" id="add-user-error" role="alert">{{.Error}}</p>{{end}}
+  <div class="dialog-foot">
+    <button type="button" class="btn btn-secondary" data-close-dialog>Cancel</button>
+    <button type="submit" class="btn btn-primary">Add user</button>
+  </div>
+</form>
 {{end}}

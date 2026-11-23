@@ -11,15 +11,17 @@
 <title>{{.Title}} &middot; {{.Product}}</title>
 <link rel="preload" href="/ui/static/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/ui/static/app.css">
-{{/* brand-head: favicon, manifest, theme-color */}}
+{{/* brand-head: favicon, manifest, theme-color. The two theme-color values
+     are the light and dark top-bar surfaces; boot.js pins both to one when a
+     theme is chosen instead of following the system. */}}
 <meta name="application-name" content="{{.Product}}">
 <meta name="description" content="Link your WhatsApp and use it from any device.">
 <link rel="icon" href="/ui/static/brand/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" data-theme-color="light">
+<meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)" data-theme-color="dark">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -28,7 +30,7 @@
 <meta property="og:site_name" content="{{.Product}}">
 <meta property="og:title" content="{{.Product}}">
 <meta property="og:description" content="Link your WhatsApp and use it from any device.">
-<meta property="og:image" content="/ui/static/brand/og-image.png">
+<meta property="og:image" content="{{.PublicURL}}/ui/static/brand/og-image.png">
 <script src="/ui/static/sw-register.js" defer></script>
 <script src="/ui/static/boot.js"></script>
 <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
@@ -75,10 +77,11 @@
       <div class="who">
         <span class="avatar" aria-hidden="true">{{icon "user-round"}}</span>
         <span class="who-text">
-          <span class="who-phone">{{.User.Phone}}</span>
+          <span class="who-phone">{{phone .User.Phone}}</span>
           <span class="who-role">{{if .Superadmin}}Admin{{else}}Member{{end}}</span>
         </span>
       </div>
+      <div class="sidebar-theme">{{template "theme_switcher" "nav"}}</div>
       <form method="post" action="/signout" class="signout-form">
         <input type="hidden" name="csrf" value="{{.CSRF}}">
         <button type="submit" class="nav-link nav-button" data-tip="Sign out">{{icon "log-out"}}<span class="nav-label">Sign out</span></button>
@@ -131,6 +134,29 @@
 </dialog>
 {{end}}
 
+{{/* theme_switcher is the System / Light / Dark choice (house rule B4: a row
+     of buttons, one select on a phone). The argument makes ids unique when
+     the page draws it twice (sidebar and Account). app.js applies and stores
+     the choice; boot.js restores it before paint. */}}
+{{define "theme_switcher"}}
+<div class="switcher" data-theme-switcher>
+  <div class="switcher-buttons" role="group" aria-label="Theme">
+    <button type="button" class="switcher-btn" data-theme-choice="system" aria-pressed="true">{{icon "monitor"}}<span>System</span></button>
+    <button type="button" class="switcher-btn" data-theme-choice="light" aria-pressed="false">{{icon "sun"}}<span>Light</span></button>
+    <button type="button" class="switcher-btn" data-theme-choice="dark" aria-pressed="false">{{icon "moon"}}<span>Dark</span></button>
+  </div>
+  <div class="switcher-select select-wrap">
+    <label class="visually-hidden" for="theme-{{.}}">Theme</label>
+    <select class="input" id="theme-{{.}}" data-theme-select>
+      <option value="system">System theme</option>
+      <option value="light">Light theme</option>
+      <option value="dark">Dark theme</option>
+    </select>
+    {{icon "chevron-down"}}
+  </div>
+</div>
+{{end}}
+
 {{/* sheet draws a content dialog with a title bar and close button; its body
      is filled by htmx into #link-dialog-body. */}}
 {{define "sheet"}}
@@ -140,7 +166,7 @@
       <h2 class="dialog-title" id="link-dialog-title">{{.Title}}</h2>
       <button type="button" class="icon-btn icon-btn-bare" data-close-dialog aria-label="Close">{{icon "x"}}</button>
     </div>
-    <div id="link-dialog-body" class="link-body" aria-live="polite"></div>
+    <div id="link-dialog-body" class="link-body"></div>
   </div>
 </dialog>
 {{end}}

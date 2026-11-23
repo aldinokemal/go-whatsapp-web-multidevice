@@ -7,9 +7,14 @@ import (
 	"strings"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/gofiber/fiber/v3"
 )
+
+// deviceLimitMessage is what a person sees at their linked-number limit; the
+// owners package's own error text is for logs and the API.
+const deviceLimitMessage = "You've linked as many numbers as you can. Unlink one to add another."
 
 // mountDevices registers "/" (My WhatsApp) and its htmx fragments: creating a
 // device, the QR image, the pairing-code fragment, status polling, reconnect
@@ -31,12 +36,23 @@ func mountDevices(app *fiber.App, d Deps) {
 				connected++
 			}
 		}
-		return d.render(c, fiber.StatusOK, "home.html", "My WhatsApp", map[string]any{"Devices": list, "Connected": connected})
+		// Every device row (linked or a half-linked slot) counts toward the
+		// owner's limit, exactly as owners.ScopedDevices.AddDevice counts it.
+		atLimit := false
+		if u, ok := userOf(c); ok && u.MaxDevices > 0 {
+			atLimit = len(list) >= u.MaxDevices
+		}
+		return d.render(c, fiber.StatusOK, "home.html", "My WhatsApp", map[string]any{
+			"Devices": list, "Connected": connected, "AtLimit": atLimit, "LimitMessage": deviceLimitMessage,
+		})
 	})
 
 	app.Post("/ui/devices", page, csrf, func(c fiber.Ctx) error {
 		dev, err := d.Devices.AddDevice(c.Context(), "", nil)
 		if err != nil {
+			if errors.Is(err, owners.ErrDeviceLimitReached) {
+				return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"Error": deviceLimitMessage})
+			}
 			var v pkgError.ValidationError
 			if errors.As(err, &v) {
 				return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"Error": v.Error()})

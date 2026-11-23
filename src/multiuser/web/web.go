@@ -37,6 +37,9 @@ var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
 	"icon":  icon,
 	"phone": displayPhone,
 	"since": func(t time.Time) string { return humanAgo(&t) },
+	// recent is true for a moment within the last ten minutes, for marking
+	// something "Just linked" / "Just added" from real timestamps.
+	"recent": func(t time.Time) bool { return !t.IsZero() && time.Since(t) < 10*time.Minute },
 }).ParseFS(templatesFS, "templates/*.html"))
 
 // icon renders one of the vendored Lucide icons (ISC licence, icons/LICENSE-lucide.txt)
@@ -53,13 +56,51 @@ func icon(name string) (template.HTML, error) {
 		string(body) + `</svg>`), nil
 }
 
-// displayPhone shows a stored number the way people write it: with its
-// leading "+". WhatsApp device numbers are stored as bare digits.
+// displayPhone shows a stored number the way people read it: "+", the
+// country code, then digit groups ("+27 82 555 0100", "+1 555 555 0142").
+// Stored values are E.164 ("+27...") for users and bare digits for WhatsApp
+// devices; anything that is not 8-15 digits is shown unchanged. Inputs and
+// links keep the raw value.
 func displayPhone(p string) string {
-	if p == "" || strings.HasPrefix(p, "+") {
+	digits := strings.TrimPrefix(p, "+")
+	if len(digits) < 8 || len(digits) > 15 || strings.Trim(digits, "0123456789") != "" {
 		return p
 	}
-	return "+" + p
+	cc := countryCodeLen(digits)
+	national := digits[cc:]
+	var groups []string
+	if digits[0] == '1' && len(national) == 10 { // NANP: 3-3-4
+		groups = []string{national[:3], national[3:6], national[6:]}
+	} else {
+		head, tail := national[:len(national)-4], national[len(national)-4:]
+		for len(head) > 4 {
+			groups = append([]string{head[len(head)-3:]}, groups...)
+			head = head[:len(head)-3]
+		}
+		if head != "" {
+			groups = append([]string{head}, groups...)
+		}
+		groups = append(groups, tail)
+	}
+	return "+" + digits[:cc] + " " + strings.Join(groups, " ")
+}
+
+// countryCodeLen is the length of the E.164 country code at the start of
+// digits: 1 for +1 and +7, 2 for the two-digit codes, 3 otherwise.
+func countryCodeLen(digits string) int {
+	switch digits[0] {
+	case '1', '7':
+		return 1
+	}
+	two := map[string]bool{"20": true, "27": true, "30": true, "31": true, "32": true, "33": true, "34": true, "36": true,
+		"39": true, "40": true, "41": true, "43": true, "44": true, "45": true, "46": true, "47": true, "48": true, "49": true,
+		"51": true, "52": true, "53": true, "54": true, "55": true, "56": true, "57": true, "58": true, "60": true, "61": true,
+		"62": true, "63": true, "64": true, "65": true, "66": true, "81": true, "82": true, "84": true, "86": true, "90": true,
+		"91": true, "92": true, "93": true, "94": true, "95": true, "98": true}
+	if two[digits[:2]] {
+		return 2
+	}
+	return 3
 }
 
 // templateDict builds a map[string]any from alternating string keys and
@@ -103,12 +144,13 @@ type page struct {
 	Superadmin bool
 	CSRF       string
 	Path       string // the request path, for marking the current menu entry
+	PublicURL  string // absolute base for links that leave the site (og:image)
 	Data       any
 }
 
 func (d Deps) render(c fiber.Ctx, status int, name, title string, data any) error {
 	u, _ := auth.UserFrom(c.Context())
-	p := page{Product: d.ProductName, Title: title, User: u, Superadmin: d.Auth.IsSuperadmin(u), CSRF: d.Auth.CSRFToken(c), Path: c.Path(), Data: data}
+	p := page{Product: d.ProductName, Title: title, User: u, Superadmin: d.Auth.IsSuperadmin(u), CSRF: d.Auth.CSRFToken(c), Path: c.Path(), PublicURL: strings.TrimRight(d.PublicURL, "/"), Data: data}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, name, p); err != nil {
 		return err

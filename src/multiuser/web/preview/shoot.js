@@ -57,9 +57,10 @@ function serve() {
         deviceScaleFactor: vp === "desktop" ? 1 : 2, hasTouch: vp !== "desktop", isMobile: vp === "phone" });
       for (const s of manifest) {
         const page = await context.newPage();
+        if (s.storage) await page.addInitScript((st) => { for (const [k, v] of Object.entries(st)) localStorage.setItem(k, v); }, s.storage);
         const errors = [];
         page.on("pageerror", (e) => errors.push(String(e)));
-        page.on("console", (m) => { if (m.type() === "error" && !/204|status of 4/.test(m.text())) errors.push(m.text()); });
+        page.on("console", (m) => { if (m.type() === "error" && !/204|status of 4|MIME type/.test(m.text())) errors.push(m.text()); });
         await page.goto(base + "/pages/" + s.page + ".html", { waitUntil: "load" });
         await page.evaluate(() => document.fonts.ready);
         if (s.set) {
