@@ -1,0 +1,21 @@
+{{define "signin.html"}}{{template "head" .}}
+<main id="main" tabindex="-1" class="page page-centered">
+  <div class="card card-auth">
+    <h1>Sign in to {{.Product}}</h1>
+    {{if .Data.WALink}}
+    <p>Scan with your phone, send the message, and we'll reply with a sign-in link.</p>
+    <p class="action-group">{{.Data.WALinkButton}}</p>
+    <p class="qr-wrap">
+      <img class="qr-desktop" src="/signin/qr.png" alt="QR code to open WhatsApp" width="320" height="320">
+    </p>
+    {{else}}
+    <p>Sign-in isn't set up yet. Please try again later.</p>
+    {{end}}
+    <p class="divider">or</p>
+    <p class="action-group">
+      <button type="button" class="btn btn-secondary" data-passkey-login>Sign in with a passkey</button>
+    </p>
+    <p data-passkey-error role="alert" class="form-error"></p>
+  </div>
+</main>
+{{template "foot" .}}{{end}}

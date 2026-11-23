@@ -33,9 +33,16 @@ func (service serviceChat) ListChats(ctx context.Context, request domainChat.Lis
 
 	chatDisplayNameResolver := whatsapp.NewChatDisplayNameResolver(ctx, whatsapp.ClientFromContext(ctx))
 
+	// WTF: an empty device id would drop the device condition from the filter
+	// and list every account's chats; refuse, as GetChatMessages does.
+	deviceID := deviceIDFromContext(ctx)
+	if deviceID == "" {
+		return response, fmt.Errorf("device identification required")
+	}
+
 	// Create filter from request
 	filter := &domainChatStorage.ChatFilter{
-		DeviceID:   deviceIDFromContext(ctx),
+		DeviceID:   deviceID,
 		Limit:      request.Limit,
 		Offset:     request.Offset,
 		SearchName: request.Search,

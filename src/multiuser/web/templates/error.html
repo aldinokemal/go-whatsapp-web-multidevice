@@ -1,0 +1,9 @@
+{{define "error.html"}}{{template "head" .}}
+<main id="main" tabindex="-1" class="page page-centered">
+  <div class="card card-auth">
+    <h1>{{.Data.Code}}</h1>
+    <p>{{.Data.Message}}</p>
+    <p class="action-group"><a class="btn btn-secondary" href="/">Back home</a></p>
+  </div>
+</main>
+{{template "foot" .}}{{end}}

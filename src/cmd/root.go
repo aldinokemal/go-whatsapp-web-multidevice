@@ -74,12 +74,11 @@ func init() {
 	initFlags()
 
 	// Then initialize other components
-	cobra.OnInitialize(initEnvConfig, initApp)
+	cobra.OnInitialize(initEnvConfig, func() { initAppUnlessSkipped(os.Args[1:]) }) // WTF: admin-link must not start WhatsApp
 }
 
 // initEnvConfig loads configuration from environment variables
 func initEnvConfig() {
-	fmt.Println(viper.AllSettings())
 	// Application settings
 	if envPort := viper.GetString("app_port"); envPort != "" {
 		config.AppPort = envPort

@@ -539,7 +539,7 @@ func TestSendForwardMessageNotFound(t *testing.T) {
 
 func TestForwardDurationOptionExplicitZero(t *testing.T) {
 	zero := 0
-	got := forwardDurationOption(serviceSend{}, domainSend.ForwardRequest{
+	got := forwardDurationOption(context.Background(), serviceSend{}, domainSend.ForwardRequest{
 		Phone:    "628123456789@s.whatsapp.net",
 		Duration: &zero,
 	})

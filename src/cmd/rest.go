@@ -16,6 +16,8 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/uiasset"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/web"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
@@ -45,9 +47,26 @@ func init() {
 func restServer(_ *cobra.Command, _ []string) {
 	// registerMcpOAuth depends on these values being loaded after flag parsing.
 	loadMcpOAuthEnvConfig()
+
+	muSettings, err := loadMultiUserSettings() // WTF
+	if err != nil {
+		logrus.Fatalln("WTF multi-user settings: ", err.Error())
+	}
+	config.MultiUserEnabled = muSettings.Enabled
+	if config.MultiUserEnabled {
+		multiuser.Apply() // before anything reads the flags it turns off
+	}
+
+	var muErr fiber.ErrorHandler // WTF: set once setupMultiUser builds the runtime
 	fiberConfig := fiber.Config{
 		TrustProxy: true,
 		BodyLimit:  int(config.WhatsappSettingMaxVideoSize),
+		ErrorHandler: func(c fiber.Ctx, err error) error { // WTF
+			if muErr != nil {
+				return muErr(c, err)
+			}
+			return fiber.DefaultErrorHandler(c, err)
+		},
 	}
 
 	// Configure proxy settings if trusted proxies are specified
@@ -62,7 +81,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	// fetch media under /statics and authenticate with the headers below.
 	app.Use(newCORSMiddleware())
 
-	app.Use(config.AppBasePath+"/statics", static.New("./statics"))
+	if !config.MultiUserEnabled { // WTF: media and QR files are owner-checked in multi-user mode
+		app.Use(config.AppBasePath+"/statics", static.New("./statics"))
+	}
 
 	app.Use(middleware.Recovery())
 	app.Use(middleware.RequestTimeout(middleware.DefaultRequestTimeout))
@@ -82,6 +103,16 @@ func restServer(_ *cobra.Command, _ []string) {
 		}
 		return c.Status(http.StatusServiceUnavailable).SendString("Service Unavailable")
 	})
+
+	var muRuntime *multiuser.Runtime // WTF
+	if config.MultiUserEnabled {
+		muRuntime, err = setupMultiUser(app, dm, muSettings)
+		if err != nil {
+			logrus.Fatalln("WTF multi-user setup: ", err.Error())
+		}
+		muErr = web.ErrorHandler(muRuntime.Web)
+		defer muRuntime.Close()
+	}
 
 	// Chatwoot webhook - registered BEFORE basic auth middleware
 	// This allows Chatwoot to send webhooks without authentication. The handler
@@ -138,19 +169,6 @@ func restServer(_ *cobra.Command, _ []string) {
 		apiGroup = app.Group(config.AppBasePath)
 	}
 
-	registerDeviceScopedRoutes := func(r fiber.Router) {
-		rest.InitRestApp(r, appUsecase)
-		rest.InitRestCall(r, callUsecase)
-		rest.InitRestChat(r, chatUsecase)
-		rest.InitRestSend(r, sendUsecase)
-		rest.InitRestSchedule(r, scheduleUsecase)
-		rest.InitRestUser(r, userUsecase)
-		rest.InitRestMessage(r, messageUsecase, sendUsecase)
-		rest.InitRestGroup(r, groupUsecase)
-		rest.InitRestNewsletter(r, newsletterUsecase)
-		websocket.RegisterRoutes(r, appUsecase)
-	}
-
 	// Device management routes (no device_id required)
 	rest.InitRestDevice(apiGroup, deviceUsecase)
 
@@ -189,7 +207,9 @@ func restServer(_ *cobra.Command, _ []string) {
 	// rest of the API surface).
 	uiCtx, uiCancel := context.WithCancel(context.Background())
 	defer uiCancel()
-	registerUIRoute(apiGroup, uiCtx)
+	if !config.MultiUserEnabled { // WTF: "/" is registered by web.Mount instead
+		registerUIRoute(apiGroup, uiCtx)
+	}
 
 	// Device-scoped operations (header-based). This must stay the LAST
 	// registration on apiGroup: Group("") registers a root "use" route that
@@ -246,6 +266,21 @@ func restServer(_ *cobra.Command, _ []string) {
 				logrus.Warnf("Chat storage close: %v", err)
 			}
 		}
+	}
+}
+
+func registerDeviceScopedRoutes(r fiber.Router) {
+	rest.InitRestApp(r, appUsecase)
+	rest.InitRestCall(r, callUsecase)
+	rest.InitRestChat(r, chatUsecase)
+	rest.InitRestSend(r, sendUsecase)
+	rest.InitRestSchedule(r, scheduleUsecase)
+	rest.InitRestUser(r, userUsecase)
+	rest.InitRestMessage(r, messageUsecase, sendUsecase)
+	rest.InitRestGroup(r, groupUsecase)
+	rest.InitRestNewsletter(r, newsletterUsecase)
+	if !config.MultiUserEnabled { // WTF: upstream's /ws broadcasts every user's events
+		websocket.RegisterRoutes(r, appUsecase)
 	}
 }
 

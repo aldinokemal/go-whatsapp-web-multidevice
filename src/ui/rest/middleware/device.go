@@ -1,16 +1,23 @@
 package middleware
 
 import (
+	"errors"
 	"net/url"
 	"strings"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/gofiber/fiber/v3"
 )
 
 const DeviceIDHeader = "X-Device-Id"
+
+// WTF: DeviceResolveFunc lets the multi-user layer replace how a request
+// picks its device (owner-checked, no "default device" fallback). Nil keeps
+// upstream behaviour.
+var DeviceResolveFunc func(c fiber.Ctx, deviceID string) (*whatsapp.DeviceInstance, string, error)
 
 // DeviceMiddleware fetches a device instance by header (preferred), path param, or query param
 // and injects it into the context. It falls back to the default/only device for single-device mode.
@@ -40,7 +47,22 @@ func DeviceMiddleware(dm *whatsapp.DeviceManager) fiber.Handler {
 			deviceID = strings.TrimSpace(c.Query("device_id"))
 		}
 
-		instance, resolvedID, err := dm.ResolveDevice(deviceID)
+		var (
+			instance   *whatsapp.DeviceInstance
+			resolvedID string
+			err        error
+		)
+		if DeviceResolveFunc != nil { // WTF
+			instance, resolvedID, err = DeviceResolveFunc(c, deviceID)
+			if err == nil && instance == nil { // WTF: a nil device must never reach the context
+				err = pkgError.ErrDeviceNotFound
+				if resolvedID == "" {
+					resolvedID = deviceID
+				}
+			}
+		} else {
+			instance, resolvedID, err = dm.ResolveDevice(deviceID)
+		}
 		if err != nil {
 			// ResolveDevice returns an ID when provided but missing; use it for payload clarity.
 			if resolvedID != "" || strings.TrimSpace(deviceID) != "" {
@@ -49,6 +71,13 @@ func DeviceMiddleware(dm *whatsapp.DeviceManager) fiber.Handler {
 					Code:    "DEVICE_NOT_FOUND",
 					Message: "device not found; create a device first from /api/devices or provide a valid X-Device-Id",
 					Results: map[string]string{"device_id": resolvedID},
+				})
+			}
+
+			var generic pkgError.GenericError
+			if DeviceResolveFunc != nil && errors.As(err, &generic) { // WTF: e.g. "link a WhatsApp account first"
+				return c.Status(generic.StatusCode()).JSON(utils.ResponseData{
+					Status: generic.StatusCode(), Code: generic.ErrCode(), Message: generic.Error(),
 				})
 			}
 
