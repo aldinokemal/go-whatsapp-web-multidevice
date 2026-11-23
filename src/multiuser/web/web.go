@@ -145,6 +145,10 @@ func Mount(app *fiber.App, d Deps) {
 	mountDevices(app, d) // Task 10
 	mountAccount(app, d) // Task 11
 	mountAdmin(app, d)   // Task 11
+	mountAdminManage(app, d)
+	mountActivity(app, d)
+	mountSessions(app, d)
+	mountWebhook(app, d)
 }
 
 func extOf(name string) string {

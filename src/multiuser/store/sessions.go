@@ -18,8 +18,8 @@ func (s *Store) CreateSession(ctx context.Context, userID, userAgent string, ttl
 	raw := NewToken()
 	now := s.now()
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO sessions (id_hash, user_id, created_at, expires_at, user_agent) VALUES (?, ?, ?, ?, ?)`,
-		HashToken(raw), userID, now, now.Add(ttl), userAgent)
+		`INSERT INTO sessions (id_hash, user_id, created_at, expires_at, user_agent, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		HashToken(raw), userID, now, now.Add(ttl), userAgent, now)
 	if err != nil {
 		return "", err
 	}

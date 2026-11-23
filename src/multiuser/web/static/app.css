@@ -788,6 +788,99 @@ main:focus { outline: none; }
 }
 
 /* ------------------------------------------------------------------ motion */
+/* ------------------------------------------- account management additions */
+/* Kebab menu: the trigger matches a small secondary button; the list floats
+   (position fixed, placed by app.js) so a clipped card never cuts it off. */
+.menu { position: relative; display: inline-flex; }
+.menu-trigger {
+  width: 32px; height: 32px; color: var(--ink-2);
+  background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow-sm);
+}
+.menu-trigger:hover, .menu-trigger[aria-expanded="true"] { background: var(--surface-hover); color: var(--ink); }
+.menu-trigger .icon { width: 16px; height: 16px; }
+.menu-list {
+  position: fixed; z-index: 50; min-width: 200px; padding: var(--s-1);
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.menu-list[hidden] { display: none; }
+.menu-item {
+  display: flex; align-items: center; gap: var(--s-3); width: 100%;
+  min-height: 36px; padding: 0 var(--s-3); border: 0; border-radius: var(--radius);
+  background: none; color: var(--ink); font: inherit; font-size: var(--text-sm); text-align: left;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.menu-item .icon { width: 16px; height: 16px; color: var(--ink-3); }
+.menu-item:hover, .menu-item:focus-visible { background: var(--surface-hover); }
+.menu-item-danger, .menu-item-danger .icon { color: var(--danger-ink); }
+.menu-item-danger:hover, .menu-item-danger:focus-visible { background: var(--danger-soft); }
+@media (pointer: coarse) {
+  .menu-trigger { width: var(--tap); height: var(--tap); }
+  .menu-item { min-height: var(--tap); font-size: var(--text-md); }
+}
+
+/* Disclosure: a count with a chevron that opens a child row (house rule T11). */
+.disclosure {
+  display: inline-flex; align-items: center; gap: var(--s-1);
+  min-height: 32px; padding: 0 var(--s-2); margin-left: calc(-1 * var(--s-2));
+  border: 0; border-radius: var(--radius); background: none;
+  color: var(--accent-ink); font: inherit; font-weight: var(--weight-medium); cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.disclosure:hover { background: var(--surface-hover); }
+.disclosure .icon { width: 16px; height: 16px; transition: transform var(--dur) var(--ease); }
+.disclosure[aria-expanded="true"] .icon { transform: rotate(180deg); }
+.trow-child { padding: 0 var(--s-5) var(--s-4) calc(var(--s-5) + 32px + var(--s-3)); background: var(--surface-2); }
+.trow-child[hidden] { display: none; }
+.trow + .trow-child { border-top: 0; }
+.trow-child + .trow { border-top: 1px solid var(--line); }
+.rows-nested { box-shadow: none; }
+.rows-nested .row { padding: var(--s-3) var(--s-4); }
+@media (max-width: 860px) {
+  .trow-child { padding: 0 var(--s-4) var(--s-4); }
+  /* Two short lines read better than one that wraps around its separator. */
+  .trow .cell-meta { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .trow .cell-seen::before { content: none; }
+  .disclosure { margin-left: 0; padding: 0; min-height: 32px; }
+}
+@media (max-width: 600px) {
+  .rows-nested .row.row-compact { flex-wrap: wrap; }
+  .rows-nested .row-compact .row-actions { width: 100%; padding-left: calc(40px + var(--s-3)); }
+}
+
+/* Number rows: a sentence that explains the state may wrap. */
+.row-sub-wrap, .row-sub-wrap .row-sub-part { white-space: normal; }
+.row-sub-alert { color: var(--warn-ink); }
+
+/* Dialog form fields, the subject line and a confirm's option. */
+.dialog-fields { display: flex; flex-direction: column; gap: var(--s-4); padding: var(--s-5) var(--s-6); }
+.dialog-fields > .dialog-text { margin-top: 0; }
+.dialog-subject { font-weight: var(--weight-medium); color: var(--ink); margin-top: var(--s-1); }
+.dialog-subject:empty { display: none; }
+.field-hint { color: var(--ink-3); font-size: var(--text-sm); }
+.check { display: flex; align-items: center; gap: var(--s-2); margin-top: var(--s-3); color: var(--ink); cursor: pointer; }
+.check input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.notice-ok { background: var(--ok-soft); color: var(--ok-ink); border-color: var(--accent-line); }
+.notice-ok .icon { color: var(--ok-ink); }
+.webhook-form { display: flex; flex-direction: column; gap: var(--s-4); }
+.webhook-form > .dialog-text { margin-top: 0; }
+.webhook-form > .dialog-foot { margin: 0 calc(-1 * var(--s-6)) calc(-1 * var(--s-6)); }
+
+/* Activity: sentences, a filter chip and the pager. */
+.activity-text { color: var(--ink); overflow-wrap: anywhere; }
+.activity-text a { color: var(--accent-ink); font-weight: var(--weight-medium); text-decoration: none; font-variant-numeric: tabular-nums; }
+.activity-text a:hover { text-decoration: underline; }
+.activity-row { align-items: flex-start; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: var(--s-1); align-self: flex-start;
+  padding-left: var(--s-3); margin-bottom: var(--s-4);
+  background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-line); border-radius: var(--radius-full);
+}
+.filter-chip a:not(.icon-btn) { color: inherit; font-weight: var(--weight-medium); }
+.filter-chip .icon-btn { width: 32px; height: 32px; color: inherit; }
+.pager { display: flex; justify-content: flex-end; gap: var(--s-2); margin-top: var(--s-4); }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } }

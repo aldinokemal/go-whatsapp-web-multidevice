@@ -31,7 +31,13 @@ func mountDevices(app *fiber.App, d Deps) {
 				connected++
 			}
 		}
-		return d.render(c, fiber.StatusOK, "home.html", "My WhatsApp", map[string]any{"Devices": list, "Connected": connected})
+		u, _ := userOf(c)
+		slots, err := d.Store.SlotsOf(c.Context(), u.ID)
+		if err != nil {
+			return err
+		}
+		return d.render(c, fiber.StatusOK, "home.html", "My WhatsApp", map[string]any{
+			"Numbers": numberViews(list, slots), "Connected": connected})
 	})
 
 	app.Post("/ui/devices", page, csrf, func(c fiber.Ctx) error {

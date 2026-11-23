@@ -11,12 +11,12 @@
     <div class="trow thead" role="row">
       <span role="columnheader">Phone</span>
       <span role="columnheader">Status</span>
-      <span role="columnheader" class="num">Linked phones</span>
+      <span role="columnheader" class="num">Numbers</span>
       <span role="columnheader">Last sign-in</span>
       <span role="columnheader" class="end"><span class="visually-hidden">Actions</span></span>
     </div>
     {{range .Data.Rows}}
-    <div class="trow" role="row">
+    <div class="trow" role="row" id="user-{{.ID}}">
       <span role="cell" class="cell-user">
         <span class="avatar{{if not .Active}} avatar-off{{end}}" aria-hidden="true">{{icon "user-round"}}</span>
         <span class="cell-phone">{{.Phone}}</span>
@@ -26,32 +26,70 @@
         {{if .Active}}<span class="pill pill-ok">Active</span>{{else}}<span class="pill pill-muted">Disabled</span>{{end}}
       </span>
       <span class="cell-meta">
-        <span role="cell" class="cell-count num">{{.DeviceCount}}<span class="compact-label"> linked</span></span>
+        <span role="cell" class="cell-count num">
+          {{if .Numbers}}
+          <button type="button" class="disclosure" aria-expanded="false" aria-controls="numbers-{{.ID}}" data-disclosure
+                  aria-label="{{.DeviceCount}} of {{.MaxDevices}} numbers linked. Show them">{{.DeviceCount}} of {{.MaxDevices}}{{icon "chevron-down"}}</button>
+          {{else}}{{.DeviceCount}} of {{.MaxDevices}}<span class="compact-label"> numbers</span>{{end}}
+        </span>
         <span role="cell" class="cell-seen"><span class="compact-label">Last sign-in </span>{{.LastSignIn}}</span>
       </span>
       <span role="cell" class="cell-actions end">
-        {{if not .IsSelf}}
-        {{if .Active}}
-        <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="disable-{{.ID}}">Disable</button>
-        {{else}}
-        <form method="post" action="/admin/users/{{.ID}}/status" class="inline-form">
-          <input type="hidden" name="csrf" value="{{$.CSRF}}">
-          <input type="hidden" name="status" value="active">
-          <button type="submit" class="btn btn-secondary btn-sm">Enable</button>
-        </form>
-        {{end}}
-        {{end}}
-        <button type="button" class="btn btn-secondary btn-sm" data-open-dialog="link-dialog"
+        {{template "menu_start" "More actions"}}
+          <button type="button" class="menu-item" role="menuitem" data-open-dialog="limit-dialog"
+                  data-dialog-action="/admin/users/{{.ID}}/limit" data-dialog-value="{{.MaxDevices}}" data-dialog-subject="For {{.Phone}}">{{icon "hash"}}<span>Number limit</span></button>
+          {{if and (not .IsSelf) (not .IsAdmin)}}
+          <button type="button" class="menu-item" role="menuitem" data-open-dialog="phone-dialog"
+                  data-dialog-action="/admin/users/{{.ID}}/phone" data-dialog-value="{{.Phone}}" data-dialog-subject="They'll be signed out everywhere and sign in with the new number.">{{icon "phone"}}<span>Change number</span></button>
+          {{end}}
+          <a class="menu-item" role="menuitem" href="/admin/activity?user={{.ID}}">{{icon "activity"}}<span>Activity</span></a>
+          {{if not .IsSelf}}
+          {{if .Active}}
+          <button type="button" class="menu-item menu-item-danger" role="menuitem" data-open-dialog="disable-{{.ID}}">{{icon "user-x"}}<span>Disable</span></button>
+          {{else}}
+          <form method="post" action="/admin/users/{{.ID}}/status" class="inline-form">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <input type="hidden" name="status" value="active">
+            <button type="submit" class="menu-item" role="menuitem">{{icon "user-check"}}<span>Enable</span></button>
+          </form>
+          {{end}}
+          {{end}}
+        {{template "menu_end"}}
+        <button type="button" class="btn btn-secondary btn-sm" data-open-dialog="link-dialog" data-dialog-title="Sign-in link"
                 hx-post="/admin/users/{{.ID}}/signin-link" hx-target="#link-dialog-body" hx-swap="innerHTML"
                 hx-headers='{"X-CSRF-Token":"{{$.CSRF}}"}'>{{icon "link-2"}}<span>Get sign-in link</span></button>
       </span>
     </div>
+    {{if .Numbers}}
+    <div class="trow-child" role="row" id="numbers-{{.ID}}" hidden>
+      <ul class="rows rows-nested" role="list" aria-label="Numbers of {{.Phone}}">
+        {{$u := .}}
+        {{range .Numbers}}
+        <li class="row row-compact">
+          {{template "number_state" (dict "N" . "Whose" "their")}}
+          <div class="row-actions">
+            <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="admin-unlink"
+                    data-dialog-action="/admin/users/{{$u.ID}}/devices/{{.ID}}/unlink"
+                    data-dialog-subject="{{if .Title}}{{.Title}}{{else}}An unfinished link{{end}}, on {{$u.Phone}}.">{{if .Linked}}Unlink{{else}}Remove{{end}}</button>
+          </div>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    {{end}}
     {{end}}
   </div>
-  {{range .Data.Rows}}{{if .Active}}
+  {{range .Data.Rows}}{{if and .Active (not .IsSelf)}}
   {{template "confirm" (dict "ID" (printf "disable-%s" .ID) "Action" (printf "/admin/users/%s/status" .ID) "CSRF" $.CSRF "Status" "disabled" "Icon" "user-x"
-       "Title" "Disable this user?" "Body" "They'll be signed out everywhere right away." "Button" "Disable")}}
+       "Title" "Disable this user?" "Body" "They'll be signed out everywhere right away." "Button" "Disable"
+       "Check" "Also unlink their numbers" "CheckName" "unlink")}}
   {{end}}{{end}}
+  {{template "confirm" (dict "ID" "admin-unlink" "Action" "" "CSRF" .CSRF "Icon" "unlink"
+       "Title" "Unlink this number?" "Body" "It stops working here right away. They can link it again." "Button" "Unlink")}}
+  {{template "form_dialog" (dict "ID" "limit-dialog" "CSRF" .CSRF "Title" "Number limit" "Label" "How many numbers they may link"
+       "Name" "max_devices" "Type" "number" "Min" "0" "Max" "20" "Hint" "From 0 to 20. Lowering it unlinks nothing." "Button" "Save")}}
+  {{template "form_dialog" (dict "ID" "phone-dialog" "CSRF" .CSRF "Title" "Change number" "Label" "New phone number"
+       "Name" "phone" "Type" "tel" "Mono" false "Hint" "Include the country code, for example +27 82 555 0101." "Button" "Change number")}}
   {{else}}
   <div class="empty">
     <span class="empty-art" aria-hidden="true">{{icon "users"}}</span>

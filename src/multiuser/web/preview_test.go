@@ -34,8 +34,11 @@ type previewShot struct {
 	Name   string            `json:"name"`
 	Page   string            `json:"page"`
 	Dialog string            `json:"dialog,omitempty"`
-	Set    map[string]string `json:"set,omitempty"`  // CSS selector -> text
-	Attr   string            `json:"attr,omitempty"` // attribute set on <html>, e.g. data-nav-open
+	Set    map[string]string `json:"set,omitempty"`   // CSS selector -> text
+	Attr   string            `json:"attr,omitempty"`  // attribute set on <html>, e.g. data-nav-open
+	Click  []string          `json:"click,omitempty"` // selectors clicked in order (a kebab, then an item)
+	// ViewportOnly shoots the visible screen rather than the full page (an open menu or dialog).
+	ViewportOnly bool `json:"viewportOnly,omitempty"`
 }
 
 type previewSite struct {
@@ -152,6 +155,10 @@ func TestPreviewSite(t *testing.T) {
 		{ID: "d_work", DisplayName: "Acme Support", PhoneNumber: "15555550142", State: domainDevice.DeviceStateLoggedIn, CreatedAt: time.Now().Add(-9 * 24 * time.Hour)},
 		{ID: "d_personal", PhoneNumber: "15555550177", State: domainDevice.DeviceStateDisconnected, CreatedAt: time.Now().Add(-3 * 24 * time.Hour)},
 		{ID: "d_slot", CreatedAt: time.Now().Add(-5 * time.Minute)},
+		{ID: "d_out", CreatedAt: time.Now().Add(-20 * 24 * time.Hour)},
+		{ID: "d_dup", CreatedAt: time.Now().Add(-2 * time.Minute)},
+		{ID: "d_other", DisplayName: "Bean There Cafe", PhoneNumber: "15555550190", State: domainDevice.DeviceStateLoggedIn, CreatedAt: time.Now().Add(-12 * 24 * time.Hour)},
+		{ID: "d_other_out", CreatedAt: time.Now().Add(-30 * 24 * time.Hour)},
 	}}
 	e = withDevices(t, stub)
 	e.d.Devices = owners.NewScopedDevices(stub, e.st)
@@ -179,6 +186,15 @@ func TestPreviewSite(t *testing.T) {
 		require.NoError(t, e.st.SetOwner(ctx, id, adminID))
 	}
 	require.NoError(t, e.st.SetOwner(ctx, "d_other", otherID))
+	// Gap A and B states: a number the phone signed out, and a refused duplicate.
+	for _, id := range []string{"d_out", "d_dup"} {
+		require.NoError(t, e.st.SetOwner(ctx, id, adminID))
+	}
+	require.NoError(t, e.st.MarkSignedOut(ctx, "d_out", "15555550166", "Front desk"))
+	require.NoError(t, e.st.RecordRefusal(ctx, "d_dup", store.RefusalDuplicate))
+	require.NoError(t, e.st.SetOwner(ctx, "d_other_out", otherID))
+	require.NoError(t, e.st.MarkSignedOut(ctx, "d_other_out", "15555550191", ""))
+	require.NoError(t, e.st.SetMaxDevices(ctx, otherID, 3))
 	csrf := csrfFor(t, e, admin)
 
 	home := get(t, e, admin, "/")
@@ -204,6 +220,20 @@ func TestPreviewSite(t *testing.T) {
 	p.write("home-link-error", withDialogBody(home, linkErr))
 	p.shot(previewShot{Name: "home-link-error", Page: "home-link-error", Dialog: "link-dialog"})
 
+	// Per-number webhook dialog: empty, saved, refused address.
+	asWebhook := func(page string) string {
+		return strings.Replace(page, `id="link-dialog-title">Link WhatsApp<`, `id="link-dialog-title">Webhook<`, 1)
+	}
+	hook := get(t, e, admin, "/ui/devices/d_work/webhook")
+	p.write("home-webhook", withDialogBody(asWebhook(home), hook))
+	p.shot(previewShot{Name: "home-webhook", Page: "home-webhook", Dialog: "link-dialog"})
+	hookSaved := tmplString(t, "webhook_form.html", map[string]any{"ID": "d_work", "URL": "https://hooks.acme.example/whatsapp", "HasSecret": true, "Saved": "Saved."})
+	p.write("home-webhook-saved", withDialogBody(asWebhook(home), hookSaved))
+	p.shot(previewShot{Name: "home-webhook-saved", Page: "home-webhook-saved", Dialog: "link-dialog"})
+	hookErr := htmxPost(t, e, admin, csrf, "/ui/devices/d_work/webhook", url.Values{"url": {"https://127.0.0.1/hook"}})
+	p.write("home-webhook-error", withDialogBody(asWebhook(home), hookErr))
+	p.shot(previewShot{Name: "home-webhook-error", Page: "home-webhook-error", Dialog: "link-dialog"})
+
 	// Home with nothing linked yet: a fresh user.
 	fresh, _ := signedIn(t, e, "+15555550155")
 	p.write("home-empty", get(t, e, fresh, "/"))
@@ -215,10 +245,17 @@ func TestPreviewSite(t *testing.T) {
 		CredentialJSON: []byte(`{}`), LastUsedAt: &used}))
 	require.NoError(t, e.st.AddPasskey(ctx, store.Passkey{CredentialID: "cred_phone", UserID: adminID, Name: "Chrome on Android",
 		CredentialJSON: []byte(`{}`)}))
+	at(5 * 24 * time.Hour)
+	_, _ = e.st.CreateSession(ctx, adminID, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1", 30*24*time.Hour)
+	at(26 * time.Hour)
+	_, _ = e.st.CreateSession(ctx, adminID, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36 Edg/131.0", 30*24*time.Hour)
+	e.st.Now = func() time.Time { return time.Now().UTC() }
 	account := get(t, e, admin, "/account")
 	p.write("account", account)
 	p.shot(previewShot{Name: "account", Page: "account"})
 	p.shot(previewShot{Name: "account-signout-everywhere", Page: "account", Dialog: "signout-everywhere"})
+	p.shot(previewShot{Name: "account-signout-session", Page: "account", ViewportOnly: true,
+		Click: []string{`[data-open-dialog="signout-session"]`}})
 	p.shot(previewShot{Name: "account-remove-passkey", Page: "account", Dialog: "remove-passkey-cred_mac"})
 	p.shot(previewShot{Name: "account-passkey-error", Page: "account",
 		Set: map[string]string{"[data-passkey-register-error]": "Adding the passkey was cancelled."}})
@@ -230,6 +267,36 @@ func TestPreviewSite(t *testing.T) {
 	p.write("admin-users", users)
 	p.shot(previewShot{Name: "admin-users", Page: "admin-users"})
 	p.shot(previewShot{Name: "admin-users-disable", Page: "admin-users", Dialog: "disable-" + otherID})
+	row := "#user-" + otherID + " "
+	p.shot(previewShot{Name: "admin-users-expanded", Page: "admin-users", Click: []string{row + "[data-disclosure]"}})
+	p.shot(previewShot{Name: "admin-users-menu", Page: "admin-users", ViewportOnly: true, Click: []string{row + "[data-menu-trigger]"}})
+	p.shot(previewShot{Name: "admin-users-limit", Page: "admin-users", ViewportOnly: true,
+		Click: []string{row + "[data-menu-trigger]", row + `[data-open-dialog="limit-dialog"]`}})
+	p.shot(previewShot{Name: "admin-users-phone", Page: "admin-users", ViewportOnly: true,
+		Click: []string{row + "[data-menu-trigger]", row + `[data-open-dialog="phone-dialog"]`}})
+	p.shot(previewShot{Name: "admin-users-unlink", Page: "admin-users", ViewportOnly: true,
+		Click: []string{row + "[data-disclosure]", "#numbers-" + otherID + ` [data-open-dialog="admin-unlink"]`}})
+	p.write("admin-users-error", postPage(t, e, admin, csrf, "/admin/users/"+otherID+"/phone", url.Values{"phone": {"+27825550100"}}))
+	p.shot(previewShot{Name: "admin-users-error", Page: "admin-users-error"})
+
+	// Activity: a realistic mix, then the same filtered to one user, then empty.
+	for _, ev := range []store.AuditEvent{
+		{UserID: otherID, Action: "signin"},
+		{UserID: otherID, Action: "device_add", DeviceID: "d_other"},
+		{UserID: disabledID, Action: "device_link_refused_duplicate", DeviceID: "d_x"},
+		{UserID: otherID, ActorID: adminID, Action: "user_limit_set", Detail: "3"},
+		{UserID: disabledID, ActorID: adminID, Action: "user_disabled"},
+		{UserID: otherID, ActorID: adminID, Action: "device_remove", DeviceID: "d_y", Detail: "15555550193"},
+		{UserID: otherID, ActorID: adminID, Action: "user_phone_changed", Detail: "+15555550187 +15555550188"},
+		{UserID: adminID, Action: "passkey_add"},
+		{UserID: adminID, Action: "webhook_set", DeviceID: "d_work"},
+	} {
+		require.NoError(t, e.st.Audit(ctx, ev))
+	}
+	p.write("admin-activity", get(t, e, admin, "/admin/activity"))
+	p.shot(previewShot{Name: "admin-activity", Page: "admin-activity"})
+	p.write("admin-activity-user", get(t, e, admin, "/admin/activity?user="+otherID))
+	p.shot(previewShot{Name: "admin-activity-user", Page: "admin-activity-user"})
 	link := htmxPost(t, e, admin, csrf, "/admin/users/"+otherID+"/signin-link", nil)
 	p.write("admin-users-link", withDialogBody(users, link))
 	p.shot(previewShot{Name: "admin-users-link", Page: "admin-users-link", Dialog: "link-dialog",
@@ -263,4 +330,15 @@ func tmplString(t *testing.T, name string, data any) string {
 	var sb strings.Builder
 	require.NoError(t, tmpl.ExecuteTemplate(&sb, name, page{Product: "WTF", CSRF: "preview", Data: data}))
 	return sb.String()
+}
+
+// postPage posts a plain form (no htmx) and returns the page it answers with.
+func postPage(t *testing.T, e *env, ck *http.Cookie, csrf, path string, form url.Values) string {
+	t.Helper()
+	form.Set("csrf", csrf)
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(ck)
+	_, body := e.do(t, req)
+	return body
 }

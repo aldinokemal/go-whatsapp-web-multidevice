@@ -68,6 +68,7 @@
       {{if .Superadmin}}
       <p class="nav-section">Admin</p>
       {{template "nav_link" (dict "Href" "/admin/users" "Label" "Users" "Icon" "users" "Current" (eq .Path "/admin/users"))}}
+      {{template "nav_link" (dict "Href" "/admin/activity" "Label" "Activity" "Icon" "activity" "Current" (eq .Path "/admin/activity"))}}
       {{template "nav_link" (dict "Href" "/admin/settings" "Label" "Settings" "Icon" "settings" "Current" (eq .Path "/admin/settings"))}}
       {{end}}
     </nav>
@@ -109,7 +110,9 @@
 {{end}}
 
 {{/* confirm draws a destructive confirmation dialog: one per thing it acts
-     on, opened by a data-open-dialog button. Cancel takes focus first so an
+     on, opened by a data-open-dialog button (or one shared by many rows, with
+     an empty Action that the opener's data-dialog-action fills). An optional
+     Check/CheckName adds one ticked-by-default option. Cancel takes focus first so an
      accidental Enter never destroys anything. */}}
 {{define "confirm"}}
 <dialog id="{{.ID}}" class="dialog dialog-confirm" aria-labelledby="{{.ID}}-title">
@@ -120,7 +123,9 @@
       <span class="badge-icon badge-icon-danger" aria-hidden="true">{{icon .Icon}}</span>
       <div>
         <h2 class="dialog-title" id="{{.ID}}-title">{{.Title}}</h2>
+        {{if not .Action}}<p class="dialog-subject" data-dialog-subject></p>{{end}}
         <p class="dialog-text">{{.Body}}</p>
+        {{if .Check}}<label class="check"><input type="checkbox" name="{{.CheckName}}" value="on" checked><span>{{.Check}}</span></label>{{end}}
       </div>
     </div>
     <div class="dialog-foot">

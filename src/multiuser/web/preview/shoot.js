@@ -54,7 +54,7 @@ function serve() {
     for (const vp of viewports) {
       const [width, height] = VIEWPORTS[vp];
       const context = await browser.newContext({ viewport: { width, height }, colorScheme: scheme,
-        deviceScaleFactor: vp === "desktop" ? 1 : 2, hasTouch: vp !== "desktop", isMobile: vp === "phone" });
+        deviceScaleFactor: vp === "desktop" ? 1 : 2, reducedMotion: "reduce", hasTouch: vp !== "desktop", isMobile: vp === "phone" });
       for (const s of manifest) {
         const page = await context.newPage();
         const errors = [];
@@ -78,10 +78,16 @@ function serve() {
             if (document.activeElement) document.activeElement.blur();
           }, s.dialog);
         }
+        // click: selectors clicked in order (a kebab, then one of its items).
+        for (const sel of s.click || []) {
+          await page.click(sel);
+          await page.waitForTimeout(120);
+        }
+        if (s.click && s.click.length) await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
         await page.waitForTimeout(450);
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         const file = `${s.name}-${vp}-${scheme}.png`;
-        await page.screenshot({ path: path.join(out, file), fullPage: !s.dialog });
+        await page.screenshot({ path: path.join(out, file), fullPage: !(s.dialog || s.viewportOnly) });
         report.push({ file, overflow, errors });
         if (overflow > 0) console.log("OVERFLOW", file, overflow + "px");
         if (errors.length) console.log("ERRORS", file, errors.join(" | "));

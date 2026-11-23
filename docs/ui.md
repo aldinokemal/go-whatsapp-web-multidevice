@@ -68,6 +68,11 @@ Contrast: every text pair the UI paints passes WCAG AA 4.5:1 in both themes
 | `.form-error`, `.notice` | Errors (hidden while empty, so JS can fill them) and neutral notices. |
 | `{{template "confirm" (dict ...)}}` | Every destructive confirmation: native `<dialog>`, Cancel focused first. |
 | `{{template "sheet" (dict "Title" ...)}}` | The htmx-filled content dialog (`#link-dialog-body`); shows a spinner while empty. |
+| `{{template "menu_start" "More actions"}}` … `{{template "menu_end"}}` | A row's kebab (⋯) menu: items are `.menu-item` buttons or links, destructive ones last with `.menu-item-danger`. Positioned by app.js so a clipped card never cuts it off. |
+| `.disclosure` + `data-disclosure` + `aria-controls` | A count with a chevron that opens a child row (`.trow-child`), e.g. a user's numbers on Admin › Users. |
+| `{{template "number_state" (dict "N" numberView "Whose" "your")}}` | A WhatsApp number's icon, words and pill (connected, not connected, signed out from the phone, refused, not linked yet), shared by My WhatsApp and Admin › Users. |
+| `{{template "form_dialog" (dict ...)}}` | One small form dialog shared by every row: the opener's `data-dialog-action`, `data-dialog-value` and `data-dialog-subject` fill it. `confirm` with an empty `Action` works the same way, and takes an optional ticked `Check`/`CheckName`. |
+| `data-dialog-title` on a `sheet` opener | Sets the shared sheet's title (Link WhatsApp, Webhook, Sign-in link). |
 
 Dialogs are native `<dialog>` opened with `data-open-dialog="<id>"` and closed with
 `data-close-dialog`, Esc or a backdrop click; focus returns to the opener. Below
@@ -95,6 +100,7 @@ cd src
 WTF_PREVIEW_DIR=../.preview/site go test ./multiuser/web/ -run TestPreviewSite -count=1
 node multiuser/web/preview/shoot.js ../.preview/site ../.preview/shots
 # options: --viewports phone,tablet,desktop  --schemes light,dark  --only home,signin
+# a shot may also list "click" selectors (a kebab, then an item) and "viewportOnly".
 ```
 
 `shoot.js` needs Playwright (`require('playwright')`). It writes

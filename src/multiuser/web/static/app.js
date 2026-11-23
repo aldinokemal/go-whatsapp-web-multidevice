@@ -248,9 +248,115 @@
       var body = document.querySelector(target);
       if (body && dialog.contains(body)) body.innerHTML = "";
     }
-    dialog._opener = opener || document.activeElement;
+    fillDialog(dialog, opener);
+    // From a kebab menu, focus returns to the menu's trigger (the item is hidden).
+    var menu = opener && opener.closest && opener.closest("[data-menu]");
+    dialog._opener = (menu && menu.querySelector("[data-menu-trigger]")) || opener || document.activeElement;
+    if (menu) closeMenus();
     if (!dialog.open) dialog.showModal();
   }
+
+  // fillDialog lets one dialog serve many rows: the opener says where its
+  // form posts (data-dialog-action), what its input starts with
+  // (data-dialog-value), the line naming what it acts on
+  // (data-dialog-subject) and, for the shared sheet, its title
+  // (data-dialog-title).
+  function fillDialog(dialog, opener) {
+    if (!opener || !opener.getAttribute) return;
+    var action = opener.getAttribute("data-dialog-action");
+    var form = dialog.querySelector("form");
+    if (action !== null && form) form.setAttribute("action", action);
+    var value = opener.getAttribute("data-dialog-value");
+    var input = dialog.querySelector("[data-dialog-value]");
+    if (value !== null && input) input.value = value;
+    var subject = opener.getAttribute("data-dialog-subject");
+    var line = dialog.querySelector("[data-dialog-subject]");
+    if (line) line.textContent = subject || "";
+    var title = opener.getAttribute("data-dialog-title");
+    var heading = title !== null && dialog.querySelector(".dialog-title");
+    if (heading) heading.textContent = title;
+  }
+
+  // Kebab menus ([data-menu]): the ⋯ trigger opens a list of actions placed
+  // under it (fixed, so a clipped table never cuts it off). Esc, a click
+  // elsewhere, scrolling or choosing an item closes it.
+  function closeMenus(except) {
+    document.querySelectorAll("[data-menu-trigger][aria-expanded='true']").forEach(function (t) {
+      if (t === except) return;
+      t.setAttribute("aria-expanded", "false");
+      var list = t.parentElement.querySelector(".menu-list");
+      if (list) list.hidden = true;
+    });
+  }
+
+  function toggleMenu(trigger) {
+    var list = trigger.parentElement.querySelector(".menu-list");
+    if (!list) return;
+    var open = trigger.getAttribute("aria-expanded") !== "true";
+    closeMenus(trigger);
+    trigger.setAttribute("aria-expanded", open ? "true" : "false");
+    list.hidden = !open;
+    if (!open) return;
+    placeMenu(trigger, list);
+    var first = list.querySelector(".menu-item");
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  function placeMenu(trigger, list) {
+    var r = trigger.getBoundingClientRect();
+    var w = list.offsetWidth, h = list.offsetHeight;
+    var left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+    var top = r.bottom + 4;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 4);
+    list.style.left = left + "px";
+    list.style.top = top + "px";
+  }
+
+  // An open menu follows its trigger when the page scrolls or resizes.
+  function replaceOpenMenu() {
+    var t = document.querySelector("[data-menu-trigger][aria-expanded='true']");
+    var list = t && t.parentElement.querySelector(".menu-list");
+    if (list) placeMenu(t, list);
+  }
+
+  document.addEventListener("click", function (event) {
+    var trigger = event.target.closest("[data-menu-trigger]");
+    if (trigger) {
+      event.preventDefault();
+      toggleMenu(trigger);
+      return;
+    }
+    // A click inside an open menu's list leaves it to the item.
+    if (!event.target.closest(".menu-list")) closeMenus();
+    var disclosure = event.target.closest("[data-disclosure]");
+    if (disclosure) {
+      var target = document.getElementById(disclosure.getAttribute("aria-controls"));
+      var open = disclosure.getAttribute("aria-expanded") !== "true";
+      disclosure.setAttribute("aria-expanded", open ? "true" : "false");
+      if (target) target.hidden = !open;
+    }
+  }, true);
+
+  document.addEventListener("keydown", function (event) {
+    var list = event.target.closest && event.target.closest(".menu-list");
+    if (event.key === "Escape") {
+      var open = document.querySelector("[data-menu-trigger][aria-expanded='true']");
+      if (open) {
+        closeMenus();
+        open.focus();
+      }
+      return;
+    }
+    if (list && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      var items = Array.prototype.slice.call(list.querySelectorAll(".menu-item"));
+      var i = items.indexOf(event.target);
+      var next = items[(i + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length];
+      if (next) next.focus();
+    }
+  });
+  window.addEventListener("scroll", replaceOpenMenu, true);
+  window.addEventListener("resize", replaceOpenMenu);
 
   document.addEventListener("close", function (event) {
     var dialog = event.target;

@@ -57,12 +57,30 @@
     <div class="card-head card-head-row">
       <div>
         <h2 class="card-title" id="sessions-title">Sessions</h2>
-        <p class="card-sub">Sign out on every device, this one included.</p>
+        <p class="card-sub list-count">Signed in on {{len .Data.Sessions}} device{{if ne (len .Data.Sessions) 1}}s{{end}}</p>
       </div>
       <button type="button" class="btn btn-secondary btn-quiet-danger" data-open-dialog="signout-everywhere">{{icon "log-out"}}<span>Sign out everywhere</span></button>
     </div>
+    <ul class="rows rows-flush" role="list">
+      {{range .Data.Sessions}}
+      <li class="row row-compact">
+        <span class="row-icon{{if .Current}} row-icon-ok{{end}}" aria-hidden="true">{{if .Phone}}{{icon "smartphone"}}{{else}}{{icon "monitor"}}{{end}}</span>
+        <div class="row-main">
+          <p class="row-title">{{.Device}}</p>
+          <p class="row-sub"><span class="row-sub-part">Signed in {{since .Started}}</span>{{if and (not .Current) .LastSeen}}<span class="row-sub-part">Last seen {{ago .LastSeen}}</span>{{end}}</p>
+        </div>
+        {{if .Current}}<span class="pill pill-brand">This device</span>{{else}}
+        <div class="row-actions">
+          <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="signout-session"
+                  data-dialog-action="/account/sessions/{{.Handle}}/signout" data-dialog-subject="{{.Device}}, signed in {{since .Started}}.">Sign out</button>
+        </div>{{end}}
+      </li>
+      {{end}}
+    </ul>
   </section>
 
+  {{template "confirm" (dict "ID" "signout-session" "Action" "" "CSRF" .CSRF "Icon" "log-out"
+       "Title" "Sign out this device?" "Body" "It will need to sign in again." "Button" "Sign out")}}
   {{template "confirm" (dict "ID" "signout-everywhere" "Action" "/account/signout-everywhere" "CSRF" .CSRF "Icon" "log-out"
        "Title" "Sign out everywhere?" "Body" "Every device you're signed in on, this one included, will need to sign in again." "Button" "Sign out everywhere")}}
 {{template "app_end" .}}{{template "foot" .}}{{end}}

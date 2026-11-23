@@ -10,6 +10,7 @@ import (
 	"time"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	"github.com/gofiber/fiber/v3"
 )
@@ -49,7 +50,20 @@ func mountAdmin(app *fiber.App, d Deps) {
 			if err := d.Store.DeleteUserSessions(c.Context(), targetID); err != nil {
 				return err
 			}
-			_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: targetID, Action: "user_disabled", IP: c.IP()})
+			_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: targetID, ActorID: caller.ID, Action: "user_disabled", IP: c.IP()})
+			// The confirm dialog's "Also unlink their numbers" box (on by
+			// default). An unticked box sends nothing, which keeps them.
+			if c.FormValue("unlink") == "on" {
+				target, err := d.Store.UserByID(c.Context(), targetID)
+				if err != nil {
+					return err
+				}
+				if _, err := owners.RemoveAllDevicesAsAdmin(c.Context(), d.Devices, d.Store, caller, target); err != nil {
+					return err
+				}
+			}
+		} else {
+			_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: targetID, ActorID: caller.ID, Action: "user_enabled", IP: c.IP()})
 		}
 		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users")
 	})
@@ -107,21 +121,40 @@ type userRow struct {
 	Phone       string
 	Active      bool
 	IsSelf      bool
+	IsAdmin     bool // a superadmin: their number is fixed by the server's settings
 	DeviceCount int
+	MaxDevices  int
 	LastSignIn  string
+	Numbers     []numberView
 }
 
-func userRows(ctx context.Context, st *store.Store, users []store.User, callerID string) ([]userRow, error) {
+func userRows(ctx context.Context, d Deps, users []store.User, caller *store.User) ([]userRow, error) {
 	rows := make([]userRow, 0, len(users))
-	for _, u := range users {
-		ids, err := st.DevicesOf(ctx, u.ID)
-		if err != nil {
-			return nil, err
+	for i := range users {
+		u := &users[i]
+		row := userRow{
+			ID: u.ID, Phone: u.Phone, Active: u.Status == store.StatusActive, IsSelf: caller != nil && u.ID == caller.ID,
+			IsAdmin: d.Auth.IsSuperadminPhone(u.Phone), MaxDevices: u.MaxDevices, LastSignIn: humanAgo(u.LastLoginAt),
 		}
-		rows = append(rows, userRow{
-			ID: u.ID, Phone: u.Phone, Active: u.Status == store.StatusActive,
-			IsSelf: u.ID == callerID, DeviceCount: len(ids), LastSignIn: humanAgo(u.LastLoginAt),
-		})
+		if d.Devices != nil && caller != nil {
+			devs, err := owners.ListDevicesAsAdmin(ctx, d.Devices, caller, u)
+			if err != nil {
+				return nil, err
+			}
+			slots, err := d.Store.SlotsOf(ctx, u.ID)
+			if err != nil {
+				return nil, err
+			}
+			row.Numbers = numberViews(devs, slots)
+			row.DeviceCount = len(devs)
+		} else {
+			ids, err := d.Store.DevicesOf(ctx, u.ID)
+			if err != nil {
+				return nil, err
+			}
+			row.DeviceCount = len(ids)
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }
@@ -132,11 +165,7 @@ func usersPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error) {
 		return nil, err
 	}
 	caller, _ := userOf(c)
-	callerID := ""
-	if caller != nil {
-		callerID = caller.ID
-	}
-	rows, err := userRows(c.Context(), d.Store, users, callerID)
+	rows, err := userRows(c.Context(), d, users, caller)
 	if err != nil {
 		return nil, err
 	}

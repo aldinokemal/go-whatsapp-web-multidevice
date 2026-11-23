@@ -1,0 +1,25 @@
+{{/* webhook_form.html is the htmx fragment for a number's webhook, swapped
+     into the shared sheet (#link-dialog-body). The secret is write-only. */}}
+{{define "webhook_form.html"}}
+<form class="webhook-form" hx-post="/ui/devices/{{.Data.ID}}/webhook" hx-target="#link-dialog-body" hx-swap="innerHTML"
+      hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}' hx-disabled-elt="find button">
+  <p class="dialog-text">Send this number's messages and events to your own server.</p>
+  {{if .Data.Error}}<p class="form-error" role="alert">{{.Data.Error}}</p>{{end}}
+  {{if .Data.Saved}}<p class="notice notice-ok" role="status">{{icon "check"}}<span>{{.Data.Saved}}</span></p>{{end}}
+  <div class="field">
+    <label class="label" for="webhook-url">Address</label>
+    <input class="input input-mono" id="webhook-url" name="url" type="url" inputmode="url" autocomplete="off"
+           placeholder="https://example.com/whatsapp" value="{{.Data.URL}}">
+  </div>
+  <div class="field">
+    <label class="label" for="webhook-secret">Signing secret</label>
+    <input class="input input-mono" id="webhook-secret" name="secret" type="password" autocomplete="new-password"
+           placeholder="{{if .Data.HasSecret}}Leave blank to keep the current secret{{else}}Optional{{end}}">
+    <p class="field-hint">{{if .Data.HasSecret}}A secret is set. {{end}}Each request carries an X-Hub-Signature-256 header signed with it.</p>
+  </div>
+  <div class="dialog-foot">
+    {{if .Data.URL}}<button type="submit" name="remove" value="1" class="btn btn-secondary btn-quiet-danger" formnovalidate>Remove webhook</button>{{end}}
+    <button type="submit" class="btn btn-primary">Save</button>
+  </div>
+</form>
+{{end}}
