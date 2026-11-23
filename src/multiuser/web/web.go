@@ -145,6 +145,13 @@ type Deps struct {
 	// DeleteAccount deletes an account and everything tied to it
 	// (account.Deleter.Delete). Nil hides Delete account.
 	DeleteAccount func(ctx context.Context, userID string) error
+	// SendWhatsApp sends text from the service number to phone (E.164), in
+	// the chat that person opened with it. Nil: Let in shows the link to copy.
+	SendWhatsApp func(ctx context.Context, phone, text string) error
+	// Capacity says how full the server is. Nil: no cap, no capacity card.
+	Capacity CapacityReader
+	// DefaultMaxDevices is a new account's own limit (WTF_DEFAULT_MAX_DEVICES).
+	DefaultMaxDevices int
 }
 
 // GrantStore is the part of the MCP OAuth server the Account page uses.
@@ -163,6 +170,7 @@ type page struct {
 	Superadmin bool
 	CSRF       string
 	Path       string // the request path, for marking the current menu entry
+	Waiting    int    // people on the waitlist, for the menu's count (superadmins)
 	PublicURL  string // absolute base for links that leave the site (og:image)
 	Data       any
 }
@@ -174,6 +182,10 @@ func (d Deps) render(c fiber.Ctx, status int, name, title string, data any) erro
 func (d Deps) renderCSP(c fiber.Ctx, status int, name, title string, data any, policy string) error {
 	u, _ := auth.UserFrom(c.Context())
 	p := page{Product: d.ProductName, Title: title, User: u, Superadmin: d.Auth.IsSuperadmin(u), CSRF: d.Auth.CSRFToken(c), Path: c.Path(), PublicURL: strings.TrimRight(d.PublicURL, "/"), Data: data}
+	if p.Superadmin {
+		// Derived at render time (house rule T2); a failed count just hides it.
+		p.Waiting, _ = d.Store.WaitlistCount(c.Context(), store.WaitlistWaiting)
+	}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, name, p); err != nil {
 		return err
@@ -213,6 +225,7 @@ func Mount(app *fiber.App, d Deps) {
 	mountAdmin(app, d) // Task 11
 	mountAdminManage(app, d)
 	mountActivity(app, d)
+	mountWaitlist(app, d)
 	mountSessions(app, d)
 	mountWebhook(app, d)
 }

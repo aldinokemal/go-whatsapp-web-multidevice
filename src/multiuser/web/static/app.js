@@ -255,7 +255,7 @@
     // From a kebab menu, focus returns to the menu's trigger (the item is hidden).
     var menu = opener && opener.closest && opener.closest("[data-menu]");
     dialog._opener = (menu && menu.querySelector("[data-menu-trigger]")) || opener || document.activeElement;
-    var row = opener && opener.closest && opener.closest("[id^='row-']");
+    var row = opener && opener.closest && opener.closest("li[id], [role='row'][id]");
     dialog._openerRow = row ? row.id : "";
     if (menu) closeMenus();
     if (!dialog.open) dialog.showModal();
@@ -270,7 +270,17 @@
     if (!opener || !opener.getAttribute) return;
     var action = opener.getAttribute("data-dialog-action");
     var form = dialog.querySelector("form");
-    if (action !== null && form) form.setAttribute("action", action);
+    if (action !== null && form) {
+      form.setAttribute("action", action);
+      // An htmx confirm (data-close-on-success) posts there too, and swaps
+      // the opener's row (data-dialog-target).
+      if (form.hasAttribute("hx-post")) {
+        form.setAttribute("hx-post", action);
+        var target = opener.getAttribute("data-dialog-target");
+        if (target) form.setAttribute("hx-target", target);
+        if (window.htmx) window.htmx.process(form);
+      }
+    }
     var value = opener.getAttribute("data-dialog-value");
     var input = dialog.querySelector("[data-dialog-value]");
     if (value !== null && input) input.value = value;
@@ -380,12 +390,27 @@
       opener = document.querySelector('[hx-get="' + opener.getAttribute("hx-get") + '"]');
     }
     if ((!opener || !document.contains(opener)) && dialog && dialog._openerRow) {
-      opener = document.querySelector("#" + dialog._openerRow + " [data-menu-trigger], #" + dialog._openerRow + " .btn");
+      opener = document.querySelector("#" + dialog._openerRow + " [data-menu-trigger], #" + dialog._openerRow + " .btn, #" + dialog._openerRow + " [tabindex='-1']");
     }
     if (opener && typeof opener.focus === "function" && document.contains(opener)) {
       opener.focus();
     }
   }, true);
+
+  // An htmx confirm closes once its answer is in (the row it swapped says
+  // what happened); an error answer leaves it open.
+  document.addEventListener("htmx:afterRequest", function (event) {
+    var form = event.detail && event.detail.elt;
+    if (!form || !form.hasAttribute || !form.hasAttribute("data-close-on-success")) return;
+    var host = form.closest("dialog");
+    if (event.detail.successful && host && host.open) host.close();
+  });
+
+  // A navigating switcher's select (a phone's view of its links) goes there.
+  document.addEventListener("change", function (event) {
+    var sel = event.target.closest && event.target.closest("[data-nav-select]");
+    if (sel && sel.value) window.location.assign(sel.value);
+  });
 
   // A response that carries data-close-dialog-now (a saved Rename) closes
   // the dialog it was swapped into; its row was swapped out of band.

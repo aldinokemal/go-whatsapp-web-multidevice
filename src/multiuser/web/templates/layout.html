@@ -49,7 +49,7 @@
 {{define "brand"}}<a class="brand" href="/"><img class="brand-mark" src="/ui/static/brand/mark.svg" alt="" width="32" height="32"><span class="brand-name">{{.}}</span></a>{{end}}
 
 {{/* nav_link draws one menu entry. Current: the longest matching path. */}}
-{{define "nav_link"}}<a class="nav-link" href="{{.Href}}" data-tip="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="nav-label">{{.Label}}</span></a>{{end}}
+{{define "nav_link"}}<a class="nav-link" href="{{.Href}}" data-tip="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="nav-label">{{.Label}}</span>{{if .Count}}<span class="nav-count" aria-label="{{.Count}} waiting">{{.Count}}</span>{{end}}</a>{{end}}
 
 {{define "app_start"}}
 <div class="shell">
@@ -70,6 +70,7 @@
       {{if .Superadmin}}
       <p class="nav-section">Admin</p>
       {{template "nav_link" (dict "Href" "/admin/users" "Label" "Users" "Icon" "users" "Current" (eq .Path "/admin/users"))}}
+      {{template "nav_link" (dict "Href" "/admin/waitlist" "Label" "Waitlist" "Icon" "hourglass" "Current" (eq .Path "/admin/waitlist") "Count" .Waiting)}}
       {{template "nav_link" (dict "Href" "/admin/activity" "Label" "Activity" "Icon" "activity" "Current" (eq .Path "/admin/activity"))}}
       {{template "nav_link" (dict "Href" "/admin/settings" "Label" "Settings" "Icon" "settings" "Current" (eq .Path "/admin/settings"))}}
       {{end}}
@@ -119,7 +120,9 @@
      what goes. Typed asks the person to type something first (its label;
      TypedName names the field): the form then posts with htmx, an error
      comes back as this form again (confirm_form) and Busy is what the button
-     says while the request runs. Cancel takes focus first so an accidental
+     says while the request runs. HX posts with htmx too, into the opener's
+     data-dialog-target (a row), and closes the dialog when it answers.
+     Primary draws a confirmation that is not destructive (Let in). Cancel takes focus first so an accidental
      Enter never destroys anything. */}}
 {{define "confirm"}}
 <dialog id="{{.ID}}" class="dialog dialog-confirm" aria-labelledby="{{.ID}}-title">
@@ -128,11 +131,11 @@
 {{end}}
 
 {{define "confirm_form"}}
-  <form method="post" action="{{.Action}}" class="dialog-panel"{{if .Busy}} aria-live="polite"{{end}}{{if .Typed}} hx-post="{{.Action}}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button"{{end}}>
+  <form method="post" action="{{.Action}}" class="dialog-panel"{{if .Busy}} aria-live="polite"{{end}}{{if or .Typed .HX}} hx-post="{{.Action}}" hx-target="{{or .Target "this"}}" hx-swap="outerHTML" hx-disabled-elt="find button"{{if .HX}} data-close-on-success{{end}}{{end}}>
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     {{if .Status}}<input type="hidden" name="status" value="{{.Status}}">{{end}}
     <div class="dialog-body">
-      <span class="badge-icon badge-icon-danger" aria-hidden="true">{{icon .Icon}}</span>
+      <span class="badge-icon {{if .Primary}}badge-icon-brand{{else}}badge-icon-danger{{end}}" aria-hidden="true">{{icon .Icon}}</span>
       <div class="dialog-main">
         <h2 class="dialog-title" id="{{.ID}}-title">{{.Title}}</h2>
         {{if not .Action}}<p class="dialog-subject" data-dialog-subject></p>{{end}}
@@ -150,7 +153,7 @@
     </div>
     <div class="dialog-foot">
       <button type="button" class="btn btn-secondary" data-close-dialog autofocus>Cancel</button>
-      <button type="submit" class="btn btn-danger">{{if .Busy}}<span class="when-idle">{{.Button}}</span><span class="when-busy">{{.Busy}}</span>{{else}}{{.Button}}{{end}}</button>
+      <button type="submit" class="btn {{if .Primary}}btn-primary{{else}}btn-danger{{end}}">{{if .Busy}}<span class="when-idle">{{.Button}}</span><span class="when-busy">{{.Busy}}</span>{{else}}{{.Button}}{{end}}</button>
     </div>
   </form>
 {{end}}
@@ -191,3 +194,30 @@
   </div>
 </dialog>
 {{end}}
+
+{{/* nav_switcher is an either/or choice that navigates (house rule B4): a
+     row of links on a wide screen, one select on a phone. .Items are
+     switchItems; .ID makes the select's id unique. */}}
+{{define "nav_switcher"}}
+<div class="switcher switcher-nav">
+  <nav class="switcher-buttons" aria-label="{{.Label}}">
+    {{range .Items}}<a class="switcher-btn" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><span>{{.Text}}</span>{{if .Count}}<span class="switcher-count">{{.Count}}</span>{{end}}</a>{{end}}
+  </nav>
+  <div class="switcher-select select-wrap">
+    <label class="visually-hidden" for="{{.ID}}">{{.Label}}</label>
+    <select class="input" id="{{.ID}}" data-nav-select>
+      {{range .Items}}<option value="{{.Href}}"{{if .Current}} selected{{end}}>{{.Text}}{{if .Count}} ({{.Count}}){{end}}</option>{{end}}
+    </select>
+    {{icon "chevron-down"}}
+  </div>
+</div>
+{{end}}
+
+{{/* pager is Previous / Next under a list, with what it shows. */}}
+{{define "pager"}}{{if or .Prev .Next}}
+<nav class="pager" aria-label="Pages">
+  {{if .Prev}}<a class="btn btn-secondary btn-sm" href="{{.Prev}}" rel="prev">{{icon "chevron-left"}}<span>Previous</span></a>{{end}}
+  <span class="pager-status">{{.First}}&ndash;{{.Last}} of {{.Total}}</span>
+  {{if .Next}}<a class="btn btn-secondary btn-sm" href="{{.Next}}" rel="next"><span>Next</span>{{icon "chevron-right"}}</a>{{end}}
+</nav>
+{{end}}{{end}}
