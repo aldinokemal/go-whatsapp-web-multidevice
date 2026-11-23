@@ -2,9 +2,6 @@ package whatsapp
 
 import (
 	"context"
-	"errors"
-	"net"
-	"net/http"
 	"testing"
 	"time"
 
@@ -231,25 +228,5 @@ func TestLoadExistingDevices_OrphanAdoptionCanBeDisabled(t *testing.T) {
 	}
 	if got := len(manager.ListDevices()); got != 2 {
 		t.Fatalf("expected the unpaired slot plus the session's own instance, got %d", got)
-	}
-}
-
-// The webhook client hook sees the transport and client of every delivery, so
-// multi-user mode can refuse what a shared server must not reach.
-func TestWebhookClientHookCanRefuseADelivery(t *testing.T) {
-	saved := WebhookClientHook
-	t.Cleanup(func() { WebhookClientHook = saved })
-	var called bool
-	WebhookClientHook = func(tr *http.Transport, _ *http.Client) {
-		called = true
-		tr.DialContext = func(context.Context, string, string) (net.Conn, error) {
-			return nil, errors.New("refused by hook")
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	err := submitWebhook(ctx, map[string]any{"a": 1}, "http://127.0.0.1:9/hook", nil)
-	if !called || err == nil {
-		t.Fatalf("hook called=%v err=%v", called, err)
 	}
 }

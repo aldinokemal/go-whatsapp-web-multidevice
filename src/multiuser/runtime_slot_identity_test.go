@@ -81,19 +81,3 @@ func TestAnAcceptedLinkClearsAnEarlierRefusal(t *testing.T) {
 	}
 	t.Fatal("the refusal was not cleared after an accepted link")
 }
-
-func TestSetupHardensWebhookDeliveryAndCloseReleasesIt(t *testing.T) {
-	s := Settings{Enabled: true, DBURI: "file:" + filepath.Join(t.TempDir(), "a.db"), ProductName: "WTF",
-		PublicURL: "https://wtf.test", SessionSecret: []byte("0123456789abcdef0123456789abcdef"), Superadmins: map[string]bool{}}
-	rt, err := Setup(s, whatsapp.NewDeviceManager(nil, nil, nil), nil, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if whatsapp.WebhookClientHook == nil {
-		t.Fatal("Setup must install the webhook client hook")
-	}
-	_ = rt.Close()
-	if whatsapp.WebhookClientHook != nil {
-		t.Fatal("Close must release the webhook client hook")
-	}
-}

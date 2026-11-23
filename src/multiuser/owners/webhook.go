@@ -2,15 +2,10 @@ package owners
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
-	"fmt"
 	"net"
-	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -20,8 +15,10 @@ import (
 // Webhooks on a shared server: every user may point their own numbers'
 // events at a URL, so the server must never be usable to reach what only it
 // can reach (localhost, the private network, the cloud metadata address).
-// URLs are checked when saved (ValidateWebhookURL) and again at every
-// delivery (HardenWebhookClient), because DNS can change in between.
+// ValidateWebhookURL is the save-time check. The delivery-time guard (which
+// also covers DNS answers that change after saving) is owned by the shared
+// outbound guard (branch phase2/outbound-guard); swap publicAddr for it once
+// that lands.
 
 // lookupIP is net.DefaultResolver.LookupIP; a var so tests can stub DNS.
 var lookupIP = func(ctx context.Context, host string) ([]net.IP, error) {
@@ -109,35 +106,4 @@ func publicAddr(ip netip.Addr) bool {
 		}
 	}
 	return true
-}
-
-// HardenWebhookClient is installed as whatsapp.WebhookClientHook in
-// multi-user mode. Every connection is checked at dial time against the
-// address actually being dialled (so a DNS answer that changed since the URL
-// was saved cannot reach a private address), redirects are not followed, TLS
-// is always verified and no proxy is used.
-func HardenWebhookClient(tr *http.Transport, client *http.Client) {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: refusePrivateDial}
-	tr.Proxy = nil
-	tr.DialContext = dialer.DialContext
-	tr.DialTLSContext = nil
-	if tr.TLSClientConfig == nil {
-		tr.TLSClientConfig = &tls.Config{}
-	}
-	tr.TLSClientConfig.InsecureSkipVerify = false
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return errors.New("webhook redirects are not followed")
-	}
-}
-
-func refusePrivateDial(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return err
-	}
-	ip, err := netip.ParseAddr(host)
-	if err != nil || !publicAddr(ip) {
-		return fmt.Errorf("webhook to a non-public address refused")
-	}
-	return nil
 }

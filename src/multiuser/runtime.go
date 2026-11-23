@@ -183,9 +183,6 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 	}
 	pairs := dmPairs{dm: dm}
 
-	// Per-number webhooks stay available, but a shared server must never
-	// deliver to a private address, follow a redirect or skip TLS checks.
-	whatsapp.WebhookClientHook = owners.HardenWebhookClient
 	middleware.DeviceResolveFunc = func(c fiber.Ctx, id string) (*whatsapp.DeviceInstance, string, error) {
 		return resolver.Resolve(c.Context(), id)
 	}
@@ -244,6 +241,5 @@ func (r *Runtime) Install(app *fiber.App) {
 func (r *Runtime) Close() error {
 	middleware.DeviceResolveFunc = nil
 	whatsapp.EventHook = nil
-	whatsapp.WebhookClientHook = nil
 	return r.Store.Close()
 }
