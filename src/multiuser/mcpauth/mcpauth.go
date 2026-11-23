@@ -73,3 +73,12 @@ func (a *Authenticator) Active(ctx context.Context, subject string) bool {
 	u, err := a.Store.UserByID(ctx, subject)
 	return err == nil && u != nil && u.Status == store.StatusActive
 }
+
+var _ oauth.SessionErrorRenderer = (*Authenticator)(nil)
+
+// RenderAuthorizeError shows WTF's own error page when a connect request is
+// refused in the browser (an unknown app, an undeclared redirect, an expired
+// consent form).
+func (a *Authenticator) RenderAuthorizeError(c fiber.Ctx, status int, message string) error {
+	return web.RenderError(c, a.Web, status, message)
+}

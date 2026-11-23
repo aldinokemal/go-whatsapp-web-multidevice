@@ -2,6 +2,7 @@ package mcpauth
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -111,4 +112,18 @@ func TestConsentWarnsWhenTheClientRunsOnThisComputer(t *testing.T) {
 	require.Equal(t, fiber.StatusOK, resp.StatusCode, page)
 	assert.Contains(t, page, "Only continue if you started this from Claude Code")
 	assert.True(t, strings.HasSuffix(resp.Header.Get("Content-Security-Policy"), "form-action 'self' http://localhost:43123"))
+}
+
+func TestARefusedConnectRequestIsAPage(t *testing.T) {
+	h := newHarness(t, oauth.Config{DisableDCR: true, CIMD: &oauth.CIMDConfig{AllowedHosts: []string{"claude.ai"}, HTTPClient: http.DefaultClient}})
+	_, ck := h.user("+27825550101")
+	q, _ := authorizeQuery("https://evil.example/oauth/meta", claudeRedirect)
+	req := httptest.NewRequest("GET", "/oauth/authorize?"+q.Encode(), nil)
+	req.AddCookie(ck)
+	resp, page := h.do(req)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	assert.Contains(t, resp.Header.Get("Content-Type"), "text/html")
+	assert.Contains(t, page, "This request to connect an app isn&#39;t valid.")
+	assert.Empty(t, resp.Header.Get("Location"), "never redirected to an untrusted callback")
+	assert.True(t, strings.HasSuffix(resp.Header.Get("Content-Security-Policy"), "form-action 'self'"), "the refusal renders under the default policy")
 }

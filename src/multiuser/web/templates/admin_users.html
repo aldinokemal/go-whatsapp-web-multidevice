@@ -132,7 +132,7 @@
 {{define "copy_link"}}
 <div class="link-copy">
   <input class="input input-mono" type="text" id="{{.ID}}" value="{{.Link}}" readonly aria-label="{{or .Label "Sign-in link"}}">
-  <button type="button" class="btn btn-primary" data-copy="{{.ID}}">{{icon "copy"}}<span>Copy</span></button>
+  <button type="button" class="btn {{if .Secondary}}btn-secondary{{else}}btn-primary{{end}}" data-copy="{{.ID}}">{{icon "copy"}}<span>Copy</span></button>
 </div>
 <p class="copy-feedback" data-copy-feedback aria-live="polite"></p>
 {{end}}

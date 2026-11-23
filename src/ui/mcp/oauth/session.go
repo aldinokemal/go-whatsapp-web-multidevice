@@ -40,7 +40,8 @@ func (s *Server) sessionAuthorizeGET(c fiber.Ctx, req authorizationRequest, clie
 // decision is an error, never consent.
 func (s *Server) sessionAuthorizePOST(c fiber.Ctx, req authorizationRequest, client Client) error {
 	if !s.session.VerifyCSRF(c) {
-		return oauthError(c, fiber.StatusForbidden, "invalid_request", "the consent form has expired; start connecting again")
+		return s.browserError(c, fiber.StatusForbidden, "invalid_request", "the consent form has expired; start connecting again",
+			"This page has expired. Start connecting again from the app.")
 	}
 	subject, ok := s.session.Subject(c)
 	if !ok {
@@ -53,8 +54,20 @@ func (s *Server) sessionAuthorizePOST(c fiber.Ctx, req authorizationRequest, cli
 	case "deny":
 		return s.authorizationError(c, req, "access_denied", "the user declined the request")
 	default:
-		return oauthError(c, fiber.StatusBadRequest, "invalid_request", "decision must be approve or deny")
+		return s.browserError(c, fiber.StatusBadRequest, "invalid_request", "decision must be approve or deny",
+			"Choose Allow or Cancel to continue.")
 	}
+}
+
+// browserError answers an authorize request that cannot go back to the
+// client: the application's error page in session mode when it draws one,
+// else the JSON OAuth error.
+func (s *Server) browserError(c fiber.Ctx, status int, code, description, message string) error {
+	if r, ok := s.session.(SessionErrorRenderer); ok && s.session != nil {
+		s.setNoStore(c)
+		return r.RenderAuthorizeError(c, status, message)
+	}
+	return oauthError(c, status, code, description)
 }
 
 func (s *Server) renderConsent(c fiber.Ctx, req authorizationRequest, client Client) error {

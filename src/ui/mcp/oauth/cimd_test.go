@@ -191,6 +191,7 @@ func TestClaudeDesktopDocumentAccepted(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, grants, 1)
 	assert.Equal(t, cimdHost, grants[0].ClientHost)
+	assert.Equal(t, "Claude", grants[0].ClientName)
 
 	refresh := postForm(t, app, "/oauth/token", url.Values{
 		"grant_type": {"refresh_token"}, "client_id": {desktopClientID}, "refresh_token": {pair.RefreshToken}, "resource": {testResource},

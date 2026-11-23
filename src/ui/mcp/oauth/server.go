@@ -539,6 +539,10 @@ func (s *Server) clientStillAccepted(clientID string) bool {
 	return !s.disableDCR
 }
 
+// badConnectRequest is the session-mode page text for a request whose
+// client or redirect cannot be trusted.
+const badConnectRequest = "This request to connect an app isn't valid."
+
 // lookupClient finds the client an authorization request names: a CIMD
 // client from its fetched document, a registered one from the client table.
 // Errors here are answered in the browser, never at the redirect URI, which
@@ -546,19 +550,19 @@ func (s *Server) clientStillAccepted(clientID string) bool {
 func (s *Server) lookupClient(c fiber.Ctx, req *authorizationRequest) (Client, bool, error) {
 	if isCIMDClientID(req.ClientID) {
 		if s.cimd == nil {
-			return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id")
+			return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id", badConnectRequest)
 		}
 		client, err := s.cimd.resolve(c.Context(), req.ClientID)
 		if err != nil {
-			return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_client", "the client's metadata document could not be used")
+			return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_client", "the client's metadata document could not be used", badConnectRequest)
 		}
 		if !cimdRedirectMatches(client.RedirectURIs, req.RedirectURI) {
-			return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri is not one the client declared")
+			return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri is not one the client declared", badConnectRequest)
 		}
 		return client, true, nil
 	}
 	if s.disableDCR {
-		return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id")
+		return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id", badConnectRequest)
 	}
 	client, err := s.store.getClient(c.Context(), req.ClientID)
 	if err != nil {

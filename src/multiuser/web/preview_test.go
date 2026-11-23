@@ -23,6 +23,7 @@ import (
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/oauth"
 	"github.com/gofiber/fiber/v3"
 	qrcode "github.com/skip2/go-qrcode"
 	"github.com/stretchr/testify/require"
@@ -184,6 +185,8 @@ func TestPreviewSite(t *testing.T) {
 	}}
 	e = withDevices(t, stub)
 	e.d.Devices = owners.NewScopedDevices(stub, e.st)
+	grants := &fakeGrants{grants: map[string][]oauth.Grant{}}
+	e.d.Grants, e.d.MCPURL = grants, "https://wtf.onrender.com/mcp"
 	appWithBoom := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(e.d)})
 	appWithBoom.Use(e.d.Auth.Middleware())
 	appWithBoom.Get("/boom", func(fiber.Ctx) error { return errors.New("preview: forced failure") })
@@ -304,6 +307,10 @@ func TestPreviewSite(t *testing.T) {
 	_, _, err = e.st.CreateAPIKey(ctx, adminID, "Claude Code")
 	require.NoError(t, err)
 	e.st.Now = func() time.Time { return time.Now().UTC() }
+	grants.grants[adminID] = []oauth.Grant{
+		{FamilyID: "gowa_family_web", ClientHost: "claude.ai", ClientName: "Claude", CreatedAt: time.Now().Add(-6 * 24 * time.Hour), LastUsedAt: time.Now().Add(-25 * time.Minute)},
+		{FamilyID: "gowa_family_code", ClientHost: "claude.ai", ClientName: "Claude Code", CreatedAt: time.Now().Add(-2 * time.Hour), LastUsedAt: time.Now().Add(-2 * time.Hour)},
+	}
 	account := get(t, e, admin, "/account")
 	p.write("account", account)
 	p.shot(previewShot{Name: "account", Page: "account"})
@@ -327,6 +334,37 @@ func TestPreviewSite(t *testing.T) {
 	p.shot(previewShot{Name: "account-new-key-done", Page: "account-new-key-done", Dialog: "new-key"})
 	p.write("account-empty", get(t, e, empty, "/account"))
 	p.shot(previewShot{Name: "account-empty", Page: "account-empty"})
+
+	// Connected apps: the Connect Claude dialog, and Disconnect asking first.
+	p.shot(previewShot{Name: "account-connect-claude", Page: "account", Dialog: "connect-claude"})
+	p.shot(previewShot{Name: "account-connect-claude-copied", Page: "account", Dialog: "connect-claude",
+		Set: map[string]string{"#connect-claude .connect-step:nth-of-type(2) [data-copy-feedback]": "Copied."}})
+	p.shot(previewShot{Name: "account-disconnect-app", Page: "account", ViewportOnly: true,
+		Click: []string{`[data-open-dialog="disconnect-app"]`}})
+
+	// The OAuth consent page (GET /oauth/authorize, signed in): a web
+	// client, a client on this computer (Claude Code), and a refused request.
+	consentApp := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(e.d)})
+	consentApp.Use(e.d.Auth.Middleware())
+	hidden := map[string]string{"response_type": "code", "client_id": "https://claude.ai/oauth/mcp-oauth-client-metadata",
+		"redirect_uri": "https://claude.ai/api/mcp/auth_callback", "code_challenge": "x", "code_challenge_method": "S256",
+		"resource": "https://wtf.onrender.com/mcp", "scope": "mcp", "state": "s"}
+	consentApp.Get("/consent", func(c fiber.Ctx) error {
+		return RenderStandalone(c, e.d, "consent.html", "Allow access", oauth.ConsentView{ClientHost: "claude.ai", ClientName: "Claude",
+			RedirectHost: "claude.ai", Action: "/oauth/authorize", Hidden: hidden, CSRF: "csrf"}, "https://claude.ai")
+	})
+	consentApp.Get("/consent-loopback", func(c fiber.Ctx) error {
+		return RenderStandalone(c, e.d, "consent.html", "Allow access", oauth.ConsentView{ClientHost: "claude.ai", ClientName: "Claude Code",
+			RedirectHost: "localhost:54321", LoopbackOnly: true, Action: "/oauth/authorize", Hidden: hidden, CSRF: "csrf"}, "http://localhost:54321")
+	})
+	consentApp.Get("/consent-error", func(c fiber.Ctx) error {
+		return RenderError(c, e.d, fiber.StatusBadRequest, "This request to connect an app isn't valid.")
+	})
+	consentEnv := &env{app: consentApp, st: e.st, d: e.d}
+	for _, name := range []string{"consent", "consent-loopback", "consent-error"} {
+		p.write(name, get(t, consentEnv, admin, "/"+name))
+		p.shot(previewShot{Name: name, Page: name})
+	}
 
 	// Admin users: one just added from the Add user modal (never signed in).
 	usersBefore := get(t, e, admin, "/admin/users")

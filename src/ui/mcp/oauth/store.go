@@ -576,7 +576,8 @@ DELETE FROM oauth_authorization_codes WHERE subject = ? AND used_at IS NULL`, su
 // is live while it holds an unrevoked, unexpired refresh token), newest first.
 func (s *store) listGrants(ctx context.Context, subject string, now time.Time) ([]Grant, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT t.family_id, t.client_id, MIN(t.created_at), MAX(t.created_at), COALESCE(c.redirect_uris_json, '[]')
+SELECT t.family_id, t.client_id, MIN(t.created_at), MAX(t.created_at), COALESCE(c.redirect_uris_json, '[]'),
+       COALESCE(c.client_name, ''), COALESCE(c.application_type, '')
 FROM oauth_tokens t
 LEFT JOIN oauth_clients c ON c.client_id = t.client_id
 WHERE t.subject = ?
@@ -593,8 +594,9 @@ ORDER BY MIN(t.created_at) DESC, t.family_id`, subject, now.Unix())
 			g             Grant
 			created, last int64
 			redirectsJSON string
+			name, appType string
 		)
-		if err := rows.Scan(&g.FamilyID, &g.ClientID, &created, &last, &redirectsJSON); err != nil {
+		if err := rows.Scan(&g.FamilyID, &g.ClientID, &created, &last, &redirectsJSON, &name, &appType); err != nil {
 			return nil, err
 		}
 		g.CreatedAt = time.Unix(created, 0).UTC()
@@ -602,6 +604,11 @@ ORDER BY MIN(t.created_at) DESC, t.family_id`, subject, now.Unix())
 		var redirects []string
 		_ = json.Unmarshal([]byte(redirectsJSON), &redirects)
 		g.ClientHost = clientDisplayHost(g.ClientID, redirects)
+		if appType == applicationTypeCIMD {
+			// Written by the document's own host (an allowlisted one), not
+			// by whoever registered: safe to show beside that host.
+			g.ClientName = name
+		}
 		out = append(out, g)
 	}
 	return out, rows.Err()

@@ -53,6 +53,8 @@
     {{end}}
   </section>
 
+  {{if .Data.Connections}}{{template "connections_card" .}}{{end}}
+
   {{template "api_keys_card" .}}
 
   <section class="card" aria-labelledby="appearance-title">

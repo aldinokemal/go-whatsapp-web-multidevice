@@ -119,6 +119,14 @@ type SessionAuthenticator interface {
 	Active(ctx context.Context, subject string) bool
 }
 
+// SessionErrorRenderer is optional for a SessionAuthenticator: when it is
+// implemented, an authorize request refused in the browser (before its
+// redirect URI is trusted, or a consent form that expired) gets the
+// application's own error page instead of a JSON OAuth error.
+type SessionErrorRenderer interface {
+	RenderAuthorizeError(c fiber.Ctx, status int, message string) error
+}
+
 // ConsentView is what the consent page shows and posts back.
 type ConsentView struct {
 	// ClientHost is the host of a CIMD client_id URL: the relying party to
@@ -144,6 +152,7 @@ type Grant struct {
 	FamilyID   string
 	ClientID   string
 	ClientHost string // the CIMD URL's host, or a registered client's redirect host
+	ClientName string // a CIMD document's client_name; empty for registered clients (self-asserted)
 	CreatedAt  time.Time
 	LastUsedAt time.Time // when the family last obtained tokens
 }

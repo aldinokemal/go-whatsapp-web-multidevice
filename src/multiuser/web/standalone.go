@@ -40,3 +40,9 @@ func cleanOrigin(raw string) string {
 	}
 	return raw
 }
+
+// RenderError draws WTF's error page (the signed-in shell when there is a
+// session, the auth card otherwise) for a page another package serves.
+func RenderError(c fiber.Ctx, d Deps, status int, message string) error {
+	return d.render(c, status, "error.html", "Error", map[string]any{"Message": message, "Code": status})
+}

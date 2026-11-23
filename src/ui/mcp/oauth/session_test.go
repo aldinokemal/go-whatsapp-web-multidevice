@@ -304,6 +304,7 @@ func TestListGrantsIsPerSubject(t *testing.T) {
 	for _, g := range alice {
 		assert.Equal(t, clientID, g.ClientID)
 		assert.Equal(t, "claude.ai", g.ClientHost, "a registered client is named by its redirect host")
+		assert.Empty(t, g.ClientName, "a registered client's name is self-asserted and never listed")
 		assert.False(t, g.CreatedAt.IsZero())
 	}
 	bob, err := srv.ListGrants(ctx, "u_bob")
