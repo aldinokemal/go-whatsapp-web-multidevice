@@ -31,6 +31,9 @@ var publicRoutes = map[string]bool{
 	"GET /health": true, "GET /signin": true, "GET /signin/qr.png": true, "GET /signin/verify": true,
 	"POST /signin/verify": true, "GET /ui/static/*": true,
 	"POST /auth/passkey/login/begin": true, "POST /auth/passkey/login/finish": true,
+	// PWA and browser plumbing: no user data, must load before sign-in.
+	"GET /manifest.webmanifest": true, "GET /sw.js": true, "GET /offline": true,
+	"GET /favicon.ico": true, "GET /apple-touch-icon.png": true, "GET /robots.txt": true,
 }
 
 func TestEveryRouteIsGatedAndOwnerScoped(t *testing.T) {
@@ -148,7 +151,8 @@ func isDeviceScoped(path string) bool {
 	if path == "/ui/devices" {
 		return false // POST /ui/devices (AddDevice) ignores any device id and creates one for the caller
 	}
-	for _, own := range []string{"/signin", "/signout", "/ui/static", "/auth/passkey", "/account", "/admin", "/health", "/devices"} {
+	for _, own := range []string{"/signin", "/signout", "/ui/static", "/auth/passkey", "/account", "/admin", "/health", "/devices",
+		"/manifest.webmanifest", "/sw.js", "/offline", "/favicon.ico", "/apple-touch-icon.png", "/robots.txt"} {
 		if strings.HasPrefix(path, own) {
 			return false
 		}
