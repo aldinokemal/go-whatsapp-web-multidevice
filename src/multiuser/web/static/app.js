@@ -1,4 +1,5 @@
-// WTF's own small script: passkey sign-in and <dialog> open/close helpers.
+// WTF's own small script: passkey sign-in, <dialog> open/close helpers and
+// the navigation drawer / rail.
 // Never a browser-native popup; failures are written into the page instead.
 (function () {
   "use strict";
@@ -216,6 +217,8 @@
     }
     navigator.clipboard.writeText(input.value).then(function () {
       if (feedback) feedback.textContent = "Copied.";
+      button.classList.add("is-copied");
+      window.setTimeout(function () { button.classList.remove("is-copied"); }, 2000);
     }).catch(function () {
       if (feedback) feedback.textContent = "Couldn't copy. Select and copy the link by hand.";
     });
@@ -234,6 +237,92 @@
     el.src = base + "?t=" + Date.now();
   });
 
+  // openDialog remembers what opened a dialog so focus goes back there on
+  // close (Esc, Cancel, the close button or a backdrop click). A dialog whose
+  // body an htmx request is about to refill is emptied first, so it shows the
+  // loading spinner instead of the previous content.
+  function openDialog(dialog, opener) {
+    if (!dialog || typeof dialog.showModal !== "function") return;
+    var target = opener && opener.getAttribute("hx-target");
+    if (target) {
+      var body = document.querySelector(target);
+      if (body && dialog.contains(body)) body.innerHTML = "";
+    }
+    dialog._opener = opener || document.activeElement;
+    if (!dialog.open) dialog.showModal();
+  }
+
+  document.addEventListener("close", function (event) {
+    var dialog = event.target;
+    if (dialog && dialog._opener && typeof dialog._opener.focus === "function" && document.contains(dialog._opener)) {
+      dialog._opener.focus();
+    }
+  }, true);
+
+  // A press on the backdrop (the <dialog> element itself, outside its panel)
+  // closes it; Esc and the buttons inside still work as well.
+  document.addEventListener("mousedown", function (event) {
+    var d = event.target;
+    if (d && d.tagName === "DIALOG" && d.open) {
+      var r = d.getBoundingClientRect();
+      var inside = event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom;
+      if (!inside) d.close();
+    }
+  });
+
+  // Navigation: a slide-over drawer at 960px and below, a sidebar that folds
+  // to an icon rail above it (remembered in localStorage; boot.js restores it).
+  var root = document.documentElement;
+  var navOpener = document.querySelector("[data-nav-open]");
+  var sidebar = document.getElementById("sidebar");
+
+  function setDrawer(open) {
+    if (open) root.setAttribute("data-nav-open", "");
+    else root.removeAttribute("data-nav-open");
+    if (navOpener) navOpener.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open && sidebar) {
+      var first = sidebar.querySelector("[aria-current='page']") || sidebar.querySelector("a, button");
+      window.setTimeout(function () { if (first) first.focus(); }, 30);
+    } else if (navOpener && sidebar && sidebar.contains(document.activeElement)) {
+      navOpener.focus();
+    }
+  }
+
+  function syncRailButton() {
+    var btn = document.querySelector("[data-rail-toggle]");
+    if (btn) btn.setAttribute("aria-label", root.hasAttribute("data-rail") ? "Expand menu" : "Collapse menu");
+  }
+  syncRailButton();
+
+  function toggleRail() {
+    var rail = !root.hasAttribute("data-rail");
+    if (rail) root.setAttribute("data-rail", "");
+    else root.removeAttribute("data-rail");
+    try { window.localStorage.setItem("wtf-nav", rail ? "rail" : "full"); } catch (e) { /* storage refused */ }
+    syncRailButton();
+  }
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && root.hasAttribute("data-nav-open")) setDrawer(false);
+  });
+
+  // Instant feedback: a submitted form's button shows busy at once, and is
+  // disabled after the browser has taken the submission so it cannot double-post.
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form || form.hasAttribute("hx-post")) return;
+    var btn = event.submitter || form.querySelector("[type=submit]");
+    if (!btn) return;
+    btn.setAttribute("aria-busy", "true");
+    window.setTimeout(function () { btn.disabled = true; }, 0);
+  });
+  window.addEventListener("pageshow", function () {
+    document.querySelectorAll("[aria-busy='true']").forEach(function (b) {
+      b.removeAttribute("aria-busy");
+      b.disabled = false;
+    });
+  });
+
   document.addEventListener("click", function (event) {
     var loginBtn = event.target.closest("[data-passkey-login]");
     if (loginBtn) {
@@ -250,8 +339,7 @@
     var openBtn = event.target.closest("[data-open-dialog]");
     if (openBtn) {
       var id = openBtn.getAttribute("data-open-dialog");
-      var dialog = document.getElementById(id);
-      if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+      openDialog(document.getElementById(id), openBtn);
       return;
     }
     var closeBtn = event.target.closest("[data-close-dialog]");
@@ -263,6 +351,22 @@
     var copyBtn = event.target.closest("[data-copy]");
     if (copyBtn) {
       copyToClipboard(copyBtn);
+      return;
+    }
+    if (event.target.closest("[data-nav-open]")) {
+      setDrawer(!root.hasAttribute("data-nav-open"));
+      return;
+    }
+    if (event.target.closest("[data-nav-close]")) {
+      setDrawer(false);
+      return;
+    }
+    if (event.target.closest("[data-rail-toggle]")) {
+      toggleRail();
+      return;
+    }
+    if (root.hasAttribute("data-nav-open") && event.target.closest(".sidebar a")) {
+      setDrawer(false);
     }
   });
 })();

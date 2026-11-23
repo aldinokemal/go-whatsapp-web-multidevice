@@ -1,21 +1,25 @@
-{{define "signin.html"}}{{template "head" .}}
-<main id="main" tabindex="-1" class="page page-centered">
-  <div class="card card-auth">
-    <h1>Sign in to {{.Product}}</h1>
-    {{if .Data.WALink}}
-    <p>Scan with your phone, send the message, and we'll reply with a sign-in link.</p>
-    <p class="action-group">{{.Data.WALinkButton}}</p>
-    <p class="qr-wrap">
-      <img class="qr-desktop" src="/signin/qr.png" alt="QR code to open WhatsApp" width="320" height="320">
-    </p>
-    {{else}}
-    <p>Sign-in isn't set up yet. Please try again later.</p>
-    {{end}}
-    <p class="divider">or</p>
-    <p class="action-group">
-      <button type="button" class="btn btn-secondary" data-passkey-login>Sign in with a passkey</button>
-    </p>
-    <p data-passkey-error role="alert" class="form-error"></p>
+{{define "signin.html"}}{{template "head" .}}{{template "auth_start" .}}
+  <div class="auth-main">
+  <h1 class="auth-title">Sign in to {{.Product}}</h1>
+  {{if .Data.WALink}}
+  <p class="auth-sub">Send us a WhatsApp message and we'll reply with a sign-in link.</p>
+  <div class="auth-actions">
+    {{.Data.WALinkButton}}
   </div>
-</main>
-{{template "foot" .}}{{end}}
+  {{else}}
+  <p class="notice">{{icon "info"}}<span>Sign-in isn't set up yet. Please try again later.</span></p>
+  {{end}}
+  <p class="divider"><span>or</span></p>
+  <div class="auth-actions">
+    <button type="button" class="btn btn-secondary btn-lg btn-block" data-passkey-login>{{icon "fingerprint"}}<span>Sign in with a passkey</span></button>
+  </div>
+  <p data-passkey-error role="alert" class="form-error"></p>
+  </div>
+  {{if .Data.WALink}}
+  <div class="qr-panel">
+    <p class="qr-panel-title">On a computer?</p>
+    <div class="qr-frame"><img class="qr-desktop" src="/signin/qr.png" alt="QR code to open WhatsApp" width="320" height="320"></div>
+    <p class="qr-panel-text">Scan with your phone's camera to open WhatsApp.</p>
+  </div>
+  {{end}}
+{{template "auth_end" .}}{{template "foot" .}}{{end}}

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="WTF">
+  <!-- Temporary placeholder mark; the brand builder replaces this file. -->
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#10B981"/><stop offset="1" stop-color="#047857"/></linearGradient></defs>
+  <rect width="64" height="64" rx="15" fill="url(#g)"/>
+  <path d="M32 14c-10.5 0-19 7.4-19 16.6 0 4.6 2.1 8.8 5.6 11.8L17 50l9-3.6c1.9.5 3.9.8 6 .8 10.5 0 19-7.4 19-16.6S42.5 14 32 14Z" fill="#fff"/>
+  <g fill="none" stroke="#047857" stroke-width="3.2" stroke-linecap="round">
+    <path d="M29.5 33.5 34.5 28.5"/>
+    <path d="M27.6 30.6l-1.9 1.9a3.6 3.6 0 0 0 5.1 5.1l1.9-1.9"/>
+    <path d="M36.4 31.4l1.9-1.9a3.6 3.6 0 0 0-5.1-5.1l-1.9 1.9"/>
+  </g>
+</svg>

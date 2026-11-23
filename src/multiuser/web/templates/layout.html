@@ -1,32 +1,128 @@
+{{/* Page frame. Every page starts with "head" and ends with "foot"; between
+     them a signed-in page wraps its content in "app_start"/"app_end" (the
+     sidebar shell) and a signed-out page in "auth_start"/"auth_end" (the
+     centred card). */}}
 {{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>{{.Title}} &middot; {{.Product}}</title>
+<link rel="preload" href="/ui/static/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/ui/static/app.css">
+{{/* brand-head: favicon, manifest, theme-color (added by brand builder) */}}
+<script src="/ui/static/boot.js"></script>
 <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to main content</a>
-<header class="topbar">
-  <a class="brand" href="/">{{.Product}}</a>
-  {{if .User}}
-  <nav class="topnav" aria-label="Primary">
-    <a href="/">My WhatsApp</a>
-    <a href="/account">Account</a>
-    {{if .Superadmin}}<a href="/admin/users">Admin</a><a href="/admin/settings">Settings</a>{{end}}
-  </nav>
-  <form method="post" action="/signout" class="signout-form">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <button type="submit" class="btn btn-ghost">Sign out</button>
-  </form>
-  {{end}}
-</header>
 {{end}}
+
 {{define "foot"}}
 <script src="/ui/static/htmx.min.js" defer></script>
 <script src="/ui/static/app.js" defer></script>
 </body>
 </html>
+{{end}}
+
+{{define "brand"}}<a class="brand" href="/"><img class="brand-mark" src="/ui/static/brand/mark.svg" alt="" width="32" height="32"><span class="brand-name">{{.}}</span></a>{{end}}
+
+{{/* nav_link draws one menu entry. Current: the longest matching path. */}}
+{{define "nav_link"}}<a class="nav-link" href="{{.Href}}" data-tip="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="nav-label">{{.Label}}</span></a>{{end}}
+
+{{define "app_start"}}
+<div class="shell">
+  <header class="topbar">
+    <button type="button" class="icon-btn icon-btn-bare" data-nav-open aria-controls="sidebar" aria-expanded="false" aria-label="Open menu">{{icon "menu"}}</button>
+    {{template "brand" .Product}}
+  </header>
+  <div class="nav-backdrop" data-nav-close></div>
+  <aside class="sidebar" id="sidebar" aria-label="Menu">
+    <div class="sidebar-head">
+      {{template "brand" .Product}}
+      <button type="button" class="icon-btn icon-btn-bare rail-toggle" data-rail-toggle aria-controls="sidebar" aria-label="Collapse menu">{{icon "panel-left-close"}}</button>
+      <button type="button" class="icon-btn icon-btn-bare drawer-close" data-nav-close aria-label="Close menu">{{icon "x"}}</button>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      {{template "nav_link" (dict "Href" "/" "Label" "My WhatsApp" "Icon" "smartphone" "Current" (eq .Path "/"))}}
+      {{template "nav_link" (dict "Href" "/account" "Label" "Account" "Icon" "user-round" "Current" (eq .Path "/account"))}}
+      {{if .Superadmin}}
+      <p class="nav-section">Admin</p>
+      {{template "nav_link" (dict "Href" "/admin/users" "Label" "Users" "Icon" "users" "Current" (eq .Path "/admin/users"))}}
+      {{template "nav_link" (dict "Href" "/admin/settings" "Label" "Settings" "Icon" "settings" "Current" (eq .Path "/admin/settings"))}}
+      {{end}}
+    </nav>
+    <div class="sidebar-foot">
+      <div class="who">
+        <span class="avatar" aria-hidden="true">{{icon "user-round"}}</span>
+        <span class="who-text">
+          <span class="who-phone">{{.User.Phone}}</span>
+          <span class="who-role">{{if .Superadmin}}Admin{{else}}Member{{end}}</span>
+        </span>
+      </div>
+      <form method="post" action="/signout" class="signout-form">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button type="submit" class="nav-link nav-button" data-tip="Sign out">{{icon "log-out"}}<span class="nav-label">Sign out</span></button>
+      </form>
+    </div>
+  </aside>
+  <main id="main" tabindex="-1" class="main">
+    <div class="page">
+{{end}}
+
+{{define "app_end"}}
+    </div>
+  </main>
+</div>
+{{end}}
+
+{{define "auth_start"}}
+<main id="main" tabindex="-1" class="auth">
+  <div class="auth-inner">
+    <div class="auth-brand">{{template "brand" .Product}}</div>
+    <div class="card auth-card">
+{{end}}
+
+{{define "auth_end"}}
+    </div>
+  </div>
+</main>
+{{end}}
+
+{{/* confirm draws a destructive confirmation dialog: one per thing it acts
+     on, opened by a data-open-dialog button. Cancel takes focus first so an
+     accidental Enter never destroys anything. */}}
+{{define "confirm"}}
+<dialog id="{{.ID}}" class="dialog dialog-confirm" aria-labelledby="{{.ID}}-title">
+  <form method="post" action="{{.Action}}" class="dialog-panel">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{if .Status}}<input type="hidden" name="status" value="{{.Status}}">{{end}}
+    <div class="dialog-body">
+      <span class="badge-icon badge-icon-danger" aria-hidden="true">{{icon .Icon}}</span>
+      <div>
+        <h2 class="dialog-title" id="{{.ID}}-title">{{.Title}}</h2>
+        <p class="dialog-text">{{.Body}}</p>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-secondary" data-close-dialog autofocus>Cancel</button>
+      <button type="submit" class="btn btn-danger">{{.Button}}</button>
+    </div>
+  </form>
+</dialog>
+{{end}}
+
+{{/* sheet draws a content dialog with a title bar and close button; its body
+     is filled by htmx into #link-dialog-body. */}}
+{{define "sheet"}}
+<dialog id="link-dialog" class="dialog dialog-sheet" aria-labelledby="link-dialog-title">
+  <div class="dialog-panel">
+    <div class="dialog-head">
+      <h2 class="dialog-title" id="link-dialog-title">{{.Title}}</h2>
+      <button type="button" class="icon-btn icon-btn-bare" data-close-dialog aria-label="Close">{{icon "x"}}</button>
+    </div>
+    <div id="link-dialog-body" class="link-body" aria-live="polite"></div>
+  </div>
+</dialog>
 {{end}}

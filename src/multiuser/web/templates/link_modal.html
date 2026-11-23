@@ -1,38 +1,54 @@
-{{/* link_modal.html is the htmx fragment returned by POST /ui/devices and
-     POST /ui/devices/:id/pair-code: the body of the shared "Link WhatsApp"
-     dialog. It is also used, via the shared "link_fragment" sub-template,
-     to re-render the same content inline inside a per-device dialog on
-     home.html, so an unlinked device can be re-opened without another
-     round trip to the server. */}}
+{{/* link_modal.html is the htmx fragment returned by POST /ui/devices,
+     GET /ui/devices/:id/link and POST /ui/devices/:id/pair-code: the body of
+     the shared "Link WhatsApp" dialog, drawn by the "link_fragment"
+     sub-template. */}}
 {{define "link_modal.html"}}{{template "link_fragment" (dict "ID" .Data.ID "Error" .Data.Error "PairCode" .Data.PairCode "CSRF" .CSRF)}}{{end}}
 
 {{define "link_fragment"}}
 {{if .Error}}
 <p class="form-error" role="alert">{{.Error}}</p>
+<div class="dialog-foot"><button type="button" class="btn btn-secondary" data-close-dialog>Close</button></div>
 {{else if .PairCode}}
-<p>On your phone: WhatsApp, Settings, Linked devices, Link with phone number, then enter:</p>
-<p class="pair-code">{{.PairCode}}</p>
+<div class="pair-result">
+  <p class="pair-lead">Enter this code on your phone</p>
+  <p class="pair-code">{{.PairCode}}</p>
+  <ol class="steps">
+    <li>Open WhatsApp, then Settings</li>
+    <li>Tap Linked devices, then Link a device</li>
+    <li>Tap Link with phone number instead, then enter the code</li>
+  </ol>
+  <p class="waiting" aria-live="polite"><span class="pulse" aria-hidden="true"></span>Waiting for your phone</p>
+</div>
 {{else}}
-{{/* The real QR rotates every few seconds, so polling alone isn't enough:
-     hx-swap="none" means htmx never touches the DOM with the response, so the
-     <img>'s own src never changes and the browser never re-fetches. app.js
-     listens for htmx:afterRequest on data-qr-refresh and re-points src at the
-     same URL with a cache-buster, which is what actually triggers the
-     browser to fetch a fresh frame. */}}
-<img class="qr-code" data-qr-refresh src="/ui/devices/{{.ID}}/qr.png" alt="QR code to link WhatsApp" width="280" height="280"
-     hx-get="/ui/devices/{{.ID}}/qr.png" hx-trigger="every 20s" hx-swap="none">
-<ol class="steps">
-  <li>Open WhatsApp on your phone</li>
-  <li>Tap Settings, then Linked devices</li>
-  <li>Tap Link a device, then scan this code</li>
-</ol>
+<div class="link-qr">
+  <div class="qr-frame">
+    {{/* The real QR rotates every few seconds, so polling alone isn't enough:
+         hx-swap="none" means htmx never touches the DOM with the response, so
+         the <img>'s own src never changes and the browser never re-fetches.
+         app.js listens for htmx:afterRequest on data-qr-refresh and re-points
+         src at the same URL with a cache-buster, which is what actually
+         triggers the browser to fetch a fresh frame. */}}
+    <img class="qr-code" data-qr-refresh src="/ui/devices/{{.ID}}/qr.png" alt="QR code to link WhatsApp" width="280" height="280"
+         hx-get="/ui/devices/{{.ID}}/qr.png" hx-trigger="every 20s" hx-swap="none">
+  </div>
+  <div class="link-steps">
+    <ol class="steps">
+      <li>Open WhatsApp on your phone</li>
+      <li>Tap Settings, then Linked devices</li>
+      <li>Tap Link a device, then scan this code</li>
+    </ol>
+    <p class="waiting" aria-live="polite"><span class="pulse" aria-hidden="true"></span>Waiting for scan</p>
+  </div>
+</div>
 <details class="pair-alt">
-  <summary>Use a phone number instead</summary>
-  <form hx-post="/ui/devices/{{.ID}}/pair-code" hx-target="closest .link-body" hx-swap="innerHTML"
-        hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}'>
-    <label for="pair-phone-{{.ID}}">WhatsApp number</label>
-    <input id="pair-phone-{{.ID}}" type="tel" name="phone" placeholder="+1 555 555 0100" required>
-    <button type="submit" class="btn btn-secondary">Get code</button>
+  <summary>{{icon "phone"}}<span>Use a phone number instead</span>{{icon "chevron-down"}}</summary>
+  <form class="pair-form" hx-post="/ui/devices/{{.ID}}/pair-code" hx-target="closest .link-body" hx-swap="innerHTML"
+        hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}' hx-disabled-elt="find button">
+    <div class="field">
+      <label class="label" for="pair-phone-{{.ID}}">WhatsApp number</label>
+      <input class="input" id="pair-phone-{{.ID}}" type="tel" name="phone" inputmode="tel" autocomplete="tel" placeholder="+1 555 555 0100" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Get code</button>
   </form>
 </details>
 {{end}}

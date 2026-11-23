@@ -1,9 +1,9 @@
-{{define "error.html"}}{{template "head" .}}
-<main id="main" tabindex="-1" class="page page-centered">
-  <div class="card card-auth">
-    <h1>{{.Data.Code}}</h1>
-    <p>{{.Data.Message}}</p>
-    <p class="action-group"><a class="btn btn-secondary" href="/">Back home</a></p>
+{{define "error.html"}}{{template "head" .}}{{template "auth_start" .}}
+  <span class="badge-icon {{if ge .Data.Code 500}}badge-icon-danger{{else}}badge-icon-muted{{end}}" aria-hidden="true">{{if ge .Data.Code 500}}{{icon "server-crash"}}{{else}}{{icon "search-x"}}{{end}}</span>
+  <p class="error-code">Error {{.Data.Code}}</p>
+  <h1 class="auth-title">{{.Data.Message}}</h1>
+  <p class="auth-sub">{{if ge .Data.Code 500}}Try again in a moment.{{else}}Check the address, or go back home.{{end}}</p>
+  <div class="auth-actions">
+    <a class="btn btn-primary btn-lg btn-block" href="/">{{icon "house"}}<span>Back home</span></a>
   </div>
-</main>
-{{template "foot" .}}{{end}}
+{{template "auth_end" .}}{{template "foot" .}}{{end}}
