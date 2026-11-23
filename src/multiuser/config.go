@@ -29,6 +29,11 @@ type Settings struct {
 	// MCPClientHosts are the exact hosts whose client ID metadata documents
 	// are accepted (WTF_MCP_CLIENT_HOSTS, default claude.ai: Claude only).
 	MCPClientHosts []string
+	// MaxPhones caps linked numbers server-wide (WTF_MAX_PHONES; 0 = no cap).
+	// DefaultMaxDevices is each new user's own limit (WTF_DEFAULT_MAX_DEVICES).
+	// Both are read by loadCapacity (config_capacity.go).
+	MaxPhones         int
+	DefaultMaxDevices int
 }
 
 // MCPResourceURL is the MCP endpoint's public address. The OAuth issuer,
@@ -64,6 +69,8 @@ func Load(getenv func(string) string) (Settings, error) {
 		ProductName: "WTF",
 		Superadmins: map[string]bool{},
 		SignupOpen:  strings.EqualFold(strings.TrimSpace(getenv("WTF_SIGNUP_OPEN")), "true"),
+
+		DefaultMaxDevices: defaultMaxDevices,
 	}
 	if !s.Enabled {
 		return s, nil
@@ -113,6 +120,9 @@ func Load(getenv func(string) string) (Settings, error) {
 			return s, errors.New("WTF_SUPERADMIN_PHONES holds an invalid number")
 		}
 		s.Superadmins[phone] = true
+	}
+	if err := loadCapacity(getenv, &s); err != nil {
+		return s, err
 	}
 	return s, nil
 }
