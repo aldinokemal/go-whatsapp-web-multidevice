@@ -131,3 +131,49 @@ curl https://gowa.example.com/.well-known/oauth-authorization-server
 ```
 
 The authorization-server metadata advertises authorization-code and refresh-token grants, PKCE `S256`, and the DCR registration endpoint.
+
+## Multi-user mode (WTF)
+
+With `WTF_MULTIUSER=true` the same OAuth server runs in a different mode, and
+`/mcp` serves each person their own WhatsApp numbers only.
+
+- **On by default.** `WTF_MCP_ENABLED` (default `true`) turns it on; the
+  `MCP_OAUTH_*` settings and `APP_BASIC_AUTH` are not used. The issuer is the
+  public URL (`WTF_PUBLIC_URL`, else `RENDER_EXTERNAL_URL`) and the resource is
+  `<public URL>/mcp`, from that one setting. The public URL must be `https`;
+  with a plain-http one (local development) MCP stays off with a warning.
+- **Who the subject is.** The browser's WTF sign-in, not a Basic Auth form.
+  An anonymous browser is sent to sign in and back; a signed-in one sees a
+  consent page naming the requesting host (never the name an app gives
+  itself), the redirect host, the account, and that the app can read and send
+  messages on every linked number. The subject on codes and tokens is the WTF
+  user id. Allow needs the page's CSRF token and an explicit decision.
+- **Clients: CIMD only, from `WTF_MCP_CLIENT_HOSTS`** (default `claude.ai`).
+  Dynamic client registration is off (`/oauth/register` does not exist and is
+  not advertised). A client id is the HTTPS URL of a client ID metadata
+  document on an allowed host; it is fetched with GET only, through the
+  outbound guard (public addresses only, checked at connect time), with no
+  redirects, a 64 KiB cap read as a stream, a 10 second timeout and an
+  `application/json` check; its `client_id` must name its own URL. Good
+  documents are cached for 5 minutes, failures not at all. Redirects must
+  match a declared one on scheme, host, path and query; for `localhost`,
+  `127.0.0.1` and `[::1]` the port is ignored (Claude Code declares
+  `http://localhost/callback` and listens on a random port), and `localhost`
+  never matches `127.0.0.1`. The consent page's `form-action` CSP allows that
+  redirect's origin only.
+- **No Basic, no cookies on `/mcp`.** `/mcp` accepts an OAuth access token for
+  this resource, or a personal API key (`Authorization: Bearer wtfk_...`, for
+  Claude Code without OAuth). Anything else is a 401 with the
+  `resource_metadata` challenge, before the body or protocol version is read.
+  The person is re-read on every call: disabling them, revoking the key or
+  disconnecting the app takes effect on the next call.
+- **Devices.** `X-Device-Id` and a per-call `device_id` resolve only the
+  caller's own numbers (another person's reads like an unknown one); with
+  exactly one number it is the default. The `wtf_my_devices` tool lists them.
+- **Disconnecting.** Account › Connected apps lists each connection (one per
+  token family) with Disconnect, which revokes every token of that
+  connection at once.
+
+Allowing another vendor's app means adding its document host to
+`WTF_MCP_CLIENT_HOSTS`, once that app is known to use CIMD (apps that only do
+dynamic registration, such as Grok, cannot connect in this mode).

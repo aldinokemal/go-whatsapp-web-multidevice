@@ -23,3 +23,10 @@ services:
         generateValue: true
       - key: WTF_SUPERADMIN_PHONES
         sync: false
+      # MCP for Claude, per person (OAuth issuer and resource derive from
+      # RENDER_EXTERNAL_URL, or WTF_PUBLIC_URL when set for a custom domain).
+      - key: WTF_MCP_ENABLED
+        value: "true"
+      # Only Claude's apps may connect (claude.ai, desktop, phone, Claude Code).
+      - key: WTF_MCP_CLIENT_HOSTS
+        value: claude.ai

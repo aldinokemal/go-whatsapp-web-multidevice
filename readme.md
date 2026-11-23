@@ -19,8 +19,23 @@ environment variables control it:
 | `WTF_SUPERADMIN_PHONES` | Comma-separated E.164 numbers. The only people who can sign in from nothing — everyone else needs an existing account or an invite. Never from a database column; always this env var. |
 | `WTF_PUBLIC_URL` | The externally-reachable base URL, used to build the WhatsApp sign-in link. Falls back to `RENDER_EXTERNAL_URL` on Render. |
 | `SESSION_SECRET` | Signs session cookies. Generate a real random value; never reuse the default. |
+| `WTF_MCP_ENABLED` | `true` (the default in multi-user mode) serves `/mcp` to Claude, per person, with OAuth sign-in. Needs an `https` public URL; with a plain-http one (local development) MCP stays off with a warning. |
+| `WTF_MCP_CLIENT_HOSTS` | Comma-separated exact host names whose apps may connect. Default `claude.ai` (Claude on the web, desktop, phone and Claude Code). |
 
-In multi-user mode, Basic Auth, the bundled gowa-ui dashboard, `/statics`,
+**Connecting Claude** — on the Account page, Connect Claude opens Claude's
+add-connector dialog already filled in (or paste the shown address,
+`<public URL>/mcp`, by hand; Claude Code: `claude mcp add --transport http
+wtf <public URL>/mcp`). People sign in with their usual WTF sign-in and
+approve; Connected apps lists each connection with Disconnect. Claude only
+ever reaches that person's own numbers. See `docs/mcp-oauth.md`.
+
+**API keys** — on the Account page, New key makes a personal key (`wtfk_…`,
+shown once) for the REST API: `Authorization: Bearer wtfk_…`. A key acts as
+its owner on all their numbers, never opens a page, and stops working the
+moment it is revoked or its owner is disabled. Downloaded media is fetched,
+owner-checked, from `/files/<device id>/…` with the same key or session.
+
+In multi-user mode, Basic Auth (including on `/mcp`), the bundled gowa-ui dashboard, `/statics`,
 global webhooks, auto-reply and the upstream `/ws` route are all forced off —
 this fork's own sign-in/session system is the only way in.
 
