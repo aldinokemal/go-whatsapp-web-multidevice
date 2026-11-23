@@ -1049,11 +1049,11 @@ func (c *Client) UpdateLastSeen(conversationID int, contactInboxSourceID string)
 // the same escaping has to be done by hand.
 var contentDispositionEscaper = strings.NewReplacer("\\", "\\\\", `"`, `\"`, "\r", "", "\n", "")
 
-// stripFilenameControls drops characters that make the receiving multipart
-// parser reject the whole request, including NUL and DEL.
+// stripFilenameControls removes control characters that break multipart headers
+// and bidi controls that can disguise the displayed extension.
 func stripFilenameControls(fileName string) string {
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) {
 			return -1
 		}
 		return r
@@ -1178,9 +1178,9 @@ func (c *Client) createMessageWithAttachments(endpoint, content, messageType str
 		// must end with it too: a recovered history-sync file is stored with
 		// the MIME-resolved extension when the sender's suffix is unusable
 		// ("report.pdf(1)"), while FileName is still the sender's raw name.
-		ext := filepath.Ext(filePath)
+		ext := stripFilenameControls(filepath.Ext(filePath))
 		if ext != "" && !strings.EqualFold(filepath.Ext(fileName), ext) {
-			fileName += stripFilenameControls(ext)
+			fileName += ext
 		}
 
 		mimeType := mimeTypeForExt(ext)
