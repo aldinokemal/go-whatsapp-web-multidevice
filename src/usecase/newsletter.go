@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
@@ -120,7 +119,8 @@ func (service serviceNewsletter) DownloadMedia(ctx context.Context, request doma
 	}
 
 	newsletterDir := utils.ExtractPhoneNumber(JID.String())
-	dateDir := filepath.Join(config.PathMedia, newsletterDir, message.Timestamp.Format("2006-01-02"))
+	mediaBase, mediaURLPrefix := mediaRoot(ctx) // WTF: per-device directory in multi-user mode
+	dateDir := filepath.Join(mediaBase, newsletterDir, message.Timestamp.Format("2006-01-02"))
 	if err = os.MkdirAll(dateDir, 0755); err != nil {
 		return response, fmt.Errorf("failed to create media directory: %w", err)
 	}
@@ -142,6 +142,7 @@ func (service serviceNewsletter) DownloadMedia(ctx context.Context, request doma
 	response.MimeType = extractedMedia.MimeType
 	response.Filename = filepath.Base(extractedMedia.MediaPath)
 	response.FilePath = extractedMedia.MediaPath
+	response.FileURL = mediaFileURL(mediaBase, mediaURLPrefix, extractedMedia.MediaPath) // WTF: "" upstream
 	if fileInfo != nil {
 		response.FileSize = fileInfo.Size()
 	}
