@@ -60,6 +60,7 @@ type Deps struct {
 	Passkeys     *passkey.Service
 	Devices      domainDevice.IDeviceUsecase
 	ProductName  string
+	PublicURL    string // for building absolute links, e.g. the admin sign-in link
 	ServicePhone func(ctx context.Context) string
 	Paired       func() []owners.PairedDevice
 	StorageDir   string

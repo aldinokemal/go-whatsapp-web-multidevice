@@ -33,7 +33,7 @@ func newEnv(t *testing.T) *env {
 		Superadmins: map[string]bool{"+27825550100": true}, Secure: true}, st)
 	pk, err := passkey.New("wtf.onrender.com", "https://wtf.onrender.com", "WTF", st)
 	require.NoError(t, err)
-	d := Deps{Store: st, Auth: am, Passkeys: pk, ProductName: "WTF",
+	d := Deps{Store: st, Auth: am, Passkeys: pk, ProductName: "WTF", PublicURL: "https://wtf.onrender.com",
 		ServicePhone: func(context.Context) string { return "27825550000" }, StorageDir: t.TempDir()}
 	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(d)})
 	app.Use(am.Middleware())
