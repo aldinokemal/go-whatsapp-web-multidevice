@@ -212,7 +212,8 @@ type MessageFilter struct {
 // (synthetic messages with media_type "call").
 type CallRecordFilter struct {
 	DeviceID string
-	ChatJID  string
+	// ChatJIDs matches records stored under any of these chat JIDs.
+	ChatJIDs []string
 	Limit    int
 	Offset   int
 }

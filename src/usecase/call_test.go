@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	domainCall "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/call"
@@ -46,12 +47,15 @@ func TestListCallLogsNormalizesChatFilter(t *testing.T) {
 	repo := &callLogsRepo{}
 	service := NewCallService(repo)
 
-	for _, tc := range []struct{ in, want string }{
-		{in: "111@lid", want: "628123@s.whatsapp.net"},
-		{in: " 628777@s.whatsapp.net ", want: "628777@s.whatsapp.net"},
-		{in: "120363999000111@g.us", want: "120363999000111@g.us"},
-		{in: "222@lid", want: "222@lid"},
-		{in: "", want: ""},
+	for _, tc := range []struct {
+		in   string
+		want []string
+	}{
+		{in: "111@lid", want: []string{"111@lid", "628123@s.whatsapp.net"}},
+		{in: " 628777@s.whatsapp.net ", want: []string{"628777@s.whatsapp.net"}},
+		{in: "120363999000111@g.us", want: []string{"120363999000111@g.us"}},
+		{in: "222@lid", want: []string{"222@lid"}},
+		{in: "", want: nil},
 	} {
 		repo.filter = nil
 		if _, err := service.ListCallLogs(ctx, domainCall.ListCallLogsRequest{ChatJID: tc.in}); err != nil {
@@ -60,8 +64,8 @@ func TestListCallLogsNormalizesChatFilter(t *testing.T) {
 		if repo.filter == nil {
 			t.Fatalf("ListCallLogs(%q) did not query storage", tc.in)
 		}
-		if repo.filter.ChatJID != tc.want {
-			t.Fatalf("ListCallLogs(%q) filtered by %q, want %q", tc.in, repo.filter.ChatJID, tc.want)
+		if !slices.Equal(repo.filter.ChatJIDs, tc.want) {
+			t.Fatalf("ListCallLogs(%q) filtered by %q, want %q", tc.in, repo.filter.ChatJIDs, tc.want)
 		}
 		if repo.filter.DeviceID != "628999@s.whatsapp.net" {
 			t.Fatalf("ListCallLogs(%q) used device %q", tc.in, repo.filter.DeviceID)

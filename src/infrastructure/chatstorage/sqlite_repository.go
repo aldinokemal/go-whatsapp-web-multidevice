@@ -2922,9 +2922,11 @@ func (r *SQLiteRepository) GetCallRecords(filter *domainChatStorage.CallRecordFi
 	conditions := []string{"device_id = ?", "media_type = 'call'"}
 	args := []any{filter.DeviceID}
 
-	if filter.ChatJID != "" {
-		conditions = append(conditions, "chat_jid = ?")
-		args = append(args, filter.ChatJID)
+	if len(filter.ChatJIDs) > 0 {
+		conditions = append(conditions, "chat_jid IN (?"+strings.Repeat(", ?", len(filter.ChatJIDs)-1)+")")
+		for _, chatJID := range filter.ChatJIDs {
+			args = append(args, chatJID)
+		}
 	}
 
 	whereClause := " WHERE " + strings.Join(conditions, " AND ")

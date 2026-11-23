@@ -72,7 +72,7 @@ func (service serviceCall) ListCallLogs(ctx context.Context, request domainCall.
 
 	records, total, err := service.chatStorageRepo.GetCallRecords(&domainChatStorage.CallRecordFilter{
 		DeviceID: deviceID,
-		ChatJID:  callLogChatJID(ctx, request.ChatJID),
+		ChatJIDs: callLogChatJIDs(ctx, request.ChatJID),
 		Limit:    request.Limit,
 		Offset:   request.Offset,
 	})
@@ -108,15 +108,24 @@ func (service serviceCall) ListCallLogs(ctx context.Context, request domainCall.
 	return response, nil
 }
 
-// callLogChatJID resolves a LID filter to the phone JID that incoming call records are stored under.
-func callLogChatJID(ctx context.Context, chatJID string) string {
+// callLogChatJIDs returns the chat JIDs a filter matches. A LID filter also matches its
+// resolved phone JID: CreateIncomingCallRecord stores the raw LID only while the mapping
+// is still unknown, so one chat can have rows under both forms.
+func callLogChatJIDs(ctx context.Context, chatJID string) []string {
 	chatJID = strings.TrimSpace(chatJID)
+	if chatJID == "" {
+		return nil
+	}
 	if !strings.Contains(chatJID, "@") {
-		return chatJID
+		return []string{chatJID}
 	}
 	parsed, err := utils.ParseJID(chatJID)
 	if err != nil {
-		return chatJID
+		return []string{chatJID}
 	}
-	return whatsapp.NormalizeJIDFromLID(ctx, parsed, whatsapp.ClientFromContext(ctx)).String()
+	resolved := whatsapp.NormalizeJIDFromLID(ctx, parsed, whatsapp.ClientFromContext(ctx)).String()
+	if resolved == chatJID {
+		return []string{chatJID}
+	}
+	return []string{chatJID, resolved}
 }

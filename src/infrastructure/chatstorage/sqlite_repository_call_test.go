@@ -81,13 +81,46 @@ func TestGetCallRecordsRespectsLimitOffsetAndChatFilter(t *testing.T) {
 
 	filtered, filteredTotal, err := repo.GetCallRecords(&domainChatStorage.CallRecordFilter{
 		DeviceID: deviceID,
-		ChatJID:  otherChatJID,
+		ChatJIDs: []string{otherChatJID},
 		Limit:    25,
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), filteredTotal)
 	require.Len(t, filtered, 1)
 	require.Equal(t, "call:4", filtered[0].ID)
+}
+
+func TestGetCallRecordsMatchesLIDAndResolvedPhoneRows(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	deviceID := "device-a@s.whatsapp.net"
+	lidJID := "111@lid"
+	phoneJID := "628123@s.whatsapp.net"
+	base := time.Date(2026, time.August, 22, 9, 0, 0, 0, time.UTC)
+
+	// Stored before the LID mapping was known, then after it resolved.
+	seedCallRecord(t, repo, deviceID, lidJID, "call:pre-resolution", "", base)
+	seedCallRecord(t, repo, deviceID, phoneJID, "call:post-resolution", "", base.Add(time.Hour))
+	seedCallRecord(t, repo, deviceID, "628777@s.whatsapp.net", "call:other-chat", "", base.Add(2*time.Hour))
+
+	records, total, err := repo.GetCallRecords(&domainChatStorage.CallRecordFilter{
+		DeviceID: deviceID,
+		ChatJIDs: []string{lidJID, phoneJID},
+		Limit:    1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), total)
+	require.Len(t, records, 1)
+	require.Equal(t, "call:post-resolution", records[0].ID)
+
+	records, _, err = repo.GetCallRecords(&domainChatStorage.CallRecordFilter{
+		DeviceID: deviceID,
+		ChatJIDs: []string{lidJID, phoneJID},
+		Limit:    1,
+		Offset:   1,
+	})
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	require.Equal(t, "call:pre-resolution", records[0].ID)
 }
 
 func TestGetCallRecordsPaginatesDeterministicallyWithEqualTimestamps(t *testing.T) {
