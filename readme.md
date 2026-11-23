@@ -195,6 +195,16 @@ release notes and `GET /app/info` when using a pinned binary or container tag.
     device webhook an addition instead of a replacement: the global `--webhook` URLs still receive the
     device's events (signed with the global secret, filtered by `WHATSAPP_WEBHOOK_EVENTS`) while the
     device URL keeps its own secret and event filter.
+- **Per-device storage settings** — Each device can override chat storage and automatic media
+  download independently of the instance-wide flags.
+  - Set via API: `PATCH /devices/:device_id/settings` with `{"chat_storage": false}`,
+    `{"auto_download_media": true}`, or both. Only the fields present in the body are changed.
+  - Get via API: `GET /devices/:device_id/settings`.
+  - A field is `null` when the device has no override: chat storage falls back to always-on,
+    auto_download_media falls back to `--auto-download-media` / `WHATSAPP_AUTO_DOWNLOAD_MEDIA`.
+  - Send a field as `null` with `PATCH` to clear that override.
+  - Useful when one instance hosts many devices — e.g. keeping a notification-only
+    device out of chat storage without changing the flags for every other device.
 - **Webhook signatures** — Webhook requests include an HMAC-SHA-256 signature in the `X-Hub-Signature-256`
   header. Set a private key with `--webhook-secret` or `WHATSAPP_WEBHOOK_SECRET`. The old published
   default `secret` is not used. If no secret is configured, the process generates a random key and
@@ -720,6 +730,8 @@ You may also fork or modify the source code.
 | ✅       | Get Device Status                      | GET    | /devices/:device_id/status          |
 | ✅       | Get Device Webhook                     | GET    | /devices/:device_id/webhook         |
 | ✅       | Set Device Webhook                     | PATCH  | /devices/:device_id/webhook         |
+| ✅       | Get Device Storage Settings            | GET    | /devices/:device_id/settings        |
+| ✅       | Set Device Storage Settings            | PATCH  | /devices/:device_id/settings        |
 | ✅       | Log In with QR Code                    | GET    | /app/login                          |
 | ✅       | Log In with Pairing Code               | GET    | /app/login-with-code                |
 | ✅       | Passkey Pairing Status                 | GET    | /app/passkey                        |

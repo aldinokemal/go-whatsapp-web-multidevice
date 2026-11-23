@@ -17,6 +17,8 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+var extractIncomingMedia = utils.ExtractMedia
+
 func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) {
 	// Log message metadata. Message ID, sender name, JID and body are escaped so
 	// a newline in sender-controlled fields cannot forge a second log line.
@@ -34,21 +36,31 @@ func handleMessage(ctx context.Context, evt *events.Message, chatStorageRepo dom
 	// edit-handling paths unchanged. No-op when the envelope is absent or when
 	// decryption fails.
 	evt = materializeSecretEditMessage(ctx, evt, client)
-	pollPayload := preparePollWebhookPayload(ctx, client, chatStorageRepo, evt)
+
+	// Resolve the chat_storage policy before preparing the poll payload: a poll
+	// creation/edit/add-option must not persist poll data when the device has
+	// chat_storage=false, the same rule handleMessage applies below to messages
+	// and reactions.
+	chatStorageEnabled := isChatStorageEnabledForClient(ctx, client)
+	pollPayload := preparePollWebhookPayload(ctx, client, chatStorageRepo, evt, chatStorageEnabled)
 
 	if isReactionMessage(evt) {
 		ctx = withRemovedReactionEmoji(ctx, evt, chatStorageRepo)
-		if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
-			log.Errorf("Failed to store incoming reaction %s: %v", sanitizeLogText(evt.Info.ID), err)
+		if chatStorageEnabled {
+			if err := chatStorageRepo.CreateReaction(ctx, evt); err != nil {
+				log.Errorf("Failed to store incoming reaction %s: %v", sanitizeLogText(evt.Info.ID), err)
+			}
 		}
 
 		handleWebhookForward(ctx, evt, client, pollPayload)
 		return
 	}
 
-	if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
-		// Log storage errors to avoid silent failures that could lead to data loss
-		log.Errorf("Failed to store incoming message %s: %v", sanitizeLogText(evt.Info.ID), err)
+	if chatStorageEnabled {
+		if err := chatStorageRepo.CreateMessage(ctx, evt); err != nil {
+			// Log storage errors to avoid silent failures that could lead to data loss
+			log.Errorf("Failed to store incoming message %s: %v", sanitizeLogText(evt.Info.ID), err)
+		}
 	}
 
 	// Handle image message if present
@@ -138,14 +150,14 @@ func shouldIgnoreImageDownload(autoDownloadMedia, ignoreStatusMedia bool, chatJI
 }
 
 func handleImageMessage(ctx context.Context, evt *events.Message, client *whatsmeow.Client) {
-	if shouldIgnoreImageDownload(config.WhatsappAutoDownloadMedia, config.WhatsappIgnoreStatusMedia, evt.Info.Chat) {
+	if shouldIgnoreImageDownload(isAutoDownloadMediaEnabledForClient(ctx, client), config.WhatsappIgnoreStatusMedia, evt.Info.Chat) {
 		return
 	}
 	if client == nil {
 		return
 	}
 	if img := evt.Message.GetImageMessage(); img != nil {
-		if extracted, err := utils.ExtractMedia(ctx, client, config.PathStorages, img); err != nil {
+		if extracted, err := extractIncomingMedia(ctx, client, config.PathStorages, img); err != nil {
 			log.Errorf("Failed to download image: %v", err)
 		} else {
 			log.Infof("Image downloaded to %s", extracted.MediaPath)
