@@ -34,7 +34,7 @@ type previewShot struct {
 	Name   string            `json:"name"`
 	Page   string            `json:"page"`
 	Dialog string            `json:"dialog,omitempty"`
-	Set    map[string]string `json:"set,omitempty"` // CSS selector -> text
+	Set    map[string]string `json:"set,omitempty"`  // CSS selector -> text
 	Attr   string            `json:"attr,omitempty"` // attribute set on <html>, e.g. data-nav-open
 }
 
