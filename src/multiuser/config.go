@@ -86,4 +86,5 @@ func Apply() {
 	config.WhatsappAutoReplyMessage = ""
 	config.AppUIEnabled = false
 	config.WhatsappAutoDownloadMedia = false
+	installOutboundGuard()
 }
