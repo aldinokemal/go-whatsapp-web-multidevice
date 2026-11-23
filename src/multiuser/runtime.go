@@ -19,6 +19,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/netguard"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/passkey"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/retention"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/signin"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/web"
@@ -56,6 +57,15 @@ type Runtime struct {
 	Deleter *account.Deleter
 	// Sweeper frees link slots that were never scanned; Start runs it.
 	Sweeper *owners.StaleSlotSweeper
+	// RetentionRoots are the folders retention sweeps by file age (media
+	// downloads and send items); HistoryDumpDir is where history sync
+	// dumps land. Setup sets them from config; Start hands them to the
+	// worker.
+	RetentionRoots []string
+	HistoryDumpDir string
+	// Retention is the retention worker Start runs; nil while retention is
+	// off (WTF_RETENTION_HOURS=0) or before Start.
+	Retention *retention.Worker
 
 	stop context.CancelFunc // ends Start's background work
 }
@@ -63,17 +73,21 @@ type Runtime struct {
 // staleSweepEvery is how often the stale-slot sweeper looks.
 const staleSweepEvery = 10 * time.Minute
 
-// ChatData is the part of chat storage account deletion needs
-// (chatstorage.IChatStorageRepository's DeleteDeviceData).
+// ChatData is the part of chat storage the runtime needs
+// (chatstorage.IChatStorageRepository has it): clearing a deleted number, and
+// the retention purges.
 type ChatData interface {
 	DeleteDeviceData(deviceID string) error
+	retention.Chats
 }
 
 // Start begins the runtime's background work, once, after Install: it
-// finishes every account deletion left half done (a crash, a WhatsApp error)
-// and runs the stale-slot sweeper until Close. chats clears a deleted
-// number's chat storage even when the device manager no longer knows it; nil
-// leaves that to the device purge alone.
+// finishes every account deletion left half done (a crash, a WhatsApp error),
+// runs the stale-slot sweeper and, while retention is on, the retention
+// worker, until Close. chats clears a deleted number's chat storage even when
+// the device manager no longer knows it, and is what retention purges; nil
+// leaves the former to the device purge alone and retention to files and
+// the accounts store.
 func (r *Runtime) Start(chats ChatData) {
 	if r.stop != nil {
 		return
@@ -101,6 +115,22 @@ func (r *Runtime) Start(chats ChatData) {
 		}()
 		r.Sweeper.Run(ctx, staleSweepEvery)
 	}()
+	if window, on := r.Settings.RetentionWindow(); on {
+		w := &retention.Worker{Window: window, Accounts: r.Store,
+			FileRoots: r.RetentionRoots, HistoryDumpDir: r.HistoryDumpDir}
+		if chats != nil {
+			w.Chats = chats
+		}
+		r.Retention = w
+		go func() {
+			defer func() {
+				if p := recover(); p != nil {
+					logrus.Errorf("[WTF] retention worker: recovered from panic\n%s", debug.Stack())
+				}
+			}()
+			w.Run(ctx)
+		}()
+	}
 }
 
 // guardDuplicatePhoneForTest, when set, stands in for
@@ -325,10 +355,19 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 
 	// Account deletion purges through the inner (unscoped) usecase: the
 	// account is already refused by the scoped one once it is "deleting".
+	// Retention: history sync stores nothing already past the window. The
+	// worker itself starts in Start.
+	if window, on := s.RetentionWindow(); on {
+		whatsapp.HistoryCutoffHook = func() (time.Time, bool) {
+			return time.Now().UTC().Add(-window), true
+		}
+	}
+
 	deleter := &account.Deleter{Store: st, Devices: inner, MediaRoot: config.PathMedia, ServiceDevice: serviceID}
 	sweeper := &owners.StaleSlotSweeper{Store: st, Devices: inner, Live: liveSlots(dm)}
 	rt := &Runtime{Settings: s, Store: st, Auth: am, Resolver: resolver, Devices: devices, Signin: sh,
 		MediaRoot: config.PathMedia, Capacity: capSvc, Deleter: deleter, Sweeper: sweeper,
+		RetentionRoots: []string{config.PathMedia, config.PathSendItems}, HistoryDumpDir: config.PathStorages,
 		Web: web.Deps{Store: st, Auth: am, Passkeys: pk, Devices: devices, ProductName: s.ProductName,
 			PublicURL: s.PublicURL, ServicePhone: servicePhone, Paired: pairs.Paired, StorageDir: storageDir,
 			DeleteAccount: deleter.Delete, SendWhatsApp: sendFromService, Capacity: capSvc,
@@ -357,6 +396,7 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		if err != nil {
 			middleware.DeviceResolveFunc = nil
 			whatsapp.EventHook = nil
+			whatsapp.HistoryCutoffHook = nil
 			st.Close()
 			return nil, err
 		}
@@ -433,6 +473,7 @@ func (r *Runtime) Close() error {
 	}
 	middleware.DeviceResolveFunc = nil
 	whatsapp.EventHook = nil
+	whatsapp.HistoryCutoffHook = nil
 	usecase.MediaRootHook = nil
 	if r.OAuth != nil {
 		_ = r.OAuth.Close()

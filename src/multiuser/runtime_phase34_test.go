@@ -85,7 +85,7 @@ func TestPendingDeletionsResumeAtStartup(t *testing.T) {
 	u, _ := rt.Store.CreateUser(ctx, "+27825550101")
 	require.NoError(t, rt.Store.SetOwner(ctx, "d_half", u.ID))
 	require.NoError(t, rt.Store.SetUserStatus(ctx, u.ID, store.StatusDeleting))
-	chats := &chatsRecorder{}
+	chats := &purgeRecorder{}
 	rt.Start(chats)
 	require.Eventually(t, func() bool {
 		_, err := rt.Store.UserByID(ctx, u.ID)
