@@ -41,10 +41,16 @@ type harness struct {
 // store, mounted the way the runtime mounts it: the session middleware first.
 func newHarness(t *testing.T, cfg oauth.Config) *harness {
 	t.Helper()
+	return newHarnessWith(t, cfg, nil)
+}
+
+// newHarnessWith is newHarness with these numbers as superadmins.
+func newHarnessWith(t *testing.T, cfg oauth.Config, superadmins map[string]bool) *harness {
+	t.Helper()
 	st, err := store.Open("file:" + filepath.Join(t.TempDir(), "a.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = st.Close() })
-	am := auth.New(auth.Config{Secret: []byte("0123456789abcdef0123456789abcdef"), SessionTTL: time.Hour, Secure: true}, st)
+	am := auth.New(auth.Config{Secret: []byte("0123456789abcdef0123456789abcdef"), SessionTTL: time.Hour, Secure: true, Superadmins: superadmins}, st)
 	authn := &Authenticator{Auth: am, Store: st, Web: web.Deps{Store: st, Auth: am, ProductName: "WTF", PublicURL: testPublic}}
 	cfg.IssuerURL, cfg.ResourceURL = testPublic, testResource
 	cfg.StorageURI = "file:" + filepath.ToSlash(filepath.Join(t.TempDir(), "oauth.db"))

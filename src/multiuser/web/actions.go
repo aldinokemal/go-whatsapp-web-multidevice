@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/account"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/auth"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/capacity"

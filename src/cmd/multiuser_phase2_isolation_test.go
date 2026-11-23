@@ -17,9 +17,11 @@ import (
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/mcpauth"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/websocket"
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +69,12 @@ type p2 struct {
 	aliceAT  string
 	bobAT    string
 	bobKey   string
+	bob      *store.User
+	adminKey string
 }
+
+// p2AdminPhone is the superadmin of the phase 2 environment.
+const p2AdminPhone = "+27825550100"
 
 func newP2(t *testing.T) *p2 {
 	t.Helper()
@@ -75,6 +82,7 @@ func newP2(t *testing.T) *p2 {
 	app, rt, _ := newMultiUserAppWith(t, uimcp.Deps{}, func(s *multiuser.Settings) {
 		s.MCPClientHosts = []string{"example.com"}
 		s.CIMDHTTPClient = client
+		s.Superadmins = map[string]bool{p2AdminPhone: true}
 	})
 	ctx := context.Background()
 	alice, err := rt.Store.CreateUser(ctx, "+27825550101")
@@ -89,6 +97,10 @@ func newP2(t *testing.T) *p2 {
 	require.NoError(t, err)
 	bobKey, _, err := rt.Store.CreateAPIKey(ctx, bob.ID, "laptop")
 	require.NoError(t, err)
+	admin, err := rt.Store.CreateUser(ctx, p2AdminPhone)
+	require.NoError(t, err)
+	adminKey, _, err := rt.Store.CreateAPIKey(ctx, admin.ID, "laptop")
+	require.NoError(t, err)
 
 	// Media: one file each, under the real media root.
 	for id, name := range map[string]string{"d_alice": "a.jpg", "d_bob": "b.jpg"} {
@@ -97,7 +109,7 @@ func newP2(t *testing.T) *p2 {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("\xff\xd8\xff secret of "+id), 0o644))
 	}
 
-	e := &p2{t: t, app: app, rt: rt, alice: alice, aliceKey: aliceKey, bobKey: bobKey,
+	e := &p2{t: t, app: app, rt: rt, alice: alice, aliceKey: aliceKey, bobKey: bobKey, bob: bob, adminKey: adminKey,
 		aliceCk: &http.Cookie{Name: rt.Auth.CookieName(), Value: rawAlice}, csrf: csrfForRaw(rt, rawAlice)}
 	e.aliceAT = e.connect(e.aliceCk)
 	e.bobAT = e.connect(&http.Cookie{Name: rt.Auth.CookieName(), Value: rawBob})
@@ -175,17 +187,44 @@ func callTool(name string, args map[string]any) string {
 	return string(b)
 }
 
-// toolArgs: for each device-scoped tool, arguments its schema accepts, so a
-// refusal can only come from the device check (proved by the own-device
-// control in TestMCPNeverReachesAnotherUsersDevice).
+// toolArgs: for each device-scoped tool (upstream's and WTF's for the REST
+// routes upstream lacked), arguments its schema accepts, so a refusal can
+// only come from the device check (proved by the own-device control in
+// TestMCPNeverReachesAnotherUsersDevice).
 var toolArgs = map[string]map[string]any{
-	"whatsapp_send":     {"type": "text", "phone": "27825550199", "message": "hi"},
-	"whatsapp_schedule": {"action": "list"},
-	"whatsapp_message":  {"action": "mark_read", "phone": "27825550199", "message_id": "ABC"},
-	"whatsapp_chat":     {"action": "list_chats"},
-	"whatsapp_group":    {"action": "info", "group_id": "123@g.us"},
-	"whatsapp_app":      {"action": "status"},
+	"whatsapp_send":         {"type": "text", "phone": "27825550199", "message": "hi"},
+	"whatsapp_schedule":     {"action": "list"},
+	"whatsapp_message":      {"action": "mark_read", "phone": "27825550199", "message_id": "ABC"},
+	"whatsapp_chat":         {"action": "list_chats"},
+	"whatsapp_group":        {"action": "info", "group_id": "123@g.us"},
+	"whatsapp_app":          {"action": "status"},
+	uimcp.ToolContactInfo:   {"action": "check", "phone": "27825550199"},
+	uimcp.ToolMyWhatsApp:    {"action": "privacy"},
+	uimcp.ToolSetPushName:   {"push_name": "Alice"},
+	uimcp.ToolChatSettings:  {"action": "pin", "chat_jid": "27825550199@s.whatsapp.net", "pinned": true},
+	uimcp.ToolPresence:      {"action": "presence", "type": "available"},
+	uimcp.ToolRejectCall:    {"caller_jid": "27825550199@s.whatsapp.net", "call_id": "C1"},
+	uimcp.ToolNewsletter:    {"action": "messages", "newsletter_id": "1@newsletter"},
+	uimcp.ToolGroupFromLink: {"link": "https://chat.whatsapp.com/AbC"},
 }
+
+// numberTools: WTF's tools for one of the caller's own numbers (My
+// WhatsApp). Each takes device_id; another person's number must read
+// exactly like one that does not exist. Unlink runs last in the controls.
+var numberTools = map[string]map[string]any{
+	mcpauth.LinkNumberTool:      {},
+	mcpauth.NumberStatusTool:    {},
+	mcpauth.ReconnectNumberTool: {},
+	mcpauth.RenameNumberTool:    {"label": "mine now"},
+	mcpauth.GetWebhookTool:      {},
+	mcpauth.SetWebhookTool:      {"url": "https://1.1.1.1/hook", "secret": "x"},
+	mcpauth.RemoveWebhookTool:   {},
+	mcpauth.UnlinkNumberTool:    {},
+}
+
+// accountTools act on the caller's own account only; none takes an id.
+var accountTools = []string{mcpauth.MyDevicesTool, mcpauth.MyAccountTool, mcpauth.MySessionsTool,
+	mcpauth.MyConnectedAppsTool, mcpauth.MyAPIKeysTool, mcpauth.MyPasskeysTool}
 
 func withDevice(args map[string]any, id string) map[string]any {
 	out := map[string]any{"device_id": id}
@@ -202,17 +241,44 @@ func isDeviceRefusal(status int, raw string) bool {
 		(strings.Contains(raw, "device not found") || strings.Contains(raw, "device identification required"))
 }
 
+func listedTools(t *testing.T, raw string) []string {
+	t.Helper()
+	var body struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &body), raw)
+	var names []string
+	for _, tl := range body.Result.Tools {
+		names = append(names, tl.Name)
+	}
+	return names
+}
+
+// The pinned list: every tool /mcp serves is in exactly one group of this
+// matrix. A new tool fails here until it joins one, and so its isolation
+// check.
+func TestEveryMCPToolIsInTheIsolationMatrix(t *testing.T) {
+	e := newP2(t)
+	var want []string
+	for name := range toolArgs {
+		want = append(want, name)
+	}
+	for name := range numberTools {
+		want = append(want, name)
+	}
+	want = append(want, accountTools...)
+	_, list := e.mcp(e.aliceAT, "", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	assert.ElementsMatch(t, want, listedTools(t, list), "a member's list: a new tool must join toolArgs, numberTools or accountTools")
+	_, list = e.mcp(e.adminKey, "", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	assert.ElementsMatch(t, append(want, mcpauth.AdminTools...), listedTools(t, list), "the admin's list: a new admin tool must join mcpauth.AdminTools")
+}
+
 func TestMCPNeverReachesAnotherUsersDevice(t *testing.T) {
 	e := newP2(t)
-
-	// Every tool is covered: the list the server really serves.
-	_, list := e.mcp(e.aliceAT, "", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
-	for name := range toolArgs {
-		require.Contains(t, list, `"`+name+`"`)
-	}
-	require.Contains(t, list, `"wtf_my_devices"`)
-	require.Equal(t, len(toolArgs)+1, strings.Count(list, `"inputSchema"`), "a new tool must be added to toolArgs")
-
 	for name, args := range toolArgs {
 		for cred, tok := range map[string]string{"oauth": e.aliceAT, "api_key": e.aliceKey} {
 			// Control: Alice's own device passes validation and the device
@@ -230,10 +296,105 @@ func TestMCPNeverReachesAnotherUsersDevice(t *testing.T) {
 			assert.True(t, isDeviceRefusal(status, raw), "%s/%s device_id overrides an owned header: %d %s", name, cred, status, raw)
 		}
 	}
+}
 
-	_, mine := e.mcp(e.aliceAT, "", callTool("wtf_my_devices", nil))
+func TestMCPNumberToolsNeverReachAnotherUsersNumber(t *testing.T) {
+	drainBroadcasts()
+	e := newP2(t)
+	ctx := context.Background()
+	for name, args := range numberTools {
+		for cred, tok := range map[string]string{"oauth": e.aliceAT, "api_key": e.aliceKey} {
+			for _, target := range []string{"d_bob", "d_ghost"} {
+				status, raw := e.mcp(tok, "", callTool(name, withDevice(args, target)))
+				assert.True(t, isDeviceRefusal(status, raw), "%s/%s on %s: %d %s", name, cred, target, status, raw)
+			}
+			// Even with Alice's own number in the header, device_id names the target.
+			status, raw := e.mcp(tok, "d_alice", callTool(name, withDevice(args, "d_bob")))
+			assert.True(t, isDeviceRefusal(status, raw), "%s/%s header d_alice, device_id d_bob: %d %s", name, cred, status, raw)
+		}
+	}
+	// Bob's number is exactly as it was.
+	owner, err := e.rt.Store.OwnerOf(ctx, "d_bob")
+	require.NoError(t, err)
+	assert.Equal(t, e.bob.ID, owner)
+	labels, err := e.rt.Store.LabelsOf(ctx, e.bob.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "", labels["d_bob"])
+	_, mine := e.mcp(e.bobKey, "", callTool(mcpauth.MyDevicesTool, nil))
+	assert.Contains(t, mine, "d_bob")
+
+	// Control: on her own number no tool says "device not found" (unlink last).
+	names := []string{}
+	for name := range numberTools {
+		if name != mcpauth.UnlinkNumberTool {
+			names = append(names, name)
+		}
+	}
+	for _, name := range append(names, mcpauth.UnlinkNumberTool) {
+		status, raw := e.mcp(e.aliceKey, "", callTool(name, withDevice(numberTools[name], "d_alice")))
+		assert.Equal(t, http.StatusOK, status, "%s: %s", name, raw)
+		assert.NotContains(t, raw, "device not found", "%s own number: %s", name, raw)
+	}
+}
+
+func TestMCPAccountToolsShowOnlyTheCallersOwn(t *testing.T) {
+	e := newP2(t)
+	ctx := context.Background()
+	_, err := e.rt.Store.CreateSession(ctx, e.bob.ID, "BobBrowser/1.0", time.Hour)
+	require.NoError(t, err)
+	require.NoError(t, e.rt.Store.SetLabel(ctx, e.bob.ID, "d_bob", "Bob secret label"))
+	for _, name := range accountTools {
+		for cred, tok := range map[string]string{"oauth": e.aliceAT, "api_key": e.aliceKey} {
+			status, raw := e.mcp(tok, "", callTool(name, map[string]any{"user_id": e.bob.ID, "device_id": "d_bob"}))
+			// Extra arguments are not in the schema; either refused by it or
+			// ignored, never followed.
+			require.Equal(t, http.StatusOK, status, "%s/%s", name, cred)
+			for _, bobs := range []string{e.bob.ID, "27825550102", "d_bob", "Bob secret label", "BobBrowser", e.bobKey[:10]} {
+				assert.NotContains(t, raw, bobs, "%s/%s leaks Bob's %q", name, cred, bobs)
+			}
+		}
+	}
+	_, mine := e.mcp(e.aliceKey, "", callTool(mcpauth.MyAccountTool, nil))
+	assert.Contains(t, mine, "+27825550101")
+	_, mine = e.mcp(e.aliceAT, "", callTool(mcpauth.MyDevicesTool, nil))
 	assert.Contains(t, mine, "d_alice")
-	assert.NotContains(t, mine, "d_bob")
+}
+
+// Every admin tool, called by a member with an OAuth token or an API key,
+// is refused and reveals nothing; Bob's account is untouched after.
+func TestMCPAdminToolsRefuseMembers(t *testing.T) {
+	e := newP2(t)
+	ctx := context.Background()
+	args := map[string]any{"user_id": e.bob.ID, "device_id": "d_bob", "phone": "+27825550102", "confirm": "+27825550102",
+		"status": "disabled", "also_unlink": true, "max_numbers": 0, "action": "remove"}
+	for _, name := range mcpauth.AdminTools {
+		for cred, tok := range map[string]string{"oauth": e.aliceAT, "api_key": e.aliceKey, "bob_key": e.bobKey} {
+			status, raw := e.mcp(tok, "", callTool(name, args))
+			assert.Equal(t, http.StatusOK, status, "%s/%s", name, cred)
+			assert.True(t, strings.Contains(raw, "not found") || strings.Contains(raw, mcpauth.AdminOnlyMessage), "%s/%s: %s", name, cred, raw)
+			assert.NotContains(t, raw, "signin/verify", "%s/%s", name, cred)
+			assert.NotContains(t, raw, `"structuredContent"`, "%s/%s", name, cred)
+		}
+	}
+	u, err := e.rt.Store.UserByID(ctx, e.bob.ID)
+	require.NoError(t, err)
+	assert.Equal(t, store.StatusActive, u.Status)
+	assert.Equal(t, "+27825550102", u.Phone)
+	owner, _ := e.rt.Store.OwnerOf(ctx, "d_bob")
+	assert.Equal(t, e.bob.ID, owner)
+	// Control: the superadmin's own key reaches the same tools.
+	status, raw := e.mcp(e.adminKey, "", callTool(mcpauth.AdminListUsersTool, nil))
+	assert.Equal(t, http.StatusOK, status)
+	assert.Contains(t, raw, "+27825550102")
+}
+
+func drainBroadcasts() {
+	drainHub.Do(func() {
+		go func() {
+			for range websocket.Broadcast {
+			}
+		}()
+	})
 }
 
 func TestEveryRouteWithAnAPIKeyIsOwnerScoped(t *testing.T) {
@@ -315,6 +476,19 @@ func TestDisabledUserIsRefusedEverywhereAtOnce(t *testing.T) {
 	for _, tok := range []string{e.aliceAT, e.aliceKey} {
 		status, _ := e.mcp(tok, "", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 		assert.Equal(t, http.StatusUnauthorized, status, "/mcp")
+		// Every tool, every group of the matrix: refused before it runs.
+		all := append([]string{}, accountTools...)
+		all = append(all, mcpauth.AdminTools...)
+		for name := range toolArgs {
+			all = append(all, name)
+		}
+		for name := range numberTools {
+			all = append(all, name)
+		}
+		for _, name := range all {
+			status, _ := e.mcp(tok, "", callTool(name, map[string]any{"device_id": "d_alice"}))
+			assert.Equal(t, http.StatusUnauthorized, status, "/mcp %s", name)
+		}
 	}
 	for _, path := range []string{"/devices", "/files/d_alice/a.jpg"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)

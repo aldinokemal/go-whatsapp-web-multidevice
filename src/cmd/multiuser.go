@@ -70,5 +70,8 @@ func mcpUsecaseDeps() uimcp.Deps {
 		User:     userUsecase,
 		Message:  messageUsecase,
 		Group:    groupUsecase,
+		// WTF: behind the REST routes upstream's MCP tools lacked.
+		Newsletter: newsletterUsecase,
+		Call:       callUsecase,
 	}
 }

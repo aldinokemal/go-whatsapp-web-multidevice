@@ -170,6 +170,10 @@ With `WTF_MULTIUSER=true` the same OAuth server runs in a different mode, and
 - **Devices.** `X-Device-Id` and a per-call `device_id` resolve only the
   caller's own numbers (another person's reads like an unknown one); with
   exactly one number it is the default. The `wtf_my_devices` tool lists them.
+- **Tools.** Everything the pages can do is a tool too, through the same code
+  ([MCP parity](./mcp-parity.md)): numbers, the account (read-only) and, for
+  superadmins only, admin. Making or revoking keys, passkeys, sessions,
+  connected apps and deleting your own account stay in the browser.
 - **Disconnecting.** Account › Connected apps lists each connection (one per
   token family) with Disconnect, which revokes every token of that
   connection at once.

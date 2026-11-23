@@ -455,7 +455,8 @@ func (r *Runtime) Install(app *fiber.App, dm *whatsapp.DeviceManager, mcpDeps ui
 		r.OAuth.RegisterPublic(app)
 		app.Use("/mcp", mcpauth.Middleware(r.OAuth, r.Auth, r.Store))
 		mcpDeps.ResolveDevice = r.Resolver.Resolve
-		mcpDeps.ExtraTools = mcpauth.Tools(r.Devices)
+		mcpDeps.ExtraTools = mcpauth.Tools(r.Web)
+		mcpDeps.ToolFilter = mcpauth.ToolFilter(r.Web)
 		uimcp.Register(app, dm, mcpDeps)
 	}
 	// A key request carries no session id, so RequireSameOriginAPI and

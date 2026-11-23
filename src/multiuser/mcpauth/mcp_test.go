@@ -13,6 +13,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/web"
 	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/oauth"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
@@ -68,7 +69,7 @@ func newMCPEnv(t *testing.T) *mcpEnv {
 	devices := owners.NewScopedDevices(usecase.NewDeviceService(dm, nil), h.st)
 	rec := &recordingApp{}
 	h.app.Use("/mcp", Middleware(h.srv, h.am, h.st))
-	uimcp.Register(h.app, dm, uimcp.Deps{App: rec, ResolveDevice: resolver.Resolve, ExtraTools: Tools(devices)})
+	uimcp.Register(h.app, dm, uimcp.Deps{App: rec, ResolveDevice: resolver.Resolve, ExtraTools: Tools(web.Deps{Store: h.st, Auth: h.am, Devices: devices})})
 
 	alice, aliceCk := h.user("+27825550101")
 	bob, bobCk := h.user("+27825550102")

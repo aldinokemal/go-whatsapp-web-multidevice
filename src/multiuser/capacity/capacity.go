@@ -13,10 +13,10 @@ import (
 // slot, including one whose QR code was never scanned: it holds a
 // reservation.
 type Capacity struct {
-	Linked  int
-	Max     int
-	Users   int
-	Waiting int
+	Linked  int `json:"linked"`
+	Max     int `json:"max"`
+	Users   int `json:"users"`
+	Waiting int `json:"waiting"`
 }
 
 type Service struct {
