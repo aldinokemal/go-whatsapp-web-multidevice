@@ -164,6 +164,13 @@ func describe(e store.AuditRow, users map[string]store.User) []wordPart {
 	case "user_phone_changed":
 		old, _, _ := strings.Cut(e.Detail, " ")
 		return []wordPart{w("Admin "), a, w(" changed the number of "), u, w(" (was " + displayPhone(old) + ")")}
+	case "user_added":
+		if e.ActorID != "" {
+			return []wordPart{w("Admin "), a, w(" added "), u}
+		}
+		return []wordPart{u, w(" was added")}
+	case "user_deleted":
+		return []wordPart{w("Admin "), a, w(" deleted an account")}
 	case "account_deleted":
 		return []wordPart{w("An account was deleted")}
 	case "waitlist_joined":

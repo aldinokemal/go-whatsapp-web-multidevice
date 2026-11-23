@@ -75,6 +75,9 @@
             <input type="hidden" name="status" value="active">
             <button type="submit" class="menu-item" role="menuitem">{{icon "user-check"}}<span>Enable</span></button>
           </form>
+          {{if .Delete}}
+          <button type="button" class="menu-item menu-item-danger" role="menuitem" data-open-dialog="delete-{{.ID}}">{{icon "trash-2"}}<span>Delete account</span></button>
+          {{end}}
           {{end}}
           {{end}}
         {{template "menu_end"}}
@@ -109,6 +112,8 @@
   {{template "confirm" (dict "ID" (printf "disable-%s" .ID) "Action" (printf "/admin/users/%s/status" .ID) "CSRF" $.CSRF "Status" "disabled" "Icon" "user-x"
        "Title" (printf "Disable %s?" (phone .Phone)) "Body" "They'll be signed out everywhere right away, and their API keys and connected apps stop working for good." "Button" "Disable"
        "Check" "Also unlink their numbers" "CheckName" "unlink")}}
+  {{end}}{{if .Delete}}
+  {{template "confirm" (adminDeleteConfirm .Delete $.CSRF)}}
   {{end}}{{end}}
   {{template "confirm" (dict "ID" "admin-unlink" "Action" "" "CSRF" .CSRF "Icon" "unlink"
        "Title" "Unlink this number?" "Body" "It stops working here right away. They can link it again." "Button" "Unlink")}}
@@ -142,6 +147,10 @@
     </div>
   </dialog>
 {{template "app_end" .}}{{template "foot" .}}{{end}}
+
+{{/* admin_delete_form.html is an admin's Delete account dialog form again,
+     with its error, for the htmx answer of POST /admin/users/:id/delete. */}}
+{{define "admin_delete_form.html"}}{{template "confirm_form" (adminDeleteConfirm .Data .CSRF)}}{{end}}
 
 {{/* signin_link.html is the htmx fragment POST /admin/users/:id/signin-link
      returns into #link-dialog-body: either the fresh link to copy, or the

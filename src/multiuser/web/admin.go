@@ -60,7 +60,8 @@ func mountAdmin(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: u.ID, Action: "user_added", IP: c.IP()})
+		caller, _ := userOf(c)
+		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: u.ID, ActorID: caller.ID, Action: "user_added", IP: c.IP()})
 		link, err := signinLinkFor(c, d, phone)
 		if err != nil {
 			return err
@@ -202,6 +203,9 @@ type userRow struct {
 	Added       time.Time
 	Numbers     []numberView
 	JustAdded   bool // created in the last ten minutes and never signed in
+	// Delete is the Delete account dialog, for a disabled user other than
+	// the caller who does not hold the sign-in number; nil hides it.
+	Delete *deleteView
 }
 
 func userRows(ctx context.Context, d Deps, users []store.User, caller *store.User) ([]userRow, error) {
@@ -230,6 +234,16 @@ func userRows(ctx context.Context, d Deps, users []store.User, caller *store.Use
 				return nil, err
 			}
 			row.DeviceCount = len(ids)
+		}
+		if !row.Active && !row.IsSelf && u.Status == store.StatusDisabled {
+			v, err := deleteAccountData(ctx, d, u)
+			if err != nil {
+				return nil, err
+			}
+			if v != nil && !v.OwnsService {
+				v.Their, v.UserID, v.Phone = true, u.ID, u.Phone
+				row.Delete = v
+			}
 		}
 		rows = append(rows, row)
 	}

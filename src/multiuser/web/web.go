@@ -40,8 +40,9 @@ var tmpl = template.Must(template.New("").Funcs(template.FuncMap{
 	"since": func(t time.Time) string { return humanAgo(&t) },
 	// recent is true for a moment within the last ten minutes, for marking
 	// something "Just linked" / "Just added" from real timestamps.
-	"recent":        func(t time.Time) bool { return !t.IsZero() && time.Since(t) < 10*time.Minute },
-	"deleteConfirm": deleteConfirm,
+	"recent":             func(t time.Time) bool { return !t.IsZero() && time.Since(t) < 10*time.Minute },
+	"deleteConfirm":      deleteConfirm,
+	"adminDeleteConfirm": adminDeleteConfirm,
 }).ParseFS(templatesFS, "templates/*.html"))
 
 // icon renders one of the vendored Lucide icons (ISC licence, icons/LICENSE-lucide.txt)
@@ -227,6 +228,7 @@ func Mount(app *fiber.App, d Deps) {
 	mountAccountDelete(app, d)
 	mountAdmin(app, d) // Task 11
 	mountAdminManage(app, d)
+	mountAdminDelete(app, d)
 	mountActivity(app, d)
 	mountWaitlist(app, d)
 	mountSessions(app, d)

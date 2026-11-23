@@ -81,7 +81,7 @@ func TestDeleteNeedsTheNumberOrDELETE(t *testing.T) {
 	for _, typed := range []string{"", "yes", "0101", "+27825550102", "DELET"} {
 		resp, body := postDelete(t, e, ck, csrf, typed, true)
 		require.Equal(t, http.StatusOK, resp.StatusCode, typed)
-		require.Contains(t, body, "Type your number, or DELETE, to confirm.", typed)
+		require.Contains(t, body, "Type your number or DELETE to confirm.", typed)
 		require.Contains(t, body, `aria-invalid="true"`)
 	}
 	require.Empty(t, rec.calls)
