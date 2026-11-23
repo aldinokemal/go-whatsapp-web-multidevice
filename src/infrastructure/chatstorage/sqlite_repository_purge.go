@@ -235,7 +235,8 @@ func (r *SQLiteRepository) purgeOrphans(o orphanSweep, cutoff, prefilter time.Ti
 }
 
 // purgeEmptyChats deletes chats with no messages left whose own last message
-// time is past the cutoff.
+// time is past the cutoff. Rows with a zero last message time hold only a
+// push name and are kept.
 func (r *SQLiteRepository) purgeEmptyChats(cutoff, prefilter time.Time) (int64, error) {
 	const noMessages = `NOT EXISTS (SELECT 1 FROM messages m WHERE m.chat_jid = chats.jid AND m.device_id = chats.device_id)`
 	var total, after int64
@@ -247,7 +248,9 @@ func (r *SQLiteRepository) purgeEmptyChats(cutoff, prefilter time.Time) (int64, 
 		}
 		var old []purgeKey
 		for _, k := range page {
-			if olderThan(k.stamp, cutoff) {
+			// A zero last message time marks a row kept only for its name
+			// (history sync's push names): contact data, never purged.
+			if t, ok := parseStoredTime(k.stamp); ok && !t.IsZero() && t.Before(cutoff) {
 				old = append(old, k)
 			}
 		}

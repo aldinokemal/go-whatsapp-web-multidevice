@@ -371,3 +371,15 @@ func TestPurgeKeepsOldLookingRowsOfAFreshMessage(t *testing.T) {
 		require.Equal(t, 1, tableCount(t, repo, table), table)
 	}
 }
+
+// Behaviour: a chat row written only to hold a push name (history sync's
+// PUSH_NAME, stored with a zero last message time) is contact data, not
+// message activity, and is kept.
+func TestPurgeKeepsPushNameOnlyChats(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	storeChat(t, repo, devA, chat1, time.Time{})
+	res, err := repo.PurgeMessagesBefore(purgeCutoff)
+	require.NoError(t, err)
+	require.Zero(t, res.Chats)
+	require.True(t, chatExists(t, repo, devA, chat1))
+}
