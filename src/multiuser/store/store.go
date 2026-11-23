@@ -118,6 +118,9 @@ var migrations = []string{
 		last_used_at TIMESTAMP NULL,
 		revoked_at TIMESTAMP NULL)`,
 	`CREATE INDEX api_keys_user ON api_keys(user_id)`,
+	// Phase 3: a name the owner gives each linked number. Self-contained (no
+	// dependency on the entry before it), so it can be reordered when merging.
+	`ALTER TABLE device_owners ADD COLUMN label TEXT NOT NULL DEFAULT ''`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

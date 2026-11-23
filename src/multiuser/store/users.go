@@ -12,7 +12,15 @@ import (
 const (
 	StatusActive   = "active"
 	StatusDisabled = "disabled"
+	// StatusDeleting marks an account whose deletion has started. Every
+	// sign-in check refuses anything but StatusActive, so from this status on
+	// no session, key or token works. It is one way: see SetUserStatus.
+	StatusDeleting = "deleting"
 )
+
+// ErrDeleting is returned when a status change would bring back an account
+// whose deletion has started.
+var ErrDeleting = errors.New("account is being deleted")
 
 type User struct {
 	ID          string
@@ -79,11 +87,55 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	return out, rows.Err()
 }
 
+// SetUserStatus changes a user's status. An account in StatusDeleting stays
+// there (ErrDeleting): its deletion must finish, not be undone half way.
 func (s *Store) SetUserStatus(ctx context.Context, id, status string) error {
-	if status != StatusActive && status != StatusDisabled {
+	if status != StatusActive && status != StatusDisabled && status != StatusDeleting {
 		return fmt.Errorf("unknown status %q", status)
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE users SET status = ? WHERE id = ?`, status, id)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE users SET status = ? WHERE id = ? AND (status != ? OR ? = ?)`,
+		status, id, StatusDeleting, status, StatusDeleting)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		u, err := s.UserByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if u.Status == StatusDeleting {
+			return ErrDeleting
+		}
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UsersWithStatus lists every user in the given status, oldest first.
+func (s *Store) UsersWithStatus(ctx context.Context, status string) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+userCols+` FROM users WHERE status = ? ORDER BY created_at, id`, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *u)
+	}
+	return out, rows.Err()
+}
+
+// DeleteUser deletes the user row. Foreign keys (on for this database; see
+// Open) cascade to the user's sessions, passkeys, device owners and API keys.
+// The audit log has no foreign key and is kept. ErrNotFound if there is no
+// such user. Callers (account deletion) do everything else first.
+func (s *Store) DeleteUser(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}

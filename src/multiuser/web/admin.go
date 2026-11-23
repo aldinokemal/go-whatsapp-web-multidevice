@@ -71,6 +71,9 @@ func mountAdmin(app *fiber.App, d Deps) {
 			return renderUsers(c, d, "You can't disable your own account.")
 		}
 		if err := d.Store.SetUserStatus(c.Context(), targetID, status); err != nil {
+			if errors.Is(err, store.ErrDeleting) {
+				return renderUsers(c, d, "This account is being deleted.")
+			}
 			if errors.Is(err, store.ErrNotFound) {
 				return fiber.ErrNotFound
 			}

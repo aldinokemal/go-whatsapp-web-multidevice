@@ -195,3 +195,15 @@ func TestKeyIsNotLogged(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	require.NotContains(t, buf.String(), raw[len(store.APIKeyPrefix):])
 }
+
+// Security: an account being deleted cannot use its API keys, even before the
+// keys themselves are revoked.
+func TestDeletingUsersKeyIs401(t *testing.T) {
+	app, _, st := keyApp(t)
+	alice, raw, _ := newKey(t, st, "+27825550101")
+	resp, _ := keyReq(t, app, http.MethodGet, raw, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, st.SetUserStatus(context.Background(), alice.ID, store.StatusDeleting))
+	resp, _ = keyReq(t, app, http.MethodGet, raw, nil)
+	requireKey401(t, resp)
+}
