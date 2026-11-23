@@ -176,3 +176,19 @@ func TestDeviceName(t *testing.T) {
 		require.Equal(t, want, deviceName(ua), ua)
 	}
 }
+
+// Behaviour: an account whose deletion has started cannot be re-enabled from
+// the admin page; it stays deleting and the admin is told why.
+func TestEnablingADeletingUserIsRefused(t *testing.T) {
+	e := withDevices(t, &devStub{})
+	admin, _ := signedIn(t, e, "+27825550100")
+	_, victimID := signedIn(t, e, "+27825550101")
+	require.NoError(t, e.st.SetUserStatus(context.Background(), victimID, store.StatusDeleting))
+	tok := csrfFor(t, e, admin)
+
+	resp, body := postForm(t, e, admin, "/admin/users/"+victimID+"/status", url.Values{"csrf": {tok}, "status": {"active"}})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, body, "being deleted")
+	u, _ := e.st.UserByID(context.Background(), victimID)
+	require.Equal(t, store.StatusDeleting, u.Status)
+}

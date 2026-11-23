@@ -68,3 +68,37 @@ func (s *Store) ReserveOwner(ctx context.Context, deviceID, userID string, max i
 	}
 	return n == 1, nil
 }
+
+// SetLabel names one of the user's own devices; "" clears the name. The label
+// must already be validated by the caller (owners.NormalizeLabel). ErrNotFound
+// unless userID owns deviceID, so nobody can name another user's device.
+func (s *Store) SetLabel(ctx context.Context, userID, deviceID, label string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE device_owners SET label = ? WHERE device_id = ? AND user_id = ?`, label, deviceID, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// LabelsOf maps each of the user's devices to its label ("" when unnamed), in
+// one query.
+func (s *Store) LabelsOf(ctx context.Context, userID string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT device_id, label FROM device_owners WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, label string
+		if err := rows.Scan(&id, &label); err != nil {
+			return nil, err
+		}
+		out[id] = label
+	}
+	return out, rows.Err()
+}

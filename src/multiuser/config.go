@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
@@ -34,6 +35,38 @@ type Settings struct {
 	// production; no setting reaches it) means the netguard client. Tests set
 	// it to reach a local document server, which netguard rightly refuses.
 	CIMDHTTPClient *http.Client
+	// RetentionHours is how long message content and media are kept
+	// (WTF_RETENTION_HOURS, default 24, 0 = off; off is refused when sign-up
+	// is open). Configuration is never subject to it.
+	RetentionHours int
+}
+
+// maxRetentionHours keeps the window well inside what time.Duration holds.
+const maxRetentionHours = 10 * 365 * 24
+
+// RetentionWindow is the retention window and whether retention is on. It is
+// only ever on in multi-user mode with a positive number of hours, so a zero
+// or unset value can never be read as "delete everything".
+func (s Settings) RetentionWindow() (time.Duration, bool) {
+	if !s.Enabled || s.RetentionHours <= 0 {
+		return 0, false
+	}
+	return time.Duration(s.RetentionHours) * time.Hour, true
+}
+
+func parseRetentionHours(raw string, signupOpen bool) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 24, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 || n > maxRetentionHours {
+		return 0, errors.New("WTF_RETENTION_HOURS must be a whole number of hours (0 turns retention off)")
+	}
+	if n == 0 && signupOpen {
+		return 0, errors.New("WTF_RETENTION_HOURS=0 (retention off) is not allowed while WTF_SIGNUP_OPEN=true")
+	}
+	return n, nil
 }
 
 // MCPResourceURL is the MCP endpoint's public address. The OAuth issuer,
@@ -108,6 +141,10 @@ func Load(getenv func(string) string) (Settings, error) {
 		return s, err
 	}
 	s.MCPClientHosts = hosts
+
+	if s.RetentionHours, err = parseRetentionHours(getenv("WTF_RETENTION_HOURS"), s.SignupOpen); err != nil {
+		return s, err
+	}
 
 	for _, raw := range strings.Split(getenv("WTF_SUPERADMIN_PHONES"), ",") {
 		if strings.TrimSpace(raw) == "" {

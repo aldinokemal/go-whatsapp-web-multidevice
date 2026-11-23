@@ -2,6 +2,7 @@ package multiuser
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/stretchr/testify/require"
@@ -161,4 +162,53 @@ func TestApplyMCPNeedsAnHTTPSPublicURL(t *testing.T) {
 	require.False(t, applied.MCPEnabled, "OAuth needs an https issuer; local http development runs without MCP")
 	require.False(t, config.McpEnabled)
 	require.False(t, config.McpOAuthEnabled)
+}
+
+// Behaviour: the retention window. A purge only ever runs on an explicit,
+// positive window; anything unreadable refuses to start rather than guessing.
+func TestRetentionHoursParsed(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		wantErr bool
+		hours   int
+		on      bool
+	}{
+		{"default is 24", nil, false, 24, true},
+		{"explicit 48", map[string]string{"WTF_RETENTION_HOURS": " 48 "}, false, 48, true},
+		{"one hour is the minimum", map[string]string{"WTF_RETENTION_HOURS": "1"}, false, 1, true},
+		{"zero is off with sign-up closed", map[string]string{"WTF_RETENTION_HOURS": "0"}, false, 0, false},
+		{"zero is refused with sign-up open", map[string]string{"WTF_RETENTION_HOURS": "0", "WTF_SIGNUP_OPEN": "true"}, true, 0, false},
+		{"negative is refused", map[string]string{"WTF_RETENTION_HOURS": "-1"}, true, 0, false},
+		{"text is refused", map[string]string{"WTF_RETENTION_HOURS": "abc"}, true, 0, false},
+		{"a fraction is refused", map[string]string{"WTF_RETENTION_HOURS": "1.5"}, true, 0, false},
+		{"too large to be a duration is refused", map[string]string{"WTF_RETENTION_HOURS": "9999999999"}, true, 0, false},
+		{"a duration string is refused", map[string]string{"WTF_RETENTION_HOURS": "24h"}, true, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := Load(muEnv(tc.env))
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.hours, s.RetentionHours)
+			w, on := s.RetentionWindow()
+			require.Equal(t, tc.on, on)
+			if on {
+				require.Equal(t, time.Duration(tc.hours)*time.Hour, w)
+			} else {
+				require.Zero(t, w)
+			}
+		})
+	}
+}
+
+// Behaviour: single-user mode never has a retention window, whatever is set.
+func TestRetentionOffOutsideMultiUser(t *testing.T) {
+	s, err := Load(env(map[string]string{"WTF_RETENTION_HOURS": "24"}))
+	require.NoError(t, err)
+	_, on := s.RetentionWindow()
+	require.False(t, on)
 }

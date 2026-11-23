@@ -21,4 +21,6 @@ type Device struct {
 	State       DeviceState `json:"state"`
 	JID         string      `json:"jid,omitempty"`
 	CreatedAt   time.Time   `json:"created_at"`
+	// WTF: the owner's own name for the number (multi-user only; empty upstream).
+	Label string `json:"label,omitempty"`
 }
