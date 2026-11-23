@@ -22,7 +22,7 @@
   }
 
   function decodeOptions(json) {
-    var opts = JSON.parse(json);
+    var opts = JSON.parse(json).publicKey;
     opts.challenge = base64urlToBuffer(opts.challenge);
     if (Array.isArray(opts.allowCredentials)) {
       opts.allowCredentials = opts.allowCredentials.map(function (c) {
@@ -85,7 +85,7 @@
       var optionsJSON = await beginResp.text();
       var publicKey;
       if (typeof PublicKeyCredential.parseRequestOptionsFromJSON === "function") {
-        publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(JSON.parse(optionsJSON));
+        publicKey = PublicKeyCredential.parseRequestOptionsFromJSON(JSON.parse(optionsJSON).publicKey);
       } else {
         publicKey = decodeOptions(optionsJSON);
       }
@@ -144,9 +144,9 @@
       var optionsJSON = await beginResp.text();
       var publicKey;
       if (typeof PublicKeyCredential.parseCreationOptionsFromJSON === "function") {
-        publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(JSON.parse(optionsJSON));
+        publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(JSON.parse(optionsJSON).publicKey);
       } else {
-        var opts = JSON.parse(optionsJSON);
+        var opts = JSON.parse(optionsJSON).publicKey;
         opts.challenge = base64urlToBuffer(opts.challenge);
         opts.user.id = base64urlToBuffer(opts.user.id);
         if (Array.isArray(opts.excludeCredentials)) {
