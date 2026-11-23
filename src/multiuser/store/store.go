@@ -107,6 +107,17 @@ var migrations = []string{
 	`ALTER TABLE audit_log ADD COLUMN detail TEXT NOT NULL DEFAULT ''`,
 	`CREATE INDEX audit_log_user ON audit_log(user_id)`,
 	`CREATE INDEX audit_log_actor ON audit_log(actor_id)`,
+	// Phase 2: personal API keys. Only the hash of a key is kept.
+	`CREATE TABLE api_keys (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		key_hash TEXT NOT NULL UNIQUE,
+		prefix TEXT NOT NULL,
+		name TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		last_used_at TIMESTAMP NULL,
+		revoked_at TIMESTAMP NULL)`,
+	`CREATE INDEX api_keys_user ON api_keys(user_id)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
