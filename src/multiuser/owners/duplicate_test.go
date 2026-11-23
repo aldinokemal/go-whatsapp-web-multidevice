@@ -105,7 +105,8 @@ func (f flakyOwners) OwnerOf(_ context.Context, id string) (string, error) {
 	}
 	return "", store.ErrNotFound
 }
-func (flakyOwners) Audit(context.Context, store.AuditEvent) error { return nil }
+func (flakyOwners) Audit(context.Context, store.AuditEvent) error       { return nil }
+func (flakyOwners) RecordRefusal(context.Context, string, string) error { return nil }
 
 func TestGuardFailsClosedWhenSiblingLookupFails(t *testing.T) {
 	owners := flakyOwners{owners: map[string]string{"d_b1": "u_b"}, fail: map[string]bool{"d_a1": true}}

@@ -18,6 +18,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
 	"github.com/gofiber/fiber/v3"
 	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
@@ -108,6 +109,42 @@ func (p dmPairs) Logout(ctx context.Context, id string) error {
 	return p.dm.LogoutDeviceKeepSlot(ctx, id)
 }
 
+// recordSlotEvent keeps accounts.db's memory of a slot current: who it is
+// while connected, and that the phone signed it out (the upstream handler then
+// clears the slot's WhatsApp identity, so this is the last chance to read it).
+// The hook runs before upstream handles the event.
+func recordSlotEvent(ctx context.Context, st *store.Store, inst *whatsapp.DeviceInstance, evt any) {
+	if inst == nil {
+		return
+	}
+	switch evt.(type) {
+	case *events.Connected, *events.PushNameSetting:
+		phone, name := slotIdentity(inst)
+		if phone != "" {
+			_ = st.RecordIdentity(ctx, inst.ID(), phone, name)
+		}
+	case *events.LoggedOut:
+		phone, name := slotIdentity(inst)
+		_ = st.MarkSignedOut(ctx, inst.ID(), phone, name)
+	}
+}
+
+// slotIdentity reads the number (bare digits) and name a slot holds, from the
+// instance's cached state or, before that is filled, its WhatsApp store.
+func slotIdentity(inst *whatsapp.DeviceInstance) (phone, name string) {
+	phone = strings.TrimPrefix(inst.PhoneNumber(), "+")
+	name = inst.DisplayName()
+	if client := inst.GetClient(); client != nil && client.Store != nil {
+		if phone == "" && client.Store.ID != nil && client.Store.ID.Server == types.DefaultUserServer {
+			phone = client.Store.ID.User
+		}
+		if name == "" {
+			name = client.Store.PushName
+		}
+	}
+	return phone, name
+}
+
 // Setup opens the accounts store and builds every multi-user layer, then
 // installs the two hooks (device resolution, WhatsApp event handling) that
 // let unchanged upstream code become owner-scoped and the sign-in flow work.
@@ -146,11 +183,15 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 	}
 	pairs := dmPairs{dm: dm}
 
+	// Per-number webhooks stay available, but a shared server must never
+	// deliver to a private address, follow a redirect or skip TLS checks.
+	whatsapp.WebhookClientHook = owners.HardenWebhookClient
 	middleware.DeviceResolveFunc = func(c fiber.Ctx, id string) (*whatsapp.DeviceInstance, string, error) {
 		return resolver.Resolve(c.Context(), id)
 	}
 	whatsapp.EventHook = func(ctx context.Context, inst *whatsapp.DeviceInstance, evt any) {
 		sh.OnEvent(ctx, inst, evt)
+		recordSlotEvent(ctx, st, inst, evt)
 		if _, ok := evt.(*events.PairSuccess); ok && inst != nil {
 			go func(id string) {
 				// recover is only ever able to catch a panic raised in the
@@ -173,6 +214,12 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 					logrus.Warnf("[WTF] refused duplicate link on %s", id)
 				} else if err != nil {
 					logrus.WithError(err).Warn("[WTF] duplicate guard failed")
+				} else {
+					// Accepted: forget any earlier refusal and remember who this is.
+					bg := context.Background()
+					_ = st.ClearRefusal(bg, id)
+					phone, name := slotIdentity(inst)
+					_ = st.RecordIdentity(bg, id, phone, name)
 				}
 			}(inst.ID())
 		}
@@ -197,5 +244,6 @@ func (r *Runtime) Install(app *fiber.App) {
 func (r *Runtime) Close() error {
 	middleware.DeviceResolveFunc = nil
 	whatsapp.EventHook = nil
+	whatsapp.WebhookClientHook = nil
 	return r.Store.Close()
 }

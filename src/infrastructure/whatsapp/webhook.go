@@ -16,6 +16,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// WTF: WebhookClientHook, when set, may harden the HTTP client every webhook
+// delivery uses (multi-user mode refuses private addresses, redirects and
+// skipped TLS checks). nil in upstream mode.
+var WebhookClientHook func(transport *http.Transport, client *http.Client)
+
 func submitWebhook(ctx context.Context, payload map[string]any, url string, webhookConfig *chatstorage.DeviceWebhookConfig) error {
 	// Determine effective config - use device-specific if set, otherwise fall back to global
 	insecureSkipVerify := config.WhatsappWebhookInsecureSkipVerify
@@ -39,6 +44,9 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 	client := &http.Client{
 		Timeout:   10 * time.Second,
 		Transport: transport,
+	}
+	if WebhookClientHook != nil { // WTF
+		WebhookClientHook(transport, client)
 	}
 
 	postBody, err := json.Marshal(payload)

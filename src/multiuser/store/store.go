@@ -13,6 +13,12 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// ErrInvalid is returned for a value outside what the store accepts.
+var ErrInvalid = errors.New("invalid value")
+
+// ErrPhoneTaken is returned when another user already has that phone number.
+var ErrPhoneTaken = errors.New("phone number already in use")
+
 type Store struct {
 	db  *sql.DB
 	Now func() time.Time
@@ -88,6 +94,19 @@ var migrations = []string{
 		device_id TEXT NOT NULL DEFAULT '',
 		ip TEXT NOT NULL DEFAULT '',
 		at TIMESTAMP NOT NULL)`,
+	// Gap A/B: what a slot last held, and why its last link was refused.
+	`ALTER TABLE device_owners ADD COLUMN last_phone TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE device_owners ADD COLUMN last_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE device_owners ADD COLUMN signed_out_at TIMESTAMP NULL`,
+	`ALTER TABLE device_owners ADD COLUMN last_refusal TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE device_owners ADD COLUMN last_refusal_at TIMESTAMP NULL`,
+	// Gap D: when a session was last used.
+	`ALTER TABLE sessions ADD COLUMN last_seen_at TIMESTAMP NULL`,
+	// Gap E: who did it (when not the subject) and a short non-secret detail.
+	`ALTER TABLE audit_log ADD COLUMN actor_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_log ADD COLUMN detail TEXT NOT NULL DEFAULT ''`,
+	`CREATE INDEX audit_log_user ON audit_log(user_id)`,
+	`CREATE INDEX audit_log_actor ON audit_log(actor_id)`,
 }
 
 func (s *Store) migrate(ctx context.Context) error {

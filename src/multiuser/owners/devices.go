@@ -73,6 +73,9 @@ func (s *ScopedDevices) AddDevice(ctx context.Context, _ string, webhook *chatst
 	if !ok {
 		return nil, pkgError.ErrDeviceNotFound
 	}
+	if err := validateWebhookConfig(ctx, webhook); err != nil {
+		return nil, err
+	}
 	id := NewDeviceID()
 	reserved, err := s.st.ReserveOwner(ctx, id, u.ID, u.MaxDevices)
 	if err != nil {
@@ -114,8 +117,49 @@ func (s *ScopedDevices) RemoveDevice(ctx context.Context, deviceID string) error
 		return err
 	}
 	u, _ := auth.UserFrom(ctx)
-	_ = s.st.Audit(ctx, store.AuditEvent{UserID: u.ID, Action: "device_remove", DeviceID: deviceID})
+	number := "" // kept in the audit line: the slot row that holds it is about to go
+	if sl, err := s.st.SlotOf(ctx, deviceID); err == nil {
+		number = sl.LastPhone
+	}
+	_ = s.st.Audit(ctx, store.AuditEvent{UserID: u.ID, ActorID: actorID(ctx), Action: "device_remove", DeviceID: deviceID, Detail: number})
 	return s.st.RemoveOwner(ctx, deviceID)
+}
+
+func actorID(ctx context.Context) string {
+	if a, ok := auth.ActorFrom(ctx); ok {
+		return a.ID
+	}
+	return ""
+}
+
+// RemoveDeviceAsAdmin unlinks one of target's numbers on an admin's behalf.
+// It runs the very same owner-checked RemoveDevice the user's own Unlink
+// uses, with target as the acting user, so a device that is not target's is
+// ErrDeviceNotFound. The audit line names admin as the actor. The caller must
+// already have checked that admin is a superadmin.
+func RemoveDeviceAsAdmin(ctx context.Context, devices domainDevice.IDeviceUsecase, admin, target *store.User, deviceID string) error {
+	return devices.RemoveDevice(asAdmin(ctx, admin, target), deviceID)
+}
+
+// RemoveAllDevicesAsAdmin unlinks every number target owns, the same way.
+// It returns how many were removed and stops at the first failure.
+func RemoveAllDevicesAsAdmin(ctx context.Context, devices domainDevice.IDeviceUsecase, st *store.Store, admin, target *store.User) (int, error) {
+	ids, err := st.DevicesOf(ctx, target.ID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		if err := RemoveDeviceAsAdmin(ctx, devices, admin, target, id); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+func asAdmin(ctx context.Context, admin, target *store.User) context.Context {
+	return auth.WithActor(auth.WithUser(ctx, target), admin)
 }
 
 func (s *ScopedDevices) GetDevice(ctx context.Context, id string) (*domainDevice.Device, error) {
@@ -164,6 +208,9 @@ func (s *ScopedDevices) SetDeviceWebhook(ctx context.Context, id, url string) er
 	if err := s.own(ctx, id); err != nil {
 		return err
 	}
+	if err := ValidateWebhookURL(ctx, url); err != nil {
+		return err
+	}
 	return s.inner.SetDeviceWebhook(ctx, id, url)
 }
 
@@ -178,6 +225,9 @@ func (s *ScopedDevices) SetDeviceWebhookConfig(ctx context.Context, id string, c
 	if err := s.own(ctx, id); err != nil {
 		return err
 	}
+	if err := validateWebhookConfig(ctx, cfg); err != nil {
+		return err
+	}
 	return s.inner.SetDeviceWebhookConfig(ctx, id, cfg)
 }
 
@@ -186,4 +236,10 @@ func (s *ScopedDevices) GetDeviceWebhookConfig(ctx context.Context, id string) (
 		return nil, err
 	}
 	return s.inner.GetDeviceWebhookConfig(ctx, id)
+}
+
+// ListDevicesAsAdmin lists target's numbers for an admin, through the same
+// owner-scoped ListDevices the user's own page uses.
+func ListDevicesAsAdmin(ctx context.Context, devices domainDevice.IDeviceUsecase, admin, target *store.User) ([]domainDevice.Device, error) {
+	return devices.ListDevices(asAdmin(ctx, admin, target))
 }

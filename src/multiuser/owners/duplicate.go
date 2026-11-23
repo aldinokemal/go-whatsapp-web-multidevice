@@ -24,6 +24,7 @@ type PairSource interface {
 type OwnerLookup interface {
 	OwnerOf(ctx context.Context, deviceID string) (string, error)
 	Audit(ctx context.Context, e store.AuditEvent) error
+	RecordRefusal(ctx context.Context, deviceID, reason string) error
 }
 
 // guardMu serialises the guard so two links of the same number completing at
@@ -102,6 +103,13 @@ func GuardDuplicatePhone(ctx context.Context, src PairSource, st OwnerLookup, de
 
 func refuse(ctx context.Context, src PairSource, st OwnerLookup, userID, deviceID, action string, cause error) (bool, error) {
 	_ = st.Audit(ctx, store.AuditEvent{UserID: userID, Action: action, DeviceID: deviceID})
+	// The slot keeps the reason, so its row can say why it is not linked
+	// until the next accepted link clears it.
+	reason := store.RefusalUnreadable
+	if action == "device_link_refused_duplicate" {
+		reason = store.RefusalDuplicate
+	}
+	_ = st.RecordRefusal(ctx, deviceID, reason)
 	if err := src.Logout(ctx, deviceID); err != nil {
 		return true, errors.Join(cause, fmt.Errorf("logout refused device %s: %w", deviceID, err))
 	}
