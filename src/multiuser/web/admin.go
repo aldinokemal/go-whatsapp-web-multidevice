@@ -51,7 +51,12 @@ func mountAdmin(app *fiber.App, d Deps) {
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
-		u, err := d.Store.CreateUser(c.Context(), phone)
+		var u *store.User
+		if d.DefaultMaxDevices > 0 {
+			u, err = d.Store.CreateUserWithLimit(c.Context(), phone, d.DefaultMaxDevices)
+		} else {
+			u, err = d.Store.CreateUser(c.Context(), phone)
+		}
 		if err != nil {
 			return err
 		}

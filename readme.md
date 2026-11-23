@@ -20,6 +20,8 @@ environment variables control it:
 | `WTF_PUBLIC_URL` | The externally-reachable base URL, used to build the WhatsApp sign-in link. Falls back to `RENDER_EXTERNAL_URL` on Render. |
 | `SESSION_SECRET` | Signs session cookies. Generate a real random value; never reuse the default. |
 | `WTF_MCP_ENABLED` | `true` (the default in multi-user mode) serves `/mcp` to Claude, per person, with OAuth sign-in. Needs an `https` public URL; with a plain-http one (local development) MCP stays off with a warning. |
+| `WTF_MAX_PHONES` | The most WhatsApp numbers the whole server may hold linked (an unscanned link counts while it waits; one nobody scans is freed after an hour). `0`, the default, means no cap; it must be set when `WTF_SIGNUP_OPEN=true`. Set it from the memory measurement. |
+| `WTF_DEFAULT_MAX_DEVICES` | How many numbers a new account may link, 1 to 20. Default `2`. Admins change one person's limit on Users. |
 | `WTF_MCP_CLIENT_HOSTS` | Comma-separated exact host names whose apps may connect. Default `claude.ai` (Claude on the web, desktop, phone and Claude Code). |
 
 **Connecting Claude** — on the Account page, Connect Claude opens Claude's
@@ -49,9 +51,17 @@ run:
 This mints a one-time sign-in link for that phone number (it must already be
 listed in `WTF_SUPERADMIN_PHONES`) without starting a WhatsApp connection.
 Open the link, sign in, register a passkey, then link your own WhatsApp number
-from the "My WhatsApp" page. Every other user signs in the same way a
-superadmin invites them to: by messaging the service number once an account
-exists for them.
+from the "My WhatsApp" page.
+
+**Everyone else** messages the service number. Someone with an account gets a
+sign-in link; someone without one joins the waitlist and is told their place.
+An admin lets people in from Admin › Waitlist, one click per person: that
+creates the account and sends the sign-in link in the chat they started. Admins
+can also add someone directly from Users › Add user.
+
+**Leaving** — Account › Delete account removes the account, unlinks every
+number it holds and deletes their messages and media here. Disabling someone,
+or changing their number, revokes their API keys and connected apps for good.
 
 See `docs/superpowers/specs/` and `docs/superpowers/plans/` for the full
 design and build history of this fork.

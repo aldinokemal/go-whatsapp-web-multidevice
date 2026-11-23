@@ -48,6 +48,13 @@ func setupMultiUser(app *fiber.App, dm *whatsapp.DeviceManager, s multiuser.Sett
 	}
 	deviceUsecase = rt.Devices // /devices REST routes now see only the caller's devices
 	rt.Install(app, dm, mcpUsecaseDeps())
+	// Finish any account deletion left half done, and free link slots nobody
+	// scanned. The retention worker (phase 3) is wired separately.
+	var chats multiuser.ChatData
+	if chatStorageRepo != nil {
+		chats = chatStorageRepo
+	}
+	rt.Start(chats)
 	return rt, nil
 }
 

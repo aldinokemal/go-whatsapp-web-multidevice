@@ -17,6 +17,11 @@ services:
         value: "true"
       - key: WTF_SIGNUP_OPEN
         value: "false"
+      # Server-wide cap on linked numbers: Aryeh sets the measured value.
+      - key: WTF_MAX_PHONES
+        sync: false
+      - key: WTF_DEFAULT_MAX_DEVICES
+        value: "2"
       - key: WTF_PRODUCT_NAME
         value: WTF
       - key: SESSION_SECRET

@@ -75,6 +75,14 @@ func renderRename(c fiber.Ctx, d Deps, id, phone, label string, hasLabel bool, e
 // key, same-origin, CSRF), as Task 8 does. No upstream route uses this path.
 func MountDeviceLabelAPI(r fiber.Router, d Deps) {
 	r.Put("/devices/:device_id/label", func(c fiber.Ctx) error {
+		// Ownership first: another user's number is a 404 whatever the body.
+		if _, err := d.Devices.GetDevice(c.Context(), c.Params("device_id")); errors.Is(err, pkgError.ErrDeviceNotFound) {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"status": fiber.StatusNotFound, "code": "NOT_FOUND", "message": "device not found",
+			})
+		} else if err != nil {
+			return err
+		}
 		var body struct {
 			Label *string `json:"label"`
 		}

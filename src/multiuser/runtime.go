@@ -2,6 +2,7 @@ package multiuser
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"runtime/debug"
 	"strings"
@@ -10,7 +11,9 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/account"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/auth"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/capacity"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/files"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/mcpauth"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/netguard"
@@ -46,6 +49,58 @@ type Runtime struct {
 	// MediaRoot is where downloads land, one directory per device, and
 	// what /files serves from.
 	MediaRoot string
+	// Capacity answers how full the server is (WTF_MAX_PHONES).
+	Capacity capacity.Service
+	// Deleter deletes accounts (Delete my account); Start finishes any left
+	// half done. Its Chats is set by Start.
+	Deleter *account.Deleter
+	// Sweeper frees link slots that were never scanned; Start runs it.
+	Sweeper *owners.StaleSlotSweeper
+
+	stop context.CancelFunc // ends Start's background work
+}
+
+// staleSweepEvery is how often the stale-slot sweeper looks.
+const staleSweepEvery = 10 * time.Minute
+
+// ChatData is the part of chat storage account deletion needs
+// (chatstorage.IChatStorageRepository's DeleteDeviceData).
+type ChatData interface {
+	DeleteDeviceData(deviceID string) error
+}
+
+// Start begins the runtime's background work, once, after Install: it
+// finishes every account deletion left half done (a crash, a WhatsApp error)
+// and runs the stale-slot sweeper until Close. chats clears a deleted
+// number's chat storage even when the device manager no longer knows it; nil
+// leaves that to the device purge alone.
+func (r *Runtime) Start(chats ChatData) {
+	if r.stop != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r.stop = cancel
+	if chats != nil {
+		r.Deleter.Chats = chats
+	}
+	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				logrus.Errorf("[WTF] resuming account deletions: recovered from panic\n%s", debug.Stack())
+			}
+		}()
+		if err := r.Deleter.ResumePending(ctx); err != nil {
+			logrus.WithError(err).Warn("[WTF] some account deletions are still unfinished; they are retried at the next start")
+		}
+	}()
+	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				logrus.Errorf("[WTF] stale slot sweeper: recovered from panic\n%s", debug.Stack())
+			}
+		}()
+		r.Sweeper.Run(ctx, staleSweepEvery)
+	}()
 }
 
 // guardDuplicatePhoneForTest, when set, stands in for
@@ -105,6 +160,22 @@ func phoneNumberSettled(src owners.PairSource, deviceID string) bool {
 		}
 	}
 	return false
+}
+
+// liveSlots lists the device manager's slots with the JID each holds right
+// now ("" while unpaired), for the stale-slot sweeper.
+func liveSlots(dm *whatsapp.DeviceManager) func() []owners.PairedDevice {
+	return func() []owners.PairedDevice {
+		var out []owners.PairedDevice
+		for _, inst := range dm.ListDevices() {
+			jid := inst.JID()
+			if client := inst.GetClient(); jid == "" && client != nil && client.Store != nil && client.Store.ID != nil {
+				jid = client.Store.ID.String()
+			}
+			out = append(out, owners.PairedDevice{ID: inst.ID(), JID: jid})
+		}
+		return out
+	}
 }
 
 // dmPairs adapts *whatsapp.DeviceManager to owners.PairSource.
@@ -179,7 +250,10 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		return nil, err
 	}
 	resolver := owners.NewResolver(dm, st)
-	devices := owners.NewScopedDevices(inner, st)
+	capSvc := capacity.Service{Store: st, MaxPhones: s.MaxPhones}
+	// The server-wide cap is read on every add, in the same statement that
+	// reserves the slot (store.ReserveOwner).
+	devices := owners.NewScopedDevicesCapped(inner, st, func() int { return s.MaxPhones })
 
 	serviceID := func(ctx context.Context) string { v, _, _ := st.Setting(ctx, store.SettingServiceDeviceID); return v }
 	servicePhone := func(ctx context.Context) string {
@@ -193,8 +267,22 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		SignupOpen: s.SignupOpen, IsSuperadmin: func(p string) bool { return IsSuperadmin(s, p) },
 		Limiter: signin.NewLimiter(3, time.Hour), ResolvePN: signin.DefaultResolvePN,
 		ServiceDeviceID: serviceID, Now: time.Now,
+		// Phase 4: an unknown number that may not sign up now (sign-up closed,
+		// or open but full) joins the waitlist. Sign-up itself stays as
+		// WTF_SIGNUP_OPEN says (closed unless set).
+		Waitlist: st, Full: capSvc.Full, DefaultMaxDevices: s.DefaultMaxDevices,
 	}
 	pairs := dmPairs{dm: dm}
+	// sendFromService sends text from the service number to phone (E.164),
+	// into the chat that person opened with it.
+	sendFromService := func(ctx context.Context, phone, text string) error {
+		inst, ok := dm.GetDevice(serviceID(ctx))
+		if !ok || !inst.IsLoggedIn() {
+			return errors.New("the sign-in number isn't connected")
+		}
+		to := types.NewJID(strings.TrimPrefix(phone, "+"), types.DefaultUserServer)
+		return signin.ClientSender{}.SendText(ctx, inst, to, text)
+	}
 
 	middleware.DeviceResolveFunc = func(c fiber.Ctx, id string) (*whatsapp.DeviceInstance, string, error) {
 		return resolver.Resolve(c.Context(), id)
@@ -235,10 +323,16 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		}
 	}
 
+	// Account deletion purges through the inner (unscoped) usecase: the
+	// account is already refused by the scoped one once it is "deleting".
+	deleter := &account.Deleter{Store: st, Devices: inner, MediaRoot: config.PathMedia, ServiceDevice: serviceID}
+	sweeper := &owners.StaleSlotSweeper{Store: st, Devices: inner, Live: liveSlots(dm)}
 	rt := &Runtime{Settings: s, Store: st, Auth: am, Resolver: resolver, Devices: devices, Signin: sh,
-		MediaRoot: config.PathMedia,
+		MediaRoot: config.PathMedia, Capacity: capSvc, Deleter: deleter, Sweeper: sweeper,
 		Web: web.Deps{Store: st, Auth: am, Passkeys: pk, Devices: devices, ProductName: s.ProductName,
-			PublicURL: s.PublicURL, ServicePhone: servicePhone, Paired: pairs.Paired, StorageDir: storageDir}}
+			PublicURL: s.PublicURL, ServicePhone: servicePhone, Paired: pairs.Paired, StorageDir: storageDir,
+			DeleteAccount: deleter.Delete, SendWhatsApp: sendFromService, Capacity: capSvc,
+			DefaultMaxDevices: s.DefaultMaxDevices}}
 
 	if s.MCPEnabled {
 		authn := &mcpauth.Authenticator{Auth: am, Store: st}
@@ -268,6 +362,7 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		}
 		rt.OAuth = srv
 		rt.Web.Grants = srv
+		deleter.Grants = srv
 		rt.Web.MCPURL = s.MCPResourceURL()
 		authn.Web = rt.Web
 	}
@@ -313,6 +408,7 @@ func userAgentToken(name string) string {
 func (r *Runtime) Install(app *fiber.App, dm *whatsapp.DeviceManager, mcpDeps uimcp.Deps) {
 	app.Use(r.Auth.Middleware())
 	web.Mount(app, r.Web)
+	web.MountDeviceLabelPage(app, r.Web)
 	if r.OAuth != nil {
 		r.OAuth.RegisterPublic(app)
 		app.Use("/mcp", mcpauth.Middleware(r.OAuth, r.Auth, r.Store))
@@ -323,12 +419,18 @@ func (r *Runtime) Install(app *fiber.App, dm *whatsapp.DeviceManager, mcpDeps ui
 	// A key request carries no session id, so RequireSameOriginAPI and
 	// VerifyCSRF (which judge cookie sessions only) let it through.
 	app.Use(r.Auth.APIKey(), r.Auth.RequireAPI(), r.Auth.RequireSameOriginAPI(), r.Auth.VerifyCSRF())
+	// PUT /devices/:device_id/label: behind the API gate (a session or an
+	// API key), before the upstream /devices routes.
+	web.MountDeviceLabelAPI(app, r.Web)
 	files.Mount(app, files.Deps{Resolver: r.Resolver, Root: r.MediaRoot})
 }
 
 // Close releases the global hooks, the OAuth store and the accounts store.
 // Safe to call once, typically deferred right after Setup succeeds.
 func (r *Runtime) Close() error {
+	if r.stop != nil {
+		r.stop()
+	}
 	middleware.DeviceResolveFunc = nil
 	whatsapp.EventHook = nil
 	usecase.MediaRootHook = nil
