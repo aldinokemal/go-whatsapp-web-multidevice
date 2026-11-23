@@ -37,6 +37,7 @@ const (
 	keyRaw     localsKey = iota // raw session id (string)
 	keyUser                     // *store.User
 	keyAuthErr                  // bool: the accounts store failed while loading the session
+	keyVia                      // string: "api_key" when an API key authenticated the request
 )
 
 // ErrInactiveUser is returned by StartSession for a user who is not active.
