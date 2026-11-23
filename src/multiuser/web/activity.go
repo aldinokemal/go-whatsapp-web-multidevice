@@ -128,6 +128,10 @@ func describe(e store.AuditRow, users map[string]store.User) []wordPart {
 		return []wordPart{w("A passkey of "), u, w(" may have been copied")}
 	case "session_ended":
 		return []wordPart{u, w(" signed out one session")}
+	case "api_key_created":
+		return []wordPart{u, w(" made an API key")}
+	case "api_key_revoked":
+		return []wordPart{u, w(" revoked an API key")}
 	case "sessions_ended_all":
 		return []wordPart{u, w(" signed out everywhere")}
 	case "device_add":

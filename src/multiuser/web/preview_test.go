@@ -65,6 +65,13 @@ func (p *previewSite) file(rel string, b []byte) {
 var dialogBodyRE = regexp.MustCompile(`(<div id="link-dialog-body"[^>]*>)(\s*</div>)`)
 var addUserBodyRE = regexp.MustCompile(`(?s)(<div id="add-user-body"[^>]*>)(.*?)(</div>\s*</div>\s*</dialog>)`)
 
+var newKeyBodyRE = regexp.MustCompile(`(?s)(<div id="new-key-body"[^>]*>)(.*?)(</div>\s*</div>\s*</dialog>)`)
+
+// withNewKeyBody replaces the New API key modal's content with a response.
+func withNewKeyBody(page, fragment string) string {
+	return newKeyBodyRE.ReplaceAllString(page, "${1}"+strings.ReplaceAll(fragment, "$", "$$")+"${3}")
+}
+
 // withAddUserBody replaces the Add user modal's content with a response.
 func withAddUserBody(page, fragment string) string {
 	return addUserBodyRE.ReplaceAllString(page, "${1}"+strings.ReplaceAll(fragment, "$", "$$")+"${3}")
@@ -288,6 +295,14 @@ func TestPreviewSite(t *testing.T) {
 	_, _ = e.st.CreateSession(ctx, adminID, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1", 30*24*time.Hour)
 	at(26 * time.Hour)
 	_, _ = e.st.CreateSession(ctx, adminID, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36 Edg/131.0", 30*24*time.Hour)
+	at(5 * 24 * time.Hour)
+	_, laptopKey, err := e.st.CreateAPIKey(ctx, adminID, "Laptop script")
+	require.NoError(t, err)
+	at(3 * time.Hour)
+	require.NoError(t, e.st.TouchAPIKey(ctx, laptopKey.ID))
+	at(20 * time.Minute)
+	_, _, err = e.st.CreateAPIKey(ctx, adminID, "Claude Code")
+	require.NoError(t, err)
 	e.st.Now = func() time.Time { return time.Now().UTC() }
 	account := get(t, e, admin, "/account")
 	p.write("account", account)
@@ -300,6 +315,16 @@ func TestPreviewSite(t *testing.T) {
 		Set: map[string]string{"[data-passkey-register-error]": "Adding the passkey was cancelled."}})
 	p.shot(previewShot{Name: "account-theme-light", Page: "account", Storage: map[string]string{"wtf-theme": "light"}})
 	p.shot(previewShot{Name: "account-theme-dark", Page: "account", Storage: map[string]string{"wtf-theme": "dark"}})
+	p.shot(previewShot{Name: "account-revoke-key", Page: "account", ViewportOnly: true,
+		Click: []string{`[data-open-dialog="revoke-key"]`}})
+	p.shot(previewShot{Name: "account-new-key", Page: "account", Dialog: "new-key"})
+	keyErr := htmxPost(t, e, admin, csrf, "/account/api-keys", url.Values{"name": {"   "}})
+	p.write("account-new-key-error", withNewKeyBody(account, keyErr))
+	p.shot(previewShot{Name: "account-new-key-error", Page: "account-new-key-error", Dialog: "new-key"})
+	keyDone := htmxPost(t, e, admin, csrf, "/account/api-keys", url.Values{"name": {"Home server"}})
+	require.Contains(t, keyDone, store.APIKeyPrefix)
+	p.write("account-new-key-done", withNewKeyBody(account, keyDone))
+	p.shot(previewShot{Name: "account-new-key-done", Page: "account-new-key-done", Dialog: "new-key"})
 	p.write("account-empty", get(t, e, empty, "/account"))
 	p.shot(previewShot{Name: "account-empty", Page: "account-empty"})
 

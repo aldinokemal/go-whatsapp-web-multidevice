@@ -105,7 +105,7 @@ func withDevices(t *testing.T, stub *devStub) *env {
 	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(e.d)})
 	app.Use(e.d.Auth.Middleware())
 	Mount(app, e.d)
-	app.Use(e.d.Auth.RequireAPI())
+	app.Use(e.d.Auth.APIKey(), e.d.Auth.RequireAPI())
 	e.app = app
 	return e
 }

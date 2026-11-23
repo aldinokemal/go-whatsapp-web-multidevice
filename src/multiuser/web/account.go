@@ -117,8 +117,13 @@ func mountAccount(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		return d.render(c, fiber.StatusOK, "account.html", "Account", map[string]any{"Passkeys": passkeyViews(list), "Sessions": sessions})
+		keys, err := apiKeysData(c, d, u.ID)
+		if err != nil {
+			return err
+		}
+		return d.render(c, fiber.StatusOK, "account.html", "Account", map[string]any{"Passkeys": passkeyViews(list), "Sessions": sessions, "APIKeys": keys})
 	})
+	mountAPIKeys(app, d)
 
 	app.Post("/auth/passkey/register/begin", page, csrf, func(c fiber.Ctx) error {
 		u, _ := userOf(c)

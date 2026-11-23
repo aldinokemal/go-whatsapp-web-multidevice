@@ -1,0 +1,88 @@
+{{/* api_keys.html: the API keys card on the Account page, its New key
+     dialog and the dialog's htmx fragment. A key is shown once, in the
+     create response; the list only ever shows its name and first characters.
+     The New key button is hidden at the limit (V1). */}}
+{{define "api_keys_card"}}{{$k := .Data.APIKeys}}
+  <section class="card" aria-labelledby="keys-title">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title" id="keys-title">API keys</h2>
+        <p class="card-sub list-count">{{if $k.AtLimit}}{{len $k.Keys}} of {{$k.Max}} keys{{else}}{{len $k.Keys}} key{{if ne (len $k.Keys) 1}}s{{end}}{{end}}</p>
+      </div>
+      {{if not $k.AtLimit}}<button type="button" class="btn btn-secondary" data-open-dialog="new-key">{{icon "plus"}}<span>New key</span></button>{{end}}
+    </div>
+    {{if $k.Keys}}
+    <ul class="rows rows-flush" role="list">
+      {{range $k.Keys}}
+      <li class="row row-compact">
+        <span class="row-icon" aria-hidden="true">{{icon "key"}}</span>
+        <div class="row-main">
+          <p class="row-title">{{.Name}}</p>
+          <p class="row-sub"><span class="row-sub-part row-code">{{.Shown}}</span><span class="row-sub-part">Added {{.Added}}</span><span class="row-sub-part">{{if eq .LastUsed "never"}}Not used yet{{else}}Last used {{.LastUsed}}{{end}}</span></p>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="revoke-key"
+                  data-dialog-action="/account/api-keys/{{.ID}}/revoke" data-dialog-subject="{{.Name}} ({{.Shown}})">Revoke</button>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <div class="empty empty-inset">
+      <span class="empty-art empty-art-sm" aria-hidden="true">{{icon "key"}}</span>
+      <p class="empty-text">No API keys. Make one to use the API or connect Claude Code.</p>
+    </div>
+    {{end}}
+  </section>
+
+  {{template "confirm" (dict "ID" "revoke-key" "Action" "" "CSRF" .CSRF "Icon" "key"
+       "Title" "Revoke this key?" "Body" "Anything using it will stop working at once." "Button" "Revoke")}}
+  {{if not $k.AtLimit}}
+  <dialog id="new-key" class="dialog dialog-sheet" aria-labelledby="new-key-title">
+    <div class="dialog-panel">
+      <div class="dialog-head">
+        <h2 class="dialog-title" id="new-key-title">New API key</h2>
+        <button type="button" class="icon-btn icon-btn-bare" data-close-dialog aria-label="Close">{{icon "x"}}</button>
+      </div>
+      <div id="new-key-body" class="link-body">{{template "new_key_form" (dict "CSRF" .CSRF)}}</div>
+    </div>
+  </dialog>
+  {{end}}
+{{end}}
+
+{{/* new_key.html is what POST /account/api-keys returns into #new-key-body:
+     the form again with its error, or the new key, shown this once. Closing
+     the dialog after a success reloads the page, which lists the new key. */}}
+{{define "new_key.html"}}
+{{if .Data.Key}}
+<div class="new-key-shown" data-reload-on-close>
+  <p class="added-line">{{icon "circle-check-big"}}<span>{{.Data.Name}} is ready.</span></p>
+  <p class="dialog-text">Copy your key now. You won't see it again.</p>
+  {{template "copy_link" (dict "ID" "new-key-value" "Link" .Data.Key "Label" "API key")}}
+  <div class="field">
+    <p class="label">Try it</p>
+    <pre class="code-block"><code>curl -H "Authorization: Bearer {{.Data.Key}}" {{.PublicURL}}/devices</code></pre>
+  </div>
+  <div class="dialog-foot"><button type="button" class="btn btn-secondary" data-close-dialog>Done</button></div>
+</div>
+{{else}}
+{{template "new_key_form" (dict "CSRF" .CSRF "Name" .Data.Name "Error" .Data.Error)}}
+{{end}}
+{{end}}
+
+{{define "new_key_form"}}
+<form class="new-key-form" hx-post="/account/api-keys" hx-target="#new-key-body" hx-swap="innerHTML"
+      hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}' hx-disabled-elt="find button[type=submit]">
+  <p class="dialog-text">A key can do everything you can do with your numbers. Keep it secret.</p>
+  <div class="field">
+    <label class="label" for="new-key-name">Name</label>
+    <input class="input" id="new-key-name" type="text" name="name" maxlength="60" autocomplete="off"
+           placeholder="Laptop script" value="{{.Name}}" required{{if .Error}} aria-invalid="true" aria-describedby="new-key-error"{{end}}>
+  </div>
+  {{if .Error}}<p class="form-error" id="new-key-error" role="alert">{{.Error}}</p>{{end}}
+  <div class="dialog-foot">
+    <button type="button" class="btn btn-secondary" data-close-dialog>Cancel</button>
+    <button type="submit" class="btn btn-primary">Make key</button>
+  </div>
+</form>
+{{end}}

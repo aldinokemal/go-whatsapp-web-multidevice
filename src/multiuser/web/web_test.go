@@ -38,7 +38,7 @@ func newEnv(t *testing.T) *env {
 	app := fiber.New(fiber.Config{ErrorHandler: ErrorHandler(d)})
 	app.Use(am.Middleware())
 	Mount(app, d)
-	app.Use(am.RequireAPI()) // what cmd/rest.go installs after Mount
+	app.Use(am.APIKey(), am.RequireAPI()) // what the runtime installs after Mount
 	return &env{app: app, st: st, d: d}
 }
 

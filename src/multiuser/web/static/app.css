@@ -594,6 +594,12 @@ main:focus { outline: none; }
 .input:hover { border-color: var(--ink-3); }
 .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 28%, transparent); }
 .input-mono { font-family: var(--mono); font-size: var(--text-sm); }
+.row-code { font-family: var(--mono); font-size: var(--text-xs); }
+.code-block {
+  font-family: var(--mono); font-size: var(--text-xs); color: var(--ink-2);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: var(--s-3); white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;
+}
 .select-wrap { position: relative; }
 .select-wrap select { appearance: none; -webkit-appearance: none; padding-right: var(--s-10); cursor: pointer; }
 .select-wrap .icon { position: absolute; right: var(--s-3); top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--ink-3); pointer-events: none; }
@@ -765,12 +771,14 @@ main:focus { outline: none; }
 }
 
 /* add user */
-.add-user-form { display: flex; flex-direction: column; gap: var(--s-4); }
+.add-user-form, .new-key-form { display: flex; flex-direction: column; gap: var(--s-4); }
+.new-key-form > .dialog-text, .new-key-shown > .dialog-text { margin-top: 0; }
+.new-key-form > .dialog-foot,
 .add-user-form > .dialog-foot, [data-reload-on-close] > .dialog-foot { margin: var(--s-2) calc(-1 * var(--s-6)) calc(-1 * var(--s-6)); }
 [data-reload-on-close] { display: flex; flex-direction: column; gap: var(--s-4); }
 .added-line { display: flex; align-items: center; gap: var(--s-2); font-weight: var(--weight-semibold); color: var(--ok-ink); }
 @media (max-width: 600px) {
-  .add-user-form > .dialog-foot, [data-reload-on-close] > .dialog-foot { margin: var(--s-2) calc(-1 * var(--s-4)) calc(-1 * max(var(--s-5), env(safe-area-inset-bottom))); }
+  .new-key-form > .dialog-foot, .add-user-form > .dialog-foot, [data-reload-on-close] > .dialog-foot { margin: var(--s-2) calc(-1 * var(--s-4)) calc(-1 * max(var(--s-5), env(safe-area-inset-bottom))); }
 }
 
 /* sign-in link copy */
