@@ -19,7 +19,7 @@
 - Everything in the earlier phases' Global Constraints still holds.
 - **Never create an account under a LID** (phase 1 Review Focus 2) and never put a LID on the waitlist.
 - **The waitlist is not an account.** A waitlisted number cannot sign in, has no session, and is not counted against capacity.
-- **Outbound WhatsApp from the service number stays rare and human-paced.** The service number is an unofficial client; bulk sends risk a WhatsApp ban that would end sign-in for everyone. "Let in" sends one message per click; there is no "let everyone in" button; at most 20 admit messages per hour server-wide (refused with a clear admin message beyond that).
+- **"Let in" replies inside a conversation the person started.** Decided by Aryeh, 23 Nov 2026: a waitlisted person has already messaged the service number asking for a link, so admitting them is a reply, not a cold outbound message, and carries no ban risk. There is no hourly admit cap. "Let in" stays one message per person per click; a "let everyone in" bulk action is still out of scope. The reply goes to the chat the person opened, never to a number typed by an admin.
 - **Capacity numbers come from one setting each:** `WTF_MAX_PHONES` (server-wide linked numbers; `0` = no cap, refused at load when `WTF_SIGNUP_OPEN=true`) and `WTF_DEFAULT_MAX_DEVICES` (per new user; default `2`, today's column default). Admins can change one user's limit.
 - **Every list** answers `{total, items}` with `total` the number of matches, 50 rows a page, filter, sort and page in SQL, with the filters kept across pages (house rule T3). Sort keys are an allowlist.
 - Migrations: accounts-store migrations are appended in Task 0 only.
