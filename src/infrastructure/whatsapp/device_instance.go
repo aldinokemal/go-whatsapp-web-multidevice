@@ -185,6 +185,7 @@ func (d *DeviceInstance) refreshIdentityLocked() {
 		d.jid = d.client.Store.ID.ToNonAD().String()
 		d.adJID = d.client.Store.ID.String()
 		d.displayName = d.client.Store.PushName
+		d.phoneNumber = d.client.Store.ID.User
 	}
 }
 
