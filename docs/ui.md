@@ -56,7 +56,8 @@ one `<select>` below 600px (house rule B4).
 
 - Above 960px: a 248px sidebar (brand, nav with icons, user and Sign out at the
   bottom). The panel button folds it to a 72px icon rail with tooltips; the
-  choice is remembered.
+  choice is remembered. The width snaps between the two, never animates (an
+  in-between width wrapped every label), and a menu label never wraps.
 - 960px and below: a sticky top bar (menu button, brand) and a slide-over drawer
   with a dimmed backdrop. Esc, the backdrop, the close button or choosing a link
   closes it; focus moves in on open and back on close.
@@ -91,6 +92,13 @@ one `<select>` below 600px (house rule B4).
 | `consent.html` (`.consent-facts`, `.consent-actions`, `data-no-disable`) | The OAuth consent card. Its form never disables a submitter (the decision value would be dropped); its CSP widens `form-action` to the validated redirect origin only (`web.RenderStandalone`). |
 | `.nudge` (`data-nudge`, `data-dismiss`) | A dismissible suggestion card (add a passkey); dismissal is remembered per browser. |
 | `.row-flash` | In-row feedback (Reconnecting…, Reconnected., Couldn't reconnect). |
+| `confirm` with `Items`, `Typed`/`TypedName`, `Busy`, `HX`, `Primary` | `Items` lists plainly what goes; `Typed` asks for typed confirmation (Delete account: the number or DELETE) and posts with htmx, an error coming back as the form (`confirm_form`); `Busy` is the button's words while it runs; `HX` posts into the opener's `data-dialog-target` row and closes on success; `Primary` is a confirmation that is not destructive (Let in). A danger button outside a dialog only ever opens one (shape test). |
+| `{{template "nav_switcher" (dict "Label" … "ID" … "Items" []switchItem)}}` | An either/or choice that navigates (Waiting / Declined, All / Active / Disabled): links on a wide screen, one select on a phone. |
+| `{{template "pager" pager}}` and `sort_header` | Previous / Next with "51–100 of 120", filters kept; a sortable column header (ascending, then descending, `aria-sort`). |
+| `.list-tools` > `.list-search` (`data-typeahead`) | A search that types ahead: app.js waits 300ms, from two digits; the form's `hx-sync` drops a stale request; no Apply button. |
+| `.nav-count` | A count beside a menu entry (people waiting); a dot on the rail. |
+| `stat` with `Href`, `Warn`, `Note` | A tile that opens the list it counts (the whole tile is the link), and one near its limit. |
+| `.wl-table` rows (`waitlist_row`) | Admin › Waitlist: position, number, joined, status; after an action the row says what happened. |
 
 Phone numbers are shown with the `{{phone}}` template func: `+`, country code,
 then digit groups (`+27 82 555 0100`); inputs and links keep the raw value.
@@ -129,7 +137,8 @@ It is skipped unless `WTF_PREVIEW_DIR` is set.
 cd src
 WTF_PREVIEW_DIR=../.preview/site go test ./multiuser/web/ -run TestPreviewSite -count=1
 node multiuser/web/preview/shoot.js ../.preview/site ../.preview/shots
-# options: --viewports phone,tablet,desktop  --schemes light,dark  --only home,signin
+# options: --viewports phone,tablet,desktop,laptop,hd  --schemes light,dark  --only home,signin
+# (laptop is 1280x800 and hd 1366x768, both with a mouse: the full sidebar)
 # a shot may also list "click" selectors (a kebab, then an item) and "viewportOnly".
 ```
 
