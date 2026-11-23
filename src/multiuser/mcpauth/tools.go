@@ -16,6 +16,7 @@ type myDevice struct {
 	DeviceID string `json:"device_id"`
 	Phone    string `json:"phone,omitempty"`
 	Name     string `json:"name,omitempty"`
+	Label    string `json:"label,omitempty"` // the owner's own name for it
 	State    string `json:"state"`
 }
 
@@ -24,7 +25,7 @@ type myDevice struct {
 func Tools(devices domainDevice.IDeviceUsecase) func(s *server.MCPServer) {
 	return func(s *server.MCPServer) {
 		tool := mcpg.NewTool(MyDevicesTool,
-			mcpg.WithDescription("Lists the WhatsApp numbers linked to your account: each one's device_id, phone number, WhatsApp name and state "+
+			mcpg.WithDescription("Lists the WhatsApp numbers linked to your account: each one's device_id, phone number, WhatsApp name, the label you gave it, and its state "+
 				"(logged_in, disconnected or another state). When you have more than one number, pass the chosen device_id "+
 				"as the device_id argument of the other WhatsApp tools; with exactly one, they use it by default."),
 			mcpg.WithTitleAnnotation("My WhatsApp numbers"),
@@ -40,7 +41,7 @@ func Tools(devices domainDevice.IDeviceUsecase) func(s *server.MCPServer) {
 			}
 			items := make([]myDevice, 0, len(list))
 			for _, d := range list {
-				items = append(items, myDevice{DeviceID: d.ID, Phone: d.PhoneNumber, Name: d.DisplayName, State: string(d.State)})
+				items = append(items, myDevice{DeviceID: d.ID, Phone: d.PhoneNumber, Name: d.DisplayName, Label: d.Label, State: string(d.State)})
 			}
 			structured := map[string]any{"total": len(items), "items": items}
 			return mcpg.NewToolResultStructured(structured, fmt.Sprintf("%d WhatsApp number(s) linked", len(items))), nil

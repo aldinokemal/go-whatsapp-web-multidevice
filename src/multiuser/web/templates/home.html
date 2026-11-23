@@ -34,7 +34,7 @@
        "Title" (or (and (eq (index $.Data.Numbers .ID).State "signed_out") "Remove this number?") "Remove this unfinished link?") "Body" "This frees the slot. You can link a number again any time." "Button" "Remove")}}
   {{else}}
   {{template "confirm" (dict "ID" (printf "remove-%s" .ID) "Action" (printf "/ui/devices/%s/unlink" .ID) "CSRF" $.CSRF "Icon" "unlink"
-       "Title" (printf "Unlink %s?" (or .DisplayName (phone .PhoneNumber)))
+       "Title" (printf "Unlink %s?" (or .Label .DisplayName (phone .PhoneNumber)))
        "Body" (printf "%sTo link this number again, scan a new QR code or use a pairing code." (or (and (eq .ID $.Data.ServiceID) "This is the sign-in number. Nobody will be able to sign in by WhatsApp. ") ""))
        "Button" "Unlink")}}
   {{end}}
@@ -67,7 +67,7 @@
      linked" is a connected number created in the last ten minutes. While a
      reconnect settles (Checking) the row re-checks itself every 3 seconds. */}}
 {{define "device_row"}}{{$d := .D}}
-<li class="row" id="row-{{$d.ID}}"{{if .Checking}} hx-get="/ui/devices/{{$d.ID}}/row?n={{.Checking}}" hx-trigger="load delay:3s" hx-swap="outerHTML"{{end}}>
+<li class="row" id="row-{{$d.ID}}"{{if .OOB}} hx-swap-oob="true"{{end}}{{if .Checking}} hx-get="/ui/devices/{{$d.ID}}/row?n={{.Checking}}" hx-trigger="load delay:3s" hx-swap="outerHTML"{{end}}>
   {{if and (eq $d.PhoneNumber "") (or (eq .N.State "signed_out") (eq .N.State "refused"))}}
   {{template "number_state" (dict "N" .N "Whose" "your")}}
   {{else if eq $d.PhoneNumber ""}}
@@ -80,8 +80,9 @@
   {{else}}
   <span class="row-icon {{if eq $d.State "logged_in"}}row-icon-ok{{else}}row-icon-warn{{end}}" aria-hidden="true">{{icon "smartphone"}}</span>
   <div class="row-main">
-    <p class="row-title">{{if $d.DisplayName}}{{$d.DisplayName}}{{else}}{{phone $d.PhoneNumber}}{{end}}{{if and .ServiceID (eq $d.ID .ServiceID)}} <span class="tag">Sign-in number</span>{{end}}</p>
-    <p class="row-sub">{{if $d.DisplayName}}<span class="row-sub-part">{{phone $d.PhoneNumber}}</span>{{end}}{{if and (eq $d.State "logged_in") (recent $d.CreatedAt)}}<span class="row-sub-part row-sub-new">Just linked</span>{{else if not $d.CreatedAt.IsZero}}<span class="row-sub-part">Added {{since $d.CreatedAt}}</span>{{end}}</p>
+    {{$title := or $d.Label $d.DisplayName}}
+    <p class="row-title">{{if $title}}{{$title}}{{else}}{{phone $d.PhoneNumber}}{{end}}{{if and .ServiceID (eq $d.ID .ServiceID)}} <span class="tag">Sign-in number</span>{{end}}</p>
+    <p class="row-sub">{{if $title}}<span class="row-sub-part">{{phone $d.PhoneNumber}}</span>{{end}}{{if and (eq $d.State "logged_in") (recent $d.CreatedAt)}}<span class="row-sub-part row-sub-new">Just linked</span>{{else if not $d.CreatedAt.IsZero}}<span class="row-sub-part">Added {{since $d.CreatedAt}}</span>{{end}}</p>
     {{if .Flash}}<p class="row-flash row-flash-ok" role="status">{{icon "check"}}<span>{{.Flash}}</span></p>{{end}}
     {{if .Checking}}<p class="row-flash" role="status"><span class="spinner" aria-hidden="true"></span><span>Reconnecting…</span></p>{{end}}
     {{if .Failed}}<p class="row-flash row-flash-error" role="alert">{{icon "circle-alert"}}<span>Couldn't reconnect — link it again.</span></p>{{end}}
@@ -94,6 +95,25 @@
             hx-get="/ui/devices/{{$d.ID}}/link" hx-target="#link-dialog-body" hx-swap="innerHTML">{{icon "link-2"}}<span>{{if eq .N.State "not_linked"}}Finish linking{{else}}Link again{{end}}</span></button>
     <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="remove-{{$d.ID}}">Remove</button>
     {{else}}
+    {{/* House rule B1: at most three controls. The kebab sits left of the
+         one visible button (Reconnect, Link again, or Rename when the number
+         is connected) and holds the rest, Unlink last in red. */}}
+    {{$renameBtn := and (eq $d.State "logged_in") (not .Failed)}}
+    {{template "menu_start" "More actions"}}
+      {{if not $renameBtn}}{{template "rename_item" $d}}{{end}}
+      {{if eq $d.State "logged_in"}}
+      <button type="button" class="menu-item" role="menuitem" data-open-dialog="link-dialog" data-dialog-title="Webhook"
+              hx-get="/ui/devices/{{$d.ID}}/webhook" hx-target="#link-dialog-body" hx-swap="innerHTML">{{icon "webhook"}}<span>Webhook</span></button>
+      {{end}}
+      {{if and .IsAdmin (not .ServiceID) (eq $d.State "logged_in")}}
+      <form method="post" action="/admin/settings/service-number" class="inline-form">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="device_id" value="{{$d.ID}}">
+        <button type="submit" class="menu-item" role="menuitem">{{icon "log-in"}}<span>Use as sign-in number</span></button>
+      </form>
+      {{end}}
+      <button type="button" class="menu-item menu-item-danger" role="menuitem" data-open-dialog="remove-{{$d.ID}}">{{icon "unlink"}}<span>Unlink</span></button>
+    {{template "menu_end"}}
     {{if .Failed}}
     <button type="button" class="btn btn-primary btn-sm" data-open-dialog="link-dialog" data-dialog-title="Link WhatsApp"
             hx-get="/ui/devices/{{$d.ID}}/link" hx-target="#link-dialog-body" hx-swap="innerHTML">{{icon "link-2"}}<span>Link again</span></button>
@@ -104,20 +124,40 @@
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <button type="submit" class="btn btn-secondary btn-sm">{{icon "refresh-cw"}}<span>Reconnect</span></button>
     </form>
+    {{else if $renameBtn}}
+    <button type="button" class="btn btn-secondary btn-sm" data-open-dialog="link-dialog" data-dialog-title="Rename"
+            hx-get="/ui/devices/{{$d.ID}}/label" hx-target="#link-dialog-body" hx-swap="innerHTML">{{icon "pencil"}}<span>Rename</span></button>
     {{end}}
-    {{if and .IsAdmin (not .ServiceID) (eq $d.State "logged_in")}}
-    <form method="post" action="/admin/settings/service-number" class="inline-form">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <input type="hidden" name="device_id" value="{{$d.ID}}">
-      <button type="submit" class="btn btn-secondary btn-sm">{{icon "log-in"}}<span>Use as sign-in number</span></button>
-    </form>
-    {{end}}
-    {{if eq $d.State "logged_in"}}
-    <button type="button" class="btn btn-secondary btn-sm" data-open-dialog="link-dialog" data-dialog-title="Webhook"
-            hx-get="/ui/devices/{{$d.ID}}/webhook" hx-target="#link-dialog-body" hx-swap="innerHTML">{{icon "webhook"}}<span>Webhook</span></button>
-    {{end}}
-    <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="remove-{{$d.ID}}">Unlink</button>
     {{end}}
   </div>
 </li>
 {{end}}
+
+
+{{define "rename_item"}}<button type="button" class="menu-item" role="menuitem" data-open-dialog="link-dialog" data-dialog-title="Rename"
+        hx-get="/ui/devices/{{.ID}}/label" hx-target="#link-dialog-body" hx-swap="innerHTML">{{icon "pencil"}}<span>Rename</span></button>{{end}}
+
+{{/* rename_device.html is the Rename form, swapped into the shared sheet
+     (#link-dialog-body) by GET and, with its error, by POST
+     /ui/devices/:id/label. An empty name, or Remove name, clears it. */}}
+{{define "rename_device.html"}}
+<form class="webhook-form" hx-post="/ui/devices/{{.Data.ID}}/label" hx-target="#link-dialog-body" hx-swap="innerHTML"
+      hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}' hx-disabled-elt="find button">
+  <p class="dialog-text">{{if .Data.Phone}}For {{phone .Data.Phone}}. {{end}}Only you see this name.</p>
+  <div class="field">
+    <label class="label" for="device-label">Name</label>
+    <input class="input" id="device-label" name="label" type="text" maxlength="80" autocomplete="off"
+           placeholder="e.g. Work phone" value="{{.Data.Label}}"{{if .Data.Error}} aria-invalid="true" aria-describedby="device-label-error"{{end}} autofocus>
+  </div>
+  {{if .Data.Error}}<p class="form-error" id="device-label-error" role="alert">{{.Data.Error}}</p>{{end}}
+  <div class="dialog-foot">
+    {{if .Data.HasLabel}}<button type="submit" name="clear" value="1" class="btn btn-ghost" formnovalidate>Remove name</button>{{end}}
+    <button type="button" class="btn btn-secondary" data-close-dialog>Cancel</button>
+    <button type="submit" class="btn btn-primary">Save</button>
+  </div>
+</form>
+{{end}}
+
+{{/* rename_done.html closes the sheet and swaps the renamed row in place. */}}
+{{define "rename_done.html"}}<p data-close-dialog-now hidden></p>
+{{template "device_row" (dict "D" .Data.D "N" .Data.N "CSRF" .CSRF "IsAdmin" .Data.IsAdmin "ServiceID" .Data.ServiceID "OOB" true)}}{{end}}

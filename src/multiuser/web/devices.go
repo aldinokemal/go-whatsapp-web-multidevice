@@ -221,9 +221,18 @@ func addServiceState(c fiber.Ctx, d Deps, data map[string]any) error {
 // renderRow draws one device row for htmx. checks < reconnectChecks while the
 // device is not yet connected keeps it checking; at the limit it gives up.
 func renderRow(c fiber.Ctx, d Deps, id string, checks int) error {
-	list, err := d.Devices.ListDevices(c.Context())
+	data, err := deviceRowData(c, d, id, checks)
 	if err != nil {
 		return err
+	}
+	return d.render(c, fiber.StatusOK, "device_row.html", "", data)
+}
+
+// deviceRowData is what one device row shows, for renderRow and Rename.
+func deviceRowData(c fiber.Ctx, d Deps, id string, checks int) (map[string]any, error) {
+	list, err := d.Devices.ListDevices(c.Context())
+	if err != nil {
+		return nil, err
 	}
 	var dev *domainDevice.Device
 	for i := range list {
@@ -232,13 +241,13 @@ func renderRow(c fiber.Ctx, d Deps, id string, checks int) error {
 		}
 	}
 	if dev == nil {
-		return fiber.ErrNotFound
+		return nil, fiber.ErrNotFound
 	}
 	data := map[string]any{"D": *dev, "ServiceID": ""}
 	if u, ok := userOf(c); ok {
 		slots, err := d.Store.SlotsOf(c.Context(), u.ID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		data["N"] = numberMap([]domainDevice.Device{*dev}, slots)[dev.ID]
 	}
@@ -252,7 +261,7 @@ func renderRow(c fiber.Ctx, d Deps, id string, checks int) error {
 		data["Checking"] = checks + 1
 	}
 	if err := addServiceState(c, d, data); err != nil {
-		return err
+		return nil, err
 	}
-	return d.render(c, fiber.StatusOK, "device_row.html", "", data)
+	return data, nil
 }

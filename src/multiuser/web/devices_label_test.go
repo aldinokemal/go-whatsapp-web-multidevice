@@ -70,8 +70,7 @@ func TestLabelRoutesNameMyNumber(t *testing.T) {
 	require.Equal(t, "Work phone", labels["d_mine"])
 
 	resp = postLabelPage(t, e, ck, csrf, "d_mine", "Home", true)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Equal(t, "true", resp.Header.Get("HX-Refresh"))
+	require.Equal(t, http.StatusOK, resp.StatusCode, "htmx gets the row back, swapped in place")
 
 	key, _, err := e.st.CreateAPIKey(context.Background(), me, "script")
 	require.NoError(t, err)
@@ -122,7 +121,7 @@ func TestLabelValidationErrors(t *testing.T) {
 	key, _, err := e.st.CreateAPIKey(context.Background(), me, "script")
 	require.NoError(t, err)
 
-	resp := postLabelPage(t, e, ck, csrf, "d_mine", strings.Repeat("a", 41), true)
+	resp := postLabelPage(t, e, ck, csrf, "d_mine", strings.Repeat("a", 41), false)
 	require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 	resp, body := putLabelAPI(t, e, key, "d_mine", "‮enohp")
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)

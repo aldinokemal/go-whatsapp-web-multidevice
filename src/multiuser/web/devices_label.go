@@ -9,31 +9,64 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// MountDeviceLabelPage registers POST /ui/devices/:id/label (session, CSRF):
-// form field "label"; "" removes the name. Task 8 registers it with the
-// pages. On success an htmx request gets HX-Refresh (Task 7 swaps the row
-// instead) and a plain form post is sent home. A bad name answers 422 with
-// the reason as text (Task 7 draws it in the dialog). Another user's number
-// is 404, like one that does not exist.
+// MountDeviceLabelPage registers the Rename dialog (session, CSRF):
+// GET /ui/devices/:id/label draws the form into the shared sheet and POST
+// saves form field "label" ("" or clear=1 removes the name). For htmx a
+// refused name comes back as the form with its reason and what was typed; a
+// saved one closes the sheet and swaps the row in place. A plain form post is
+// sent home, or answered 422 with the reason. Another user's number is 404,
+// like one that does not exist.
 func MountDeviceLabelPage(app *fiber.App, d Deps) {
-	app.Post("/ui/devices/:id/label", d.Auth.RequirePage(), d.Auth.VerifyCSRF(), func(c fiber.Ctx) error {
-		// Clone: fiber form values alias its request buffer, which is reused.
-		_, err := owners.SetDeviceLabel(c.Context(), d.Store, c.Params("id"), strings.Clone(c.FormValue("label")))
+	app.Get("/ui/devices/:id/label", d.Auth.RequirePage(), func(c fiber.Ctx) error {
+		dev, err := d.Devices.GetDevice(c.Context(), c.Params("id"))
 		if errors.Is(err, pkgError.ErrDeviceNotFound) {
 			return fiber.ErrNotFound
-		}
-		var v pkgError.ValidationError
-		if errors.As(err, &v) {
-			return c.Status(fiber.StatusUnprocessableEntity).SendString(labelErrorText(v))
 		}
 		if err != nil {
 			return err
 		}
-		if c.Get("HX-Request") == "true" {
-			c.Set("HX-Refresh", "true")
-			return c.SendStatus(fiber.StatusOK)
+		return renderRename(c, d, dev.ID, dev.PhoneNumber, dev.Label, dev.Label != "", "")
+	})
+	app.Post("/ui/devices/:id/label", d.Auth.RequirePage(), d.Auth.VerifyCSRF(), func(c fiber.Ctx) error {
+		id := c.Params("id")
+		// Clone: fiber form values alias its request buffer, which is reused.
+		typed := strings.Clone(c.FormValue("label"))
+		if c.FormValue("clear") == "1" {
+			typed = ""
 		}
-		return c.Redirect().Status(fiber.StatusSeeOther).To("/")
+		_, err := owners.SetDeviceLabel(c.Context(), d.Store, id, typed)
+		if errors.Is(err, pkgError.ErrDeviceNotFound) {
+			return fiber.ErrNotFound
+		}
+		htmx := c.Get("HX-Request") == "true"
+		var v pkgError.ValidationError
+		if errors.As(err, &v) {
+			if !htmx {
+				return c.Status(fiber.StatusUnprocessableEntity).SendString(labelErrorText(v))
+			}
+			dev, gerr := d.Devices.GetDevice(c.Context(), id)
+			if gerr != nil {
+				return gerr
+			}
+			return renderRename(c, d, id, dev.PhoneNumber, typed, dev.Label != "", labelErrorText(v))
+		}
+		if err != nil {
+			return err
+		}
+		if !htmx {
+			return c.Redirect().Status(fiber.StatusSeeOther).To("/")
+		}
+		data, err := deviceRowData(c, d, id, 0)
+		if err != nil {
+			return err
+		}
+		return d.render(c, fiber.StatusOK, "rename_done.html", "", data)
+	})
+}
+
+func renderRename(c fiber.Ctx, d Deps, id, phone, label string, hasLabel bool, errMsg string) error {
+	return d.render(c, fiber.StatusOK, "rename_device.html", "", map[string]any{
+		"ID": id, "Phone": phone, "Label": label, "HasLabel": hasLabel, "Error": errMsg,
 	})
 }
 

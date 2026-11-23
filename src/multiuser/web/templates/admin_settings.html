@@ -26,7 +26,7 @@
           <select id="service-device" name="device_id" class="input field-select">
             {{if not .Data.ServiceDeviceID}}<option value="" disabled selected>Choose a number</option>{{end}}
             {{range .Data.Devices}}
-            <option value="{{.ID}}" {{if eq .ID $.Data.ServiceDeviceID}}selected{{end}}>{{if .DisplayName}}{{.DisplayName}} ({{phone .PhoneNumber}}){{else}}{{phone .PhoneNumber}}{{end}} · {{if eq .State "logged_in"}}Connected{{else}}Not connected{{end}}</option>
+            <option value="{{.ID}}" {{if eq .ID $.Data.ServiceDeviceID}}selected{{end}}>{{$n := or .Label .DisplayName}}{{if $n}}{{$n}} ({{phone .PhoneNumber}}){{else}}{{phone .PhoneNumber}}{{end}} · {{if eq .State "logged_in"}}Connected{{else}}Not connected{{end}}</option>
             {{end}}
           </select>
           {{icon "chevron-down"}}

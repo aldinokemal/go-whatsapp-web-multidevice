@@ -255,6 +255,8 @@
     // From a kebab menu, focus returns to the menu's trigger (the item is hidden).
     var menu = opener && opener.closest && opener.closest("[data-menu]");
     dialog._opener = (menu && menu.querySelector("[data-menu-trigger]")) || opener || document.activeElement;
+    var row = opener && opener.closest && opener.closest("[id^='row-']");
+    dialog._openerRow = row ? row.id : "";
     if (menu) closeMenus();
     if (!dialog.open) dialog.showModal();
   }
@@ -371,10 +373,27 @@
     // Emptying the htmx-filled body stops its QR refresh and status polling.
     var body = dialog && dialog.querySelector && dialog.querySelector("#link-dialog-body");
     if (body) body.innerHTML = "";
-    if (dialog && dialog._opener && typeof dialog._opener.focus === "function" && document.contains(dialog._opener)) {
-      dialog._opener.focus();
+    var opener = dialog && dialog._opener;
+    // A row redrawn while its dialog was open (Rename) has a new opener:
+    // find it by the request it makes.
+    if (opener && !document.contains(opener) && opener.getAttribute && opener.getAttribute("hx-get")) {
+      opener = document.querySelector('[hx-get="' + opener.getAttribute("hx-get") + '"]');
+    }
+    if ((!opener || !document.contains(opener)) && dialog && dialog._openerRow) {
+      opener = document.querySelector("#" + dialog._openerRow + " [data-menu-trigger], #" + dialog._openerRow + " .btn");
+    }
+    if (opener && typeof opener.focus === "function" && document.contains(opener)) {
+      opener.focus();
     }
   }, true);
+
+  // A response that carries data-close-dialog-now (a saved Rename) closes
+  // the dialog it was swapped into; its row was swapped out of band.
+  document.addEventListener("htmx:afterSettle", function (event) {
+    var marker = event.target && event.target.querySelector && event.target.querySelector("[data-close-dialog-now]");
+    var host = marker && marker.closest("dialog");
+    if (host && host.open) host.close();
+  });
 
   // A press on the backdrop (the <dialog> element itself, outside its panel)
   // closes it; Esc and the buttons inside still work as well.
