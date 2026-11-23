@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"net/url"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -37,31 +36,13 @@ func mountAdmin(app *fiber.App, d Deps) {
 	// sign-ups are closed. Answers the htmx modal with either the form again
 	// (with the error and what was typed) or the new user's sign-in link.
 	app.Post("/admin/users", page, admin, csrf, func(c fiber.Ctx) error {
-		typed := c.FormValue("phone")
-		phone, err := store.NormalizePhone(typed)
-		if err != nil {
-			return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{
-				"Phone": typed, "Error": "Enter a full number with its country code, like +27 82 555 0100.",
-			})
+		caller, _ := userOf(c)
+		typed := strings.Clone(c.FormValue("phone"))
+		phone, link, err := d.AdminAddUser(c.Context(), caller, typed, c.IP())
+		var r *Refusal
+		if errors.As(err, &r) {
+			return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{"Phone": typed, "Error": r.Msg})
 		}
-		if _, err := d.Store.UserByPhone(c.Context(), phone); err == nil {
-			return d.render(c, fiber.StatusOK, "add_user.html", "", map[string]any{
-				"Phone": typed, "Error": "That number already has an account. Use Get sign-in link on its row instead.",
-			})
-		} else if !errors.Is(err, store.ErrNotFound) {
-			return err
-		}
-		var u *store.User
-		if d.DefaultMaxDevices > 0 {
-			u, err = d.Store.CreateUserWithLimit(c.Context(), phone, d.DefaultMaxDevices)
-		} else {
-			u, err = d.Store.CreateUser(c.Context(), phone)
-		}
-		if err != nil {
-			return err
-		}
-		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: u.ID, Action: "user_added", IP: c.IP()})
-		link, err := signinLinkFor(c, d, phone)
 		if err != nil {
 			return err
 		}
@@ -70,59 +51,32 @@ func mountAdmin(app *fiber.App, d Deps) {
 
 	app.Post("/admin/users/:id/status", page, admin, csrf, func(c fiber.Ctx) error {
 		caller, _ := userOf(c)
-		targetID := c.Params("id")
-		status := c.FormValue("status")
-		if status != store.StatusActive && status != store.StatusDisabled {
-			return renderUsers(c, d, "That's not a status we know.")
+		// The confirm dialog's "Also unlink their numbers" box (on by
+		// default). An unticked box sends nothing, which keeps them.
+		err := d.AdminSetStatus(c.Context(), caller, c.Params("id"), c.FormValue("status"), c.FormValue("unlink") == "on", c.IP())
+		var r *Refusal
+		if errors.As(err, &r) {
+			return renderUsers(c, d, r.Msg)
 		}
-		if status == store.StatusDisabled && targetID == caller.ID {
-			return renderUsers(c, d, "You can't disable your own account.")
+		if errors.Is(err, store.ErrNotFound) {
+			return fiber.ErrNotFound
 		}
-		if err := d.Store.SetUserStatus(c.Context(), targetID, status); err != nil {
-			if errors.Is(err, store.ErrDeleting) {
-				return renderUsers(c, d, "This account is being deleted.")
-			}
-			if errors.Is(err, store.ErrNotFound) {
-				return fiber.ErrNotFound
-			}
+		if err != nil {
 			return err
-		}
-		if status == store.StatusDisabled {
-			if err := revokeCredentials(c.Context(), d, targetID); err != nil {
-				return err
-			}
-			_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: targetID, ActorID: caller.ID, Action: "user_disabled", IP: c.IP()})
-			// The confirm dialog's "Also unlink their numbers" box (on by
-			// default). An unticked box sends nothing, which keeps them.
-			if c.FormValue("unlink") == "on" {
-				target, err := d.Store.UserByID(c.Context(), targetID)
-				if err != nil {
-					return err
-				}
-				if _, err := owners.RemoveAllDevicesAsAdmin(c.Context(), d.Devices, d.Store, caller, target); err != nil {
-					return err
-				}
-			}
-		} else {
-			_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: targetID, ActorID: caller.ID, Action: "user_enabled", IP: c.IP()})
 		}
 		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users")
 	})
 
 	app.Post("/admin/users/:id/signin-link", page, admin, csrf, func(c fiber.Ctx) error {
-		target, err := d.Store.UserByID(c.Context(), c.Params("id"))
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return fiber.ErrNotFound
-			}
-			return err
+		caller, _ := userOf(c)
+		link, err := d.AdminSigninLink(c.Context(), caller, c.Params("id"))
+		var r *Refusal
+		if errors.As(err, &r) {
+			return d.render(c, fiber.StatusOK, "signin_link.html", "", map[string]any{"Error": r.Msg})
 		}
-		if target.Status != store.StatusActive {
-			return d.render(c, fiber.StatusOK, "signin_link.html", "", map[string]any{
-				"Error": "Enable this account first, then get a sign-in link.",
-			})
+		if errors.Is(err, store.ErrNotFound) {
+			return fiber.ErrNotFound
 		}
-		link, err := signinLinkFor(c, d, target.Phone)
 		if err != nil {
 			return err
 		}
@@ -135,25 +89,14 @@ func mountAdmin(app *fiber.App, d Deps) {
 
 	app.Post("/admin/settings/service-number", page, admin, csrf, func(c fiber.Ctx) error {
 		caller, _ := userOf(c)
-		deviceID := c.FormValue("device_id")
-		ids, err := d.Store.DevicesOf(c.Context(), caller.ID)
+		err := d.AdminSetSigninNumber(c.Context(), caller, c.FormValue("device_id"), c.IP())
+		var r *Refusal
+		if errors.As(err, &r) {
+			return renderSettings(c, d, r.Msg)
+		}
 		if err != nil {
 			return err
 		}
-		allowed := false
-		for _, id := range ids {
-			if id == deviceID {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return renderSettings(c, d, "Pick one of your own linked numbers.")
-		}
-		if err := d.Store.SetSetting(c.Context(), store.SettingServiceDeviceID, deviceID, caller.ID); err != nil {
-			return err
-		}
-		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: caller.ID, Action: "service_number_set", DeviceID: deviceID, IP: c.IP()})
 		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/settings")
 	})
 }
@@ -179,8 +122,8 @@ func revokeCredentials(ctx context.Context, d Deps, userID string) error {
 
 // signinLinkFor mints a one-time sign-in link for phone, the same link the
 // "Get sign-in link" button and the admin-link command hand out.
-func signinLinkFor(c fiber.Ctx, d Deps, phone string) (string, error) {
-	raw, err := d.Store.CreateLoginToken(c.Context(), phone, signinLinkTTL)
+func signinLinkFor(ctx context.Context, d Deps, phone string) (string, error) {
+	raw, err := d.Store.CreateLoginToken(ctx, phone, signinLinkTTL)
 	if err != nil {
 		return "", err
 	}
@@ -247,17 +190,23 @@ type usersQuery struct {
 }
 
 func parseUsersQuery(c fiber.Ctx) usersQuery {
-	q := usersQuery{Q: strings.TrimSpace(c.Query("q")), Page: 1}
-	if st := c.Query("status"); st == store.StatusActive || st == store.StatusDisabled {
-		q.Status = st
+	q := usersQuery{Q: strings.TrimSpace(c.Query("q")), Status: c.Query("status"), Sort: c.Query("sort"), Desc: c.Query("dir") == "desc"}
+	q.Page, _ = strconv.Atoi(c.Query("page"))
+	return q.clean()
+}
+
+// clean keeps only the statuses and sorts the list knows, and a page from 1.
+func (q usersQuery) clean() usersQuery {
+	if q.Status != store.StatusActive && q.Status != store.StatusDisabled {
+		q.Status = ""
 	}
-	switch c.Query("sort") {
+	switch q.Sort {
 	case "created", "last_login", "phone":
-		q.Sort = c.Query("sort")
-		q.Desc = c.Query("dir") == "desc"
+	default:
+		q.Sort, q.Desc = "", false
 	}
-	if n, err := strconv.Atoi(c.Query("page")); err == nil && n > 1 {
-		q.Page = n
+	if q.Page < 1 {
+		q.Page = 1
 	}
 	return q
 }
@@ -312,15 +261,24 @@ func (q usersQuery) header(label, key string) sortHeader {
 	return h
 }
 
-func usersPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error) {
-	q := parseUsersQuery(c)
-	total, users, err := d.Store.ListUsersPage(c.Context(), store.UsersQuery{Search: q.Q, Status: q.Status, Sort: q.Sort,
+// usersPage is one page of Users for caller, as rows.
+func usersPage(ctx context.Context, d Deps, q usersQuery, caller *store.User) (int, []store.User, []userRow, error) {
+	total, users, err := d.Store.ListUsersPage(ctx, store.UsersQuery{Search: q.Q, Status: q.Status, Sort: q.Sort,
 		Desc: q.Desc, Offset: (q.Page - 1) * listPageSize, Limit: listPageSize})
 	if err != nil {
-		return nil, err
+		return 0, nil, nil, err
 	}
+	rows, err := userRows(ctx, d, users, caller)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	return total, users, rows, nil
+}
+
+func usersPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error) {
+	q := parseUsersQuery(c)
 	caller, _ := userOf(c)
-	rows, err := userRows(c.Context(), d, users, caller)
+	total, _, rows, err := usersPage(c.Context(), d, q, caller)
 	if err != nil {
 		return nil, err
 	}
@@ -386,11 +344,33 @@ func diskUsage(dir string) int64 {
 
 const bytesPerMB = 1 << 20
 
-func settingsPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error) {
-	ctx := c.Context()
+// settingsView is what Settings shows, derived at request time.
+type settingsView struct {
+	Devices         []domainDevice.Device
+	ServiceDeviceID string
+	ServiceStatus   string
+	Capacity        capacity.Capacity
+	NearFull        bool
+	AllocMB, SysMB  uint64
+	Goroutines      int
+	DiskMB          int64
+}
+
+func (d Deps) capacityReader() CapacityReader {
+	if d.Capacity != nil {
+		return d.Capacity
+	}
+	return capacity.Service{Store: d.Store}
+}
+
+// nearFull: almost full from 90% of the cap; the tile warns (house rule T2:
+// derived here, never stored).
+func nearFull(snap capacity.Capacity) bool { return snap.Max > 0 && snap.Linked*10 >= snap.Max*9 }
+
+func settingsData(ctx context.Context, d Deps) (settingsView, error) {
 	devices, err := d.Devices.ListDevices(ctx)
 	if err != nil {
-		return nil, err
+		return settingsView{}, err
 	}
 	linked := make([]domainDevice.Device, 0, len(devices))
 	for _, dev := range devices {
@@ -400,31 +380,34 @@ func settingsPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error
 	}
 	serviceDeviceID, _, err := d.Store.Setting(ctx, store.SettingServiceDeviceID)
 	if err != nil {
-		return nil, err
+		return settingsView{}, err
 	}
-	var capReader CapacityReader = capacity.Service{Store: d.Store}
-	if d.Capacity != nil {
-		capReader = d.Capacity
+	snap, err := d.capacityReader().Snapshot(ctx)
+	if err != nil {
+		return settingsView{}, err
 	}
-	snap, err := capReader.Snapshot(ctx)
+	alloc, sys, goroutines := memStats()
+	return settingsView{Devices: linked, ServiceDeviceID: serviceDeviceID, ServiceStatus: serviceStatus(ctx, d, serviceDeviceID),
+		Capacity: snap, NearFull: nearFull(snap), AllocMB: alloc, SysMB: sys, Goroutines: goroutines,
+		DiskMB: diskUsage(d.StorageDir) / bytesPerMB}, nil
+}
+
+func settingsPageData(c fiber.Ctx, d Deps, errMsg string) (map[string]any, error) {
+	s, err := settingsData(c.Context(), d)
 	if err != nil {
 		return nil, err
 	}
-	var mem runtime.MemStats
-	runtime.ReadMemStats(&mem)
 	return map[string]any{
-		"Devices":         linked,
-		"ServiceDeviceID": serviceDeviceID,
-		"ServiceStatus":   serviceStatus(c, d, serviceDeviceID),
-		"Capacity":        snap,
-		// Almost full from 90% of the cap; the tile warns (house rule T2:
-		// derived here, never stored).
-		"NearFull":   snap.Max > 0 && snap.Linked*10 >= snap.Max*9,
-		"AllocMB":    mem.Alloc / bytesPerMB,
-		"SysMB":      mem.Sys / bytesPerMB,
-		"Goroutines": runtime.NumGoroutine(),
-		"DiskMB":     diskUsage(d.StorageDir) / bytesPerMB,
-		"Error":      errMsg,
+		"Devices":         s.Devices,
+		"ServiceDeviceID": s.ServiceDeviceID,
+		"ServiceStatus":   s.ServiceStatus,
+		"Capacity":        s.Capacity,
+		"NearFull":        s.NearFull,
+		"AllocMB":         s.AllocMB,
+		"SysMB":           s.SysMB,
+		"Goroutines":      s.Goroutines,
+		"DiskMB":          s.DiskMB,
+		"Error":           errMsg,
 	}, nil
 }
 
@@ -442,11 +425,11 @@ func renderSettings(c fiber.Ctx, d Deps, errMsg string) error {
 
 // serviceStatus says whether sign-in by WhatsApp works: "Not set", or the
 // saved number's live state ("Connected" / "Not connected").
-func serviceStatus(c fiber.Ctx, d Deps, id string) string {
+func serviceStatus(ctx context.Context, d Deps, id string) string {
 	switch {
 	case id == "":
 		return "Not set"
-	case d.ServicePhone != nil && d.ServicePhone(c.Context()) != "":
+	case d.ServicePhone != nil && d.ServicePhone(ctx) != "":
 		return "Connected"
 	default:
 		return "Not connected"

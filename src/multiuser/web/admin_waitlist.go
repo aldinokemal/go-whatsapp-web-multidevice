@@ -2,14 +2,12 @@ package web
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/capacity"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	"github.com/gofiber/fiber/v3"
-	"github.com/sirupsen/logrus"
 )
 
 // CapacityReader is how full the server is (capacity.Service).
@@ -55,15 +53,53 @@ func waitlistRows(items []store.WaitlistEntry, offset int, waiting, canAdmit boo
 
 // waitlistPhone reads the :digits path key: 8 to 15 digits, nothing else.
 func waitlistPhone(c fiber.Ctx) (string, error) {
-	digits := c.Params("digits")
-	if digits == "" || store.DigitsOnly(digits) != digits {
-		return "", fiber.ErrNotFound
-	}
-	phone, err := store.NormalizePhone("+" + digits)
-	if err != nil || store.DigitsOnly(phone) != digits {
+	phone, err := ParseWaitlistNumber(c.Params("digits"))
+	if err != nil {
 		return "", fiber.ErrNotFound
 	}
 	return phone, nil
+}
+
+// waitlistState is one page of the waitlist and the counts around it.
+type waitlistState struct {
+	Status                   string
+	Page, Offset             int
+	Total, Waiting, Declined int
+	Items                    []store.WaitlistEntry
+	Capacity                 *capacity.Capacity
+	Full                     bool
+}
+
+// loadWaitlist reads page pageNo (from 1) of Waiting, or of Declined when
+// status says so.
+func loadWaitlist(ctx context.Context, d Deps, status string, pageNo int) (waitlistState, error) {
+	w := waitlistState{Status: store.WaitlistWaiting, Page: pageNo}
+	if status == store.WaitlistDeclined {
+		w.Status = store.WaitlistDeclined
+	}
+	if w.Page < 1 {
+		w.Page = 1
+	}
+	w.Offset = (w.Page - 1) * listPageSize
+	var err error
+	if w.Total, w.Items, err = d.Store.WaitlistPage(ctx, w.Status, w.Offset, listPageSize); err != nil {
+		return w, err
+	}
+	if w.Waiting, err = d.Store.WaitlistCount(ctx, store.WaitlistWaiting); err != nil {
+		return w, err
+	}
+	if w.Declined, err = d.Store.WaitlistCount(ctx, store.WaitlistDeclined); err != nil {
+		return w, err
+	}
+	if d.Capacity != nil {
+		snap, err := d.Capacity.Snapshot(ctx)
+		if err != nil {
+			return w, err
+		}
+		w.Capacity = &snap
+		w.Full = snap.Max > 0 && snap.Linked >= snap.Max
+	}
+	return w, nil
 }
 
 // mountWaitlist registers Admin > Waitlist: the list (GET /admin/waitlist,
@@ -76,48 +112,26 @@ func mountWaitlist(app *fiber.App, d Deps) {
 	csrf := d.Auth.VerifyCSRF()
 
 	app.Get("/admin/waitlist", page, admin, func(c fiber.Ctx) error {
-		ctx := c.Context()
-		status := store.WaitlistWaiting
-		if c.Query("status") == store.WaitlistDeclined {
-			status = store.WaitlistDeclined
-		}
 		pageNo, _ := strconv.Atoi(c.Query("page"))
-		if pageNo < 1 {
-			pageNo = 1
-		}
-		offset := (pageNo - 1) * listPageSize
-		total, items, err := d.Store.WaitlistPage(ctx, status, offset, listPageSize)
+		w, err := loadWaitlist(c.Context(), d, c.Query("status"), pageNo)
 		if err != nil {
 			return err
 		}
-		waitingN, err := d.Store.WaitlistCount(ctx, store.WaitlistWaiting)
-		if err != nil {
-			return err
+		status := w.Status
+		data := map[string]any{"Status": status, "Total": w.Total, "Waiting": w.Waiting, "Declined": w.Declined}
+		if w.Capacity != nil {
+			data["Capacity"] = *w.Capacity
 		}
-		declinedN, err := d.Store.WaitlistCount(ctx, store.WaitlistDeclined)
-		if err != nil {
-			return err
-		}
-		data := map[string]any{"Status": status, "Total": total, "Waiting": waitingN, "Declined": declinedN}
-		full := false
-		if d.Capacity != nil {
-			snap, err := d.Capacity.Snapshot(ctx)
-			if err != nil {
-				return err
-			}
-			data["Capacity"] = snap
-			full = snap.Max > 0 && snap.Linked >= snap.Max
-		}
-		data["Full"] = full
-		data["Rows"] = waitlistRows(items, offset, status == store.WaitlistWaiting, !full)
+		data["Full"] = w.Full
+		data["Rows"] = waitlistRows(w.Items, w.Offset, status == store.WaitlistWaiting, !w.Full)
 		base := "/admin/waitlist?"
 		if status == store.WaitlistDeclined {
 			base += "status=declined&"
 		}
-		data["Pager"] = newPager(base, pageNo, len(items), total)
+		data["Pager"] = newPager(base, w.Page, len(w.Items), w.Total)
 		data["Tabs"] = []switchItem{
-			{Href: "/admin/waitlist", Text: "Waiting", Count: waitingN, Current: status == store.WaitlistWaiting},
-			{Href: "/admin/waitlist?status=declined", Text: "Declined", Count: declinedN, Current: status == store.WaitlistDeclined},
+			{Href: "/admin/waitlist", Text: "Waiting", Count: w.Waiting, Current: status == store.WaitlistWaiting},
+			{Href: "/admin/waitlist?status=declined", Text: "Declined", Count: w.Declined, Current: status == store.WaitlistDeclined},
 		}
 		return d.render(c, fiber.StatusOK, "admin_waitlist.html", "Waitlist", data)
 	})
@@ -131,46 +145,13 @@ func mountWaitlist(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		ctx := c.Context()
 		caller, _ := userOf(c)
-		r := waitlistRow{Digits: store.DigitsOnly(phone), Phone: phone, Status: store.WaitlistAdmitted}
-		if d.Capacity != nil && d.Capacity.Full(ctx) {
-			r.Result, r.Message = "error", "The server is full. Free a number or raise the limit first."
-			return row(c, r)
-		}
-		limit := d.DefaultMaxDevices
-		if limit < 1 {
-			limit = 2
-		}
-		u, created, err := d.Store.AdmitFromWaitlist(ctx, phone, caller.ID, limit)
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			r.Result, r.Message = "error", "This number isn't on the waitlist any more."
-			return row(c, r)
-		case errors.Is(err, store.ErrInvalid):
-			r.Result, r.Message = "error", "This number was declined. Move it back to waiting first."
-			return row(c, r)
-		case err != nil:
-			return err
-		}
-		if !created {
-			r.Result, r.Message = "exists", "This number already has an account. Nothing was sent."
-			return row(c, r)
-		}
-		_ = d.Store.Audit(ctx, store.AuditEvent{UserID: u.ID, ActorID: caller.ID, Action: "waitlist_admitted", IP: c.IP()})
-		link, err := signinLinkFor(c, d, phone)
+		out, err := d.AdminAdmit(c.Context(), caller, phone, c.IP())
 		if err != nil {
 			return err
 		}
-		text := "You're in. Here's your " + d.ProductName + " sign-in link. It works once, for 15 minutes:\n\n" + link
-		if d.SendWhatsApp == nil {
-			r.Result, r.Link = "sent-failed", link
-		} else if err := d.SendWhatsApp(ctx, phone, text); err != nil {
-			logrus.WithError(err).Warn("[WTF] waitlist: could not send the sign-in link")
-			r.Result, r.Link = "sent-failed", link
-		} else {
-			r.Result = "admitted"
-		}
+		r := waitlistRow{Digits: store.DigitsOnly(phone), Phone: phone, Status: store.WaitlistAdmitted,
+			Result: out.Result, Message: out.Message, Link: out.Link}
 		return row(c, r)
 	})
 
@@ -180,29 +161,18 @@ func mountWaitlist(app *fiber.App, d Deps) {
 			if err != nil {
 				return err
 			}
-			ctx := c.Context()
 			caller, _ := userOf(c)
-			r := waitlistRow{Digits: store.DigitsOnly(phone), Phone: phone}
-			switch action {
-			case "decline":
-				err = d.Store.DeclineWaitlist(ctx, phone, caller.ID)
-				r.Result, r.Status = "declined", store.WaitlistDeclined
-			case "reopen":
-				err = d.Store.ReopenWaitlist(ctx, phone)
-				r.Result, r.Status = "reopened", store.WaitlistWaiting
-			case "remove":
-				err = d.Store.RemoveFromWaitlist(ctx, phone)
-				r.Result = "removed"
-			}
-			if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrInvalid) {
-				r.Result, r.Message = "error", "This number has moved on. Reload the page."
-				return row(c, r)
-			}
+			out, err := d.AdminDecideWaitlist(c.Context(), caller, phone, action, c.IP())
 			if err != nil {
 				return err
 			}
-			_ = d.Store.Audit(ctx, store.AuditEvent{ActorID: caller.ID, Action: map[string]string{
-				"decline": "waitlist_declined", "reopen": "waitlist_reopened", "remove": "waitlist_removed"}[action], IP: c.IP()})
+			r := waitlistRow{Digits: store.DigitsOnly(phone), Phone: phone, Result: out.Result, Message: out.Message}
+			switch action {
+			case "decline":
+				r.Status = store.WaitlistDeclined
+			case "reopen":
+				r.Status = store.WaitlistWaiting
+			}
 			return row(c, r)
 		}
 	}

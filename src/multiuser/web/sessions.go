@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -22,15 +23,20 @@ type sessionView struct {
 }
 
 func sessionViews(c fiber.Ctx, d Deps, userID string) ([]sessionView, error) {
-	list, err := d.Store.SessionsOf(c.Context(), userID)
+	return sessionList(c.Context(), d, userID, d.Auth.CurrentSessionHash(c))
+}
+
+// sessionList is userID's sessions; current (a stored hash, or "") marks
+// the one in use and puts it first.
+func sessionList(ctx context.Context, d Deps, userID, current string) ([]sessionView, error) {
+	list, err := d.Store.SessionsOf(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	current := d.Auth.CurrentSessionHash(c)
 	out := make([]sessionView, 0, len(list))
 	for _, s := range list {
 		v := sessionView{Handle: d.Auth.SessionHandle(s.IDHash), Device: deviceName(s.UserAgent),
-			Started: s.CreatedAt, LastSeen: s.LastSeenAt, Current: s.IDHash == current,
+			Started: s.CreatedAt, LastSeen: s.LastSeenAt, Current: current != "" && s.IDHash == current,
 			Phone: strings.Contains(s.UserAgent, "Mobile") || strings.Contains(s.UserAgent, "Android") || strings.Contains(s.UserAgent, "iPhone")}
 		if v.Device == "This device" { // deviceName's fallback; here it would mislead
 			v.Device = "Unknown browser"

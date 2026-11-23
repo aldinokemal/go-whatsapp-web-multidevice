@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/gofiber/fiber/v3"
@@ -27,7 +26,7 @@ func mountAdminManage(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		if err := owners.RemoveDeviceAsAdmin(c.Context(), d.Devices, caller, target, c.Params("device")); err != nil {
+		if err := d.AdminUnlinkNumber(c.Context(), caller, target.ID, c.Params("device")); err != nil {
 			if errors.Is(err, pkgError.ErrDeviceNotFound) {
 				return fiber.ErrNotFound
 			}
@@ -43,14 +42,16 @@ func mountAdminManage(app *fiber.App, d Deps) {
 			return err
 		}
 		n, convErr := strconv.Atoi(strings.TrimSpace(c.FormValue("max_devices")))
-		if convErr != nil || n < 0 || n > store.MaxDevicesLimit {
-			return renderUsers(c, d, "Choose a number from 0 to 20.")
+		if convErr != nil {
+			n = -1 // refused below with the range
 		}
-		if err := d.Store.SetMaxDevices(c.Context(), target.ID, n); err != nil {
+		if err := d.AdminSetLimit(c.Context(), caller, target.ID, n, c.IP()); err != nil {
+			var r *Refusal
+			if errors.As(err, &r) {
+				return renderUsers(c, d, r.Msg)
+			}
 			return err
 		}
-		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: target.ID, ActorID: caller.ID, Action: "user_limit_set",
-			Detail: strconv.Itoa(n), IP: c.IP()})
 		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
 	})
 
@@ -60,40 +61,13 @@ func mountAdminManage(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		if target.ID == caller.ID {
-			return renderUsers(c, d, "You can't change your own number here.")
-		}
-		// Superadmin is decided by phone number, so moving an account onto
-		// or off such a number would grant or remove admin rights.
-		if d.Auth.IsSuperadminPhone(target.Phone) {
-			return renderUsers(c, d, "An admin's number is set in the server's settings.")
-		}
-		phone, err := store.NormalizePhone(c.FormValue("phone"))
-		if err != nil {
-			return renderUsers(c, d, "Enter the full number with its country code.")
-		}
-		if d.Auth.IsSuperadminPhone(phone) {
-			return renderUsers(c, d, "That number belongs to an admin.")
-		}
-		if phone == target.Phone {
-			return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
-		}
-		old, err := d.Store.SetUserPhone(c.Context(), target.ID, phone)
-		if errors.Is(err, store.ErrPhoneTaken) {
-			return renderUsers(c, d, "That number already belongs to another user.")
-		}
-		if err != nil {
+		if _, err := d.AdminChangePhone(c.Context(), caller, target.ID, c.FormValue("phone"), c.IP()); err != nil {
+			var r *Refusal
+			if errors.As(err, &r) {
+				return renderUsers(c, d, r.Msg)
+			}
 			return err
 		}
-		if err := revokeCredentials(c.Context(), d, target.ID); err != nil {
-			return err
-		}
-		// A sign-in link minted for the old number must not work either.
-		if err := d.Store.DeleteLoginTokensFor(c.Context(), old); err != nil {
-			return err
-		}
-		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: target.ID, ActorID: caller.ID, Action: "user_phone_changed",
-			Detail: old + " " + phone, IP: c.IP()})
 		return c.Redirect().Status(fiber.StatusSeeOther).To("/admin/users#user-" + target.ID)
 	})
 }

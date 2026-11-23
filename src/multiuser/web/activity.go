@@ -45,12 +45,7 @@ func mountActivity(app *fiber.App, d Deps) {
 			}
 			who = u
 		}
-		events, total, err := d.Store.ListAudit(ctx, store.AuditQuery{UserID: userID, Limit: activityPageSize,
-			Offset: (pageNo - 1) * activityPageSize})
-		if err != nil {
-			return err
-		}
-		rows, err := activityRows(ctx, d.Store, events)
+		_, total, rows, err := activityPage(ctx, d.Store, userID, pageNo)
 		if err != nil {
 			return err
 		}
@@ -72,6 +67,24 @@ func mountActivity(app *fiber.App, d Deps) {
 		}
 		return d.render(c, fiber.StatusOK, "admin_activity.html", "Activity", data)
 	})
+}
+
+// activityPage is one page of the audit log (optionally about userID), as
+// events and as sentences, and how many events matched in all.
+func activityPage(ctx context.Context, st *store.Store, userID string, pageNo int) ([]store.AuditRow, int, []activityRow, error) {
+	if pageNo < 1 {
+		pageNo = 1
+	}
+	events, total, err := st.ListAudit(ctx, store.AuditQuery{UserID: userID, Limit: activityPageSize,
+		Offset: (pageNo - 1) * activityPageSize})
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	rows, err := activityRows(ctx, st, events)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	return events, total, rows, nil
 }
 
 func activityRows(ctx context.Context, st *store.Store, events []store.AuditRow) ([]activityRow, error) {

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/gofiber/fiber/v3"
@@ -43,18 +42,15 @@ func mountDevices(app *fiber.App, d Deps) {
 		return renderRow(c, d, c.Params("id"), n)
 	})
 	app.Post("/ui/devices", page, csrf, func(c fiber.Ctx) error {
-		dev, err := d.Devices.AddDevice(c.Context(), "", nil)
+		id, err := d.StartLinking(c.Context())
+		var r *Refusal
+		if errors.As(err, &r) {
+			return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"Error": r.Msg})
+		}
 		if err != nil {
-			if errors.Is(err, owners.ErrDeviceLimitReached) {
-				return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"Error": deviceLimitMessage})
-			}
-			var v pkgError.ValidationError
-			if errors.As(err, &v) {
-				return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"Error": v.Error()})
-			}
 			return err
 		}
-		return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"ID": dev.ID})
+		return d.render(c, fiber.StatusOK, "link_modal.html", "", map[string]any{"ID": id})
 	})
 
 	// Re-opens the shared link dialog's content for a device that was already

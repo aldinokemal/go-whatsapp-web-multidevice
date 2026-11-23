@@ -34,17 +34,21 @@ func connectionsData(c fiber.Ctx, d Deps, userID string) (map[string]any, error)
 	if err != nil {
 		return nil, err
 	}
+	return map[string]any{
+		"Grants":     grantViews(grants),
+		"AddLink":    claudeAddLink(d.ProductName, d.MCPURL),
+		"MCPURL":     d.MCPURL,
+		"ClaudeCode": "claude mcp add --transport http " + connectorSlug(d.ProductName) + " " + d.MCPURL,
+	}, nil
+}
+
+func grantViews(grants []oauth.Grant) []grantView {
 	views := make([]grantView, 0, len(grants))
 	for _, g := range grants {
 		created, last := g.CreatedAt, g.LastUsedAt
 		views = append(views, grantView{Family: g.FamilyID, Host: g.ClientHost, Name: g.ClientName, Connected: humanAgo(&created), LastUsed: humanAgo(&last)})
 	}
-	return map[string]any{
-		"Grants":     views,
-		"AddLink":    claudeAddLink(d.ProductName, d.MCPURL),
-		"MCPURL":     d.MCPURL,
-		"ClaudeCode": "claude mcp add --transport http " + connectorSlug(d.ProductName) + " " + d.MCPURL,
-	}, nil
+	return views
 }
 
 // claudeAddLink builds the one-click link with url.Values: the MCP URL is
