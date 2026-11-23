@@ -20,6 +20,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/web"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
+	mcpoauth "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/oauth"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/helpers"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
@@ -54,7 +55,8 @@ func restServer(_ *cobra.Command, _ []string) {
 	}
 	config.MultiUserEnabled = muSettings.Enabled
 	if config.MultiUserEnabled {
-		multiuser.Apply() // before anything reads the flags it turns off
+		multiuser.Apply()                           // before anything reads the flags it turns off
+		muSettings = multiuser.ApplyMCP(muSettings) // MCP back on, OAuth only (no Basic), when the public URL allows
 	}
 
 	var muErr fiber.ErrorHandler // WTF: set once setupMultiUser builds the runtime
@@ -137,7 +139,18 @@ func restServer(_ *cobra.Command, _ []string) {
 	// OAuth discovery/login/token routes and the OAuth-protected MCP route must
 	// be registered before the global Basic Auth middleware. When OAuth is off,
 	// this is a no-op and MCP is mounted in its historical location below.
-	oauthServer, mcpOAuthRegistered, err := registerMcpOAuth(app, dm)
+	var (
+		oauthServer        *mcpoauth.Server
+		mcpOAuthRegistered bool
+	)
+	if config.MultiUserEnabled {
+		// WTF: the runtime already mounted the OAuth endpoints and /mcp
+		// (session subjects, CIMD, owner-scoped devices) in setupMultiUser;
+		// upstream's Basic-backed registration must never run here.
+		mcpOAuthRegistered = true
+	} else {
+		oauthServer, mcpOAuthRegistered, err = registerMcpOAuth(app, dm)
+	}
 	if err != nil {
 		logrus.Fatalln("Failed to initialize MCP OAuth: ", err.Error())
 	}
@@ -179,15 +192,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	// one whatsmeow session. With OAuth disabled it keeps the existing global
 	// Basic Auth behavior; OAuth-enabled MCP was already mounted above.
 	if config.McpEnabled && !mcpOAuthRegistered {
-		uimcp.Register(apiGroup, dm, uimcp.Deps{
-			App:      appUsecase,
-			Send:     sendUsecase,
-			Schedule: scheduleUsecase,
-			Chat:     chatUsecase,
-			User:     userUsecase,
-			Message:  messageUsecase,
-			Group:    groupUsecase,
-		})
+		uimcp.Register(apiGroup, dm, mcpUsecaseDeps())
 	}
 
 	// Chatwoot sync + per-device config routes - require authentication (the

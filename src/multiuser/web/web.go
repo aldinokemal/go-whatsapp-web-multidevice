@@ -18,6 +18,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/passkey"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/oauth"
 	"github.com/gofiber/fiber/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -134,6 +135,18 @@ type Deps struct {
 	ServicePhone func(ctx context.Context) string
 	Paired       func() []owners.PairedDevice
 	StorageDir   string
+	// Grants lists and ends the signed-in user's connected apps (MCP OAuth
+	// token families). Nil when MCP is off: the Account page then shows no
+	// Connected apps card.
+	Grants GrantStore
+	// MCPURL is the MCP endpoint people connect Claude to.
+	MCPURL string
+}
+
+// GrantStore is the part of the MCP OAuth server the Account page uses.
+type GrantStore interface {
+	ListGrants(ctx context.Context, subject string) ([]oauth.Grant, error)
+	RevokeGrant(ctx context.Context, subject, familyID string) error
 }
 
 // page is the data every template gets.
@@ -206,7 +219,8 @@ func extOf(name string) string {
 
 // machinePrefixes answer in JSON. Everything else is a page a person reads.
 var machinePrefixes = []string{"/auth/passkey/", "/ui/devices/", "/app/", "/send/", "/user/", "/message/",
-	"/chat/", "/chats", "/group/", "/newsletter/", "/devices", "/call/", "/schedule", "/mcp", "/health"}
+	"/chat/", "/chats", "/group/", "/newsletter/", "/devices", "/call/", "/schedule", "/mcp", "/health",
+	"/files/", "/oauth/token", "/oauth/register", "/.well-known/"}
 
 func IsMachinePath(path string) bool {
 	for _, p := range machinePrefixes {

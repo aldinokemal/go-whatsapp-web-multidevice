@@ -141,10 +141,19 @@ func Apply() {
 // off together, and issuer and resource derive from the public URL. It clears
 // Basic Auth again, so the Basic fallback on /mcp can never be reached in
 // multi-user mode whatever ran before it.
-func ApplyMCP(s Settings) {
+//
+// OAuth needs a public https issuer, so with a plain-http public URL (local
+// development) MCP stays off, with a warning. The returned settings say what
+// was applied; pass them on to Setup.
+func ApplyMCP(s Settings) Settings {
+	if s.MCPEnabled && !strings.HasPrefix(s.PublicURL, "https://") {
+		logrus.Warn("[WTF] MCP is off: it needs an https WTF_PUBLIC_URL")
+		s.MCPEnabled = false
+	}
 	config.AppBasicAuthCredential = nil
 	config.McpEnabled = s.MCPEnabled
 	config.McpOAuthEnabled = s.MCPEnabled
 	config.McpOAuthIssuerURL = s.PublicURL
 	config.McpOAuthResourceURL = s.MCPResourceURL()
+	return s
 }

@@ -145,3 +145,20 @@ func TestApplyMCPNeverEnablesBasicAuth(t *testing.T) {
 	require.False(t, config.McpOAuthEnabled)
 	require.Empty(t, config.AppBasicAuthCredential, "ApplyMCP clears Basic Auth too, whatever ran before it")
 }
+
+func TestApplyMCPNeedsAnHTTPSPublicURL(t *testing.T) {
+	saved := []any{config.McpEnabled, config.McpOAuthEnabled, config.McpOAuthIssuerURL, config.McpOAuthResourceURL}
+	t.Cleanup(func() {
+		config.McpEnabled = saved[0].(bool)
+		config.McpOAuthEnabled = saved[1].(bool)
+		config.McpOAuthIssuerURL = saved[2].(string)
+		config.McpOAuthResourceURL = saved[3].(string)
+	})
+	s, err := Load(muEnv(map[string]string{})) // falls back to http://localhost:3000
+	require.NoError(t, err)
+	require.True(t, s.MCPEnabled)
+	applied := ApplyMCP(s)
+	require.False(t, applied.MCPEnabled, "OAuth needs an https issuer; local http development runs without MCP")
+	require.False(t, config.McpEnabled)
+	require.False(t, config.McpOAuthEnabled)
+}

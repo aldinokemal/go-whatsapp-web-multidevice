@@ -6,6 +6,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser"
+	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/gofiber/fiber/v3"
 	"github.com/spf13/viper"
 )
@@ -46,6 +47,20 @@ func setupMultiUser(app *fiber.App, dm *whatsapp.DeviceManager, s multiuser.Sett
 		return nil, err
 	}
 	deviceUsecase = rt.Devices // /devices REST routes now see only the caller's devices
-	rt.Install(app)
+	rt.Install(app, dm, mcpUsecaseDeps())
 	return rt, nil
+}
+
+// mcpUsecaseDeps are the usecase instances the MCP tools call: the same ones
+// the REST handlers hold, so both surfaces share one whatsmeow session.
+func mcpUsecaseDeps() uimcp.Deps {
+	return uimcp.Deps{
+		App:      appUsecase,
+		Send:     sendUsecase,
+		Schedule: scheduleUsecase,
+		Chat:     chatUsecase,
+		User:     userUsecase,
+		Message:  messageUsecase,
+		Group:    groupUsecase,
+	}
 }

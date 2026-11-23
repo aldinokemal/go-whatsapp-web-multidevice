@@ -4,17 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
+	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
 	"github.com/gofiber/fiber/v3"
 	"github.com/stretchr/testify/require"
 )
@@ -34,30 +30,39 @@ var publicRoutes = map[string]bool{
 	// PWA and browser plumbing: no user data, must load before sign-in.
 	"GET /manifest.webmanifest": true, "GET /sw.js": true, "GET /offline": true,
 	"GET /favicon.ico": true, "GET /apple-touch-icon.png": true, "GET /robots.txt": true,
+
+	// MCP OAuth (phase 2). Only what the OAuth and MCP specs require a client
+	// with no credential yet to reach. /mcp itself is NOT here: signed out it
+	// answers 401 (with the Bearer challenge), which the rule below accepts.
+	// /oauth/register does not exist (DCR is off in multi-user mode).
+	//
+	// RFC 8414 authorization-server metadata: how a connector finds the
+	// authorize and token endpoints. No user data.
+	"GET /.well-known/oauth-authorization-server": true,
+	// RFC 9728 protected-resource metadata, named by /mcp's 401 challenge:
+	// which authorization server guards /mcp. No user data.
+	"GET /.well-known/oauth-protected-resource/mcp": true,
+	// RFC 6749 token endpoint: the connector (a public CIMD client, so no
+	// client secret) redeems a code or refresh token here; the code/refresh
+	// token, the PKCE verifier and the resource are the credential. Anonymous
+	// garbage gets an OAuth error (400/401), never data.
+	"POST /oauth/token": true,
+	// RFC 6749 authorization endpoint: the connector sends the browser here
+	// with no WTF session yet. A valid request from a signed-out browser is a
+	// 303 to sign-in and back; an invalid one is a 400 (the request is
+	// validated before anything else, as the spec requires).
+	"GET /oauth/authorize": true,
+	// The same endpoint, the consent form's submission. The request is
+	// validated first (an unknown client or a redirect the
+	// client's CIMD document does not declare is a 400, without fetching
+	// anything for a host off WTF_MCP_CLIENT_HOSTS); a valid one still needs
+	// the session's CSRF token, then a signed-in active user (else 303 to
+	// sign-in), then an explicit approve.
+	"POST /oauth/authorize": true,
 }
 
 func TestEveryRouteIsGatedAndOwnerScoped(t *testing.T) {
-	savedMU := config.MultiUserEnabled
-	t.Cleanup(func() { config.MultiUserEnabled = savedMU })
-	config.MultiUserEnabled = true
-
-	dm := whatsapp.NewDeviceManager(nil, nil, nil)
-	for _, id := range []string{"d_alice", "d_bob"} {
-		_, err := dm.CreateDevice(context.Background(), id)
-		require.NoError(t, err)
-	}
-	s := multiuser.Settings{Enabled: true, DBURI: "file:" + filepath.Join(t.TempDir(), "a.db"), ProductName: "WTF",
-		PublicURL: "https://wtf.test", SessionSecret: []byte("0123456789abcdef0123456789abcdef"), Superadmins: map[string]bool{}}
-	rt, err := multiuser.Setup(s, dm, usecase.NewDeviceService(dm, nil), t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = rt.Close() })
-
-	app := fiber.New()
-	app.Use(middleware.Recovery())
-	rt.Install(app)
-	rest.InitRestDevice(app, rt.Devices)
-	rest.InitRestAppInfo(app)
-	registerDeviceScopedRoutes(app.Group("", middleware.DeviceMiddleware(dm)))
+	app, rt, _ := newMultiUserApp(t, uimcp.Deps{})
 
 	ctx := context.Background()
 	alice, _ := rt.Store.CreateUser(ctx, "+27825550101")
@@ -152,7 +157,8 @@ func isDeviceScoped(path string) bool {
 		return false // POST /ui/devices (AddDevice) ignores any device id and creates one for the caller
 	}
 	for _, own := range []string{"/signin", "/signout", "/ui/static", "/auth/passkey", "/account", "/admin", "/health", "/devices",
-		"/manifest.webmanifest", "/sw.js", "/offline", "/favicon.ico", "/apple-touch-icon.png", "/robots.txt"} {
+		"/manifest.webmanifest", "/sw.js", "/offline", "/favicon.ico", "/apple-touch-icon.png", "/robots.txt",
+		"/.well-known", "/oauth/", "/mcp"} { // /mcp ignores cookies (401); its own matrix covers it
 		if strings.HasPrefix(path, own) {
 			return false
 		}

@@ -7,15 +7,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainDevice "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/device"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/auth"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/files"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/mcpauth"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/netguard"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/owners"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/passkey"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/signin"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/store"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser/web"
+	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp/oauth"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest/middleware"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
 	"github.com/gofiber/fiber/v3"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types"
@@ -33,6 +40,12 @@ type Runtime struct {
 	Devices  domainDevice.IDeviceUsecase
 	Signin   *signin.Handler
 	Web      web.Deps
+	// OAuth is the MCP authorization server (session-subject mode, CIMD
+	// only); nil when MCP is off.
+	OAuth *oauth.Server
+	// MediaRoot is where downloads land, one directory per device, and
+	// what /files serves from.
+	MediaRoot string
 }
 
 // guardDuplicatePhoneForTest, when set, stands in for
@@ -222,24 +235,101 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		}
 	}
 
-	return &Runtime{Settings: s, Store: st, Auth: am, Resolver: resolver, Devices: devices, Signin: sh,
+	rt := &Runtime{Settings: s, Store: st, Auth: am, Resolver: resolver, Devices: devices, Signin: sh,
+		MediaRoot: config.PathMedia,
 		Web: web.Deps{Store: st, Auth: am, Passkeys: pk, Devices: devices, ProductName: s.ProductName,
-			PublicURL: s.PublicURL, ServicePhone: servicePhone, Paired: pairs.Paired, StorageDir: storageDir}}, nil
+			PublicURL: s.PublicURL, ServicePhone: servicePhone, Paired: pairs.Paired, StorageDir: storageDir}}
+
+	if s.MCPEnabled {
+		authn := &mcpauth.Authenticator{Auth: am, Store: st}
+		srv, err := oauth.New(oauth.Config{
+			IssuerURL:   s.PublicURL,
+			ResourceURL: s.MCPResourceURL(),
+			StorageURI:  config.McpOAuthDBURI,
+			Session:     authn,
+			DisableDCR:  true,
+			CIMD: &oauth.CIMDConfig{
+				AllowedHosts: s.MCPClientHosts,
+				// The client_id is attacker-chosen: fetch it only through
+				// the outbound guard, never following a redirect.
+				HTTPClient: netguard.NewClient(netguard.Options{Timeout: 10 * time.Second, MaxRedirects: 0, MaxBody: 64 << 10}),
+				UserAgent:  userAgentToken(s.ProductName) + "-connector-check/1",
+			},
+		}, nil)
+		if err != nil {
+			middleware.DeviceResolveFunc = nil
+			whatsapp.EventHook = nil
+			st.Close()
+			return nil, err
+		}
+		rt.OAuth = srv
+		rt.Web.Grants = srv
+		rt.Web.MCPURL = s.MCPResourceURL()
+		authn.Web = rt.Web
+	}
+
+	// Downloads land under <media root>/<device id>/ and are fetched, owner
+	// checked, from /files/<device id>/...
+	usecase.MediaRootHook = files.MediaRoot(rt.MediaRoot, s.PublicURL)
+	return rt, nil
 }
 
-// Install mounts the multi-user session middleware and every WTF page, then
-// gates everything registered after it (the upstream REST API) behind
-// sign-in, the same-origin check and CSRF.
-func (r *Runtime) Install(app *fiber.App) {
+// userAgentToken keeps the letters, digits and hyphens of name, so the
+// product name can start an HTTP User-Agent.
+func userAgentToken(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if r < 128 && (r == '-' || ('a' <= r && r <= 'z') || ('A' <= r && r <= 'Z') || ('0' <= r && r <= '9')) {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "WTF"
+	}
+	return b.String()
+}
+
+// Install mounts everything multi-user mode serves, in this order (the
+// route stack is walked in registration order, so the order is the policy):
+//
+//  1. the session middleware (loads the cookie's user for every request);
+//  2. WTF's own pages, each with its own page gate;
+//  3. when MCP is on: the OAuth endpoints that the OAuth and MCP specs make
+//     public (discovery documents, token, authorize, which sends anonymous
+//     browsers to sign in), then /mcp behind its own guard (an OAuth token or
+//     an API key; a 401 with the Bearer challenge otherwise). Neither may sit
+//     behind the gates below: a connector has no session cookie;
+//  4. the API gate chain: an API key, else the cookie, then same-origin and
+//     CSRF for cookie sessions. Everything registered after this point (the
+//     upstream REST API, /files) is behind it;
+//  5. /files, owner-checked media.
+//
+// mcpDeps are the usecases the MCP tools call; Install adds the owner-checked
+// device resolver and the my-devices tool.
+func (r *Runtime) Install(app *fiber.App, dm *whatsapp.DeviceManager, mcpDeps uimcp.Deps) {
 	app.Use(r.Auth.Middleware())
 	web.Mount(app, r.Web)
-	app.Use(r.Auth.RequireAPI(), r.Auth.RequireSameOriginAPI(), r.Auth.VerifyCSRF())
+	if r.OAuth != nil {
+		r.OAuth.RegisterPublic(app)
+		app.Use("/mcp", mcpauth.Middleware(r.OAuth, r.Auth, r.Store))
+		mcpDeps.ResolveDevice = r.Resolver.Resolve
+		mcpDeps.ExtraTools = mcpauth.Tools(r.Devices)
+		uimcp.Register(app, dm, mcpDeps)
+	}
+	// A key request carries no session id, so RequireSameOriginAPI and
+	// VerifyCSRF (which judge cookie sessions only) let it through.
+	app.Use(r.Auth.APIKey(), r.Auth.RequireAPI(), r.Auth.RequireSameOriginAPI(), r.Auth.VerifyCSRF())
+	files.Mount(app, files.Deps{Resolver: r.Resolver, Root: r.MediaRoot})
 }
 
-// Close releases the two global hooks and closes the accounts store. Safe to
-// call once, typically deferred right after Setup succeeds.
+// Close releases the global hooks, the OAuth store and the accounts store.
+// Safe to call once, typically deferred right after Setup succeeds.
 func (r *Runtime) Close() error {
 	middleware.DeviceResolveFunc = nil
 	whatsapp.EventHook = nil
+	usecase.MediaRootHook = nil
+	if r.OAuth != nil {
+		_ = r.OAuth.Close()
+	}
 	return r.Store.Close()
 }
