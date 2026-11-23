@@ -159,8 +159,13 @@ With `WTF_MULTIUSER=true` the same OAuth server runs in a different mode, and
   documents are cached for 5 minutes and refused ones for 1 minute. One
   address may make the server fetch at most 10 documents a minute (a cached
   one costs nothing); past that `/oauth/authorize` answers 429 without a
-  fetch. Behind a proxy whose address is not trusted, every request shares
-  one address, so the limit is then a global one. Redirects must
+  fetch. "Address" means the real client: set `APP_TRUSTED_PROXIES` to the
+  proxy's ranges (`render.yaml` sets Render's private ranges). In multi-user
+  mode GOWA then reads `X-Forwarded-For` only when the connecting peer is in
+  those ranges, walks it right to left and takes the first address that is not
+  itself a trusted proxy, so a client cannot spoof it by sending its own
+  header. Without trusted proxies the connecting address is used, which behind
+  a proxy is the proxy's, so the limit would be a global one. Redirects must
   match a declared one on scheme, host, path and query; for `localhost`,
   `127.0.0.1` and `[::1]` the port is ignored (Claude Code declares
   `http://localhost/callback` and listens on a random port), and `localhost`
