@@ -171,10 +171,30 @@ func TestCreateDeviceWithCSRFOpensLinkModal(t *testing.T) {
 	resp, body := e.do(t, req)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, body, "QR code to link WhatsApp")
+	require.Contains(t, body, "data-qr-refresh",
+		"the QR <img> must carry the hook app.js uses to force a re-fetch; "+
+			"hx-swap=\"none\" alone never changes src, so the real, rotating QR would go stale silently")
 
 	ids, err := e.st.DevicesOf(context.Background(), me)
 	require.NoError(t, err)
 	require.Len(t, ids, 1)
+}
+
+// The QR poll runs with hx-swap="none" (the response is a PNG, not markup),
+// so nothing makes the <img> re-fetch once the real code behind it rotates
+// unless app.js does it by hand. This pins the wiring that does that: a
+// listener on htmx:afterRequest, gated on the same data-qr-refresh attribute
+// the template renders, that only acts on a successful response and sets src
+// to a fresh URL rather than reusing the cached one.
+func TestAppJSRefreshesQRImageAfterASuccessfulPoll(t *testing.T) {
+	js, err := staticFS.ReadFile("static/app.js")
+	require.NoError(t, err)
+	body := string(js)
+	require.Contains(t, body, "htmx:afterRequest", "must react to the QR poll completing")
+	require.Contains(t, body, "data-qr-refresh", "must gate on the same attribute the template renders")
+	require.Contains(t, body, "successful", "must only refresh on a successful poll, not a failed one")
+	require.Regexp(t, `\.src\s*=`, body, "must actually reassign src to force a re-fetch")
+	require.Contains(t, body, "Date.now()", "must bust the cache, or the browser can serve the first frame forever")
 }
 
 func TestUnlinkRemovesDeviceAndOwnership(t *testing.T) {

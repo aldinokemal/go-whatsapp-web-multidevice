@@ -13,7 +13,13 @@
 <p>On your phone: WhatsApp, Settings, Linked devices, Link with phone number, then enter:</p>
 <p class="pair-code">{{.PairCode}}</p>
 {{else}}
-<img class="qr-code" src="/ui/devices/{{.ID}}/qr.png" alt="QR code to link WhatsApp" width="280" height="280"
+{{/* The real QR rotates every few seconds, so polling alone isn't enough:
+     hx-swap="none" means htmx never touches the DOM with the response, so the
+     <img>'s own src never changes and the browser never re-fetches. app.js
+     listens for htmx:afterRequest on data-qr-refresh and re-points src at the
+     same URL with a cache-buster, which is what actually triggers the
+     browser to fetch a fresh frame. */}}
+<img class="qr-code" data-qr-refresh src="/ui/devices/{{.ID}}/qr.png" alt="QR code to link WhatsApp" width="280" height="280"
      hx-get="/ui/devices/{{.ID}}/qr.png" hx-trigger="every 20s" hx-swap="none">
 <ol class="steps">
   <li>Open WhatsApp on your phone</li>
