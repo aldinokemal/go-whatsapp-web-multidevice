@@ -15,7 +15,7 @@
   <nav class="topnav" aria-label="Primary">
     <a href="/">My WhatsApp</a>
     <a href="/account">Account</a>
-    {{if .Superadmin}}<a href="/admin/users">Admin</a>{{end}}
+    {{if .Superadmin}}<a href="/admin/users">Admin</a><a href="/admin/settings">Settings</a>{{end}}
   </nav>
   <form method="post" action="/signout" class="signout-form">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
