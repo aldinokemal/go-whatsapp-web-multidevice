@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: wtf
+    runtime: docker
+    dockerfilePath: ./docker/golang.Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: data
+      mountPath: /app/storages
+      sizeGB: 1
+    envVars:
+      - key: APP_PORT
+        value: "10000"
+      - key: WTF_MULTIUSER
+        value: "true"
+      - key: WTF_SIGNUP_OPEN
+        value: "false"
+      - key: WTF_PRODUCT_NAME
+        value: WTF
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: WTF_SUPERADMIN_PHONES
+        sync: false

@@ -1,4 +1,48 @@
 <!-- markdownlint-disable MD041 -->
+
+## WTF fork
+
+This fork turns upstream GOWA into a small multi-user server: people sign in by
+messaging a WhatsApp "service number" (then register a passkey for next time),
+link their own WhatsApp device, and can only ever reach their own device and
+data — never another user's. Upstream's single-device behaviour is completely
+unchanged when multi-user mode is off (the default).
+
+**Enabling it** — set `WTF_MULTIUSER=true`. A handful of other `WTF_*`
+environment variables control it:
+
+| Variable | Meaning |
+|---|---|
+| `WTF_MULTIUSER` | `true` turns on multi-user mode. Default `false` (plain upstream behaviour). |
+| `WTF_PRODUCT_NAME` | Shown in the UI. Default `WTF`. |
+| `WTF_SIGNUP_OPEN` | `false` (the default) means only existing users, plus a superadmin on their first contact, ever get a sign-in link. |
+| `WTF_SUPERADMIN_PHONES` | Comma-separated E.164 numbers. The only people who can sign in from nothing — everyone else needs an existing account or an invite. Never from a database column; always this env var. |
+| `WTF_PUBLIC_URL` | The externally-reachable base URL, used to build the WhatsApp sign-in link. Falls back to `RENDER_EXTERNAL_URL` on Render. |
+| `SESSION_SECRET` | Signs session cookies. Generate a real random value; never reuse the default. |
+
+In multi-user mode, Basic Auth, the bundled gowa-ui dashboard, `/statics`,
+global webhooks, auto-reply and the upstream `/ws` route are all forced off —
+this fork's own sign-in/session system is the only way in.
+
+**Bootstrapping the first user** — once deployed, open a shell on the host and
+run:
+
+```bash
+./whatsapp admin-link <superadmin phone, E.164>
+```
+
+This mints a one-time sign-in link for that phone number (it must already be
+listed in `WTF_SUPERADMIN_PHONES`) without starting a WhatsApp connection.
+Open the link, sign in, register a passkey, then link your own WhatsApp number
+from the "My WhatsApp" page. Every other user signs in the same way a
+superadmin invites them to: by messaging the service number once an account
+exists for them.
+
+See `docs/superpowers/specs/` and `docs/superpowers/plans/` for the full
+design and build history of this fork.
+
+---
+
 <!-- markdownlint-disable-next-line MD033 -->
 <div align="center">
   <!-- markdownlint-disable-next-line MD033 -->
