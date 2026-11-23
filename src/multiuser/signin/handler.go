@@ -53,6 +53,11 @@ const (
 	defaultPerSenderWindow = time.Hour
 	defaultGlobalMax       = 20
 	defaultGlobalWindow    = time.Minute
+
+	// A waitlisted number hears back at most once an hour, however often it
+	// asks: its place does not change faster than that.
+	defaultWaitlistMax    = 1
+	defaultWaitlistWindow = time.Hour
 )
 
 const globalKey = "*"
@@ -98,16 +103,37 @@ type Handler struct {
 	ServiceDeviceID func(ctx context.Context) string
 	Now             func() time.Time // nil means time.Now
 
-	once      sync.Once
-	defSender *Limiter
-	defGlobal *Limiter
-	inflight  chan struct{}
+	// Waitlist records an unknown number that may not sign up now. Nil keeps
+	// the plain "isn't open for sign-ups yet" reply.
+	Waitlist Waitlist
+	// Full reports whether the server has reached its cap on linked numbers.
+	// With SignupOpen, a new number joins the waitlist while it is full. Nil
+	// means never full.
+	Full func(ctx context.Context) bool
+	// DefaultMaxDevices is a new user's own limit. 0 means the column default.
+	DefaultMaxDevices int
+	// WaitlistLimiter caps waitlist replies per number, on top of Limiter.
+	// Nil means 1 per hour.
+	WaitlistLimiter *Limiter
+
+	once        sync.Once
+	defSender   *Limiter
+	defGlobal   *Limiter
+	defWaitlist *Limiter
+	inflight    chan struct{}
+}
+
+// Waitlist is the part of the store the handler needs. JoinWaitlist is
+// idempotent per phone; joined is false for a declined number.
+type Waitlist interface {
+	JoinWaitlist(ctx context.Context, phone string) (joined bool, position int, err error)
 }
 
 func (h *Handler) init() {
 	h.once.Do(func() {
 		h.defSender = NewLimiter(defaultPerSenderMax, defaultPerSenderWindow)
 		h.defGlobal = NewLimiter(defaultGlobalMax, defaultGlobalWindow)
+		h.defWaitlist = NewLimiter(defaultWaitlistMax, defaultWaitlistWindow)
 		h.inflight = make(chan struct{}, maxInflight)
 	})
 }
@@ -131,6 +157,17 @@ func (h *Handler) global() *Limiter {
 		return h.Global
 	}
 	return h.defGlobal
+}
+
+func (h *Handler) waitlistLimiter() *Limiter {
+	if h.WaitlistLimiter != nil {
+		return h.WaitlistLimiter
+	}
+	return h.defWaitlist
+}
+
+func (h *Handler) full(ctx context.Context) bool {
+	return h.Full != nil && h.Full(ctx)
 }
 
 func (h *Handler) sender() Sender {
@@ -231,11 +268,12 @@ func (h *Handler) Handle(ctx context.Context, inst *whatsapp.DeviceInstance, evt
 	user, err := h.Store.UserByPhone(ctx, phone)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		if !h.SignupOpen && (h.IsSuperadmin == nil || !h.IsSuperadmin(phone)) {
-			h.reply(ctx, inst, info.Chat, fmt.Sprintf("%s isn't open for sign-ups yet. We'll let you know when it is.", h.ProductName))
+		superadmin := h.IsSuperadmin != nil && h.IsSuperadmin(phone)
+		if !superadmin && (!h.SignupOpen || h.full(ctx)) {
+			h.notYet(ctx, inst, info.Chat, phone, now)
 			return
 		}
-		created, cerr := h.Store.CreateUser(ctx, phone)
+		created, cerr := h.createUser(ctx, phone)
 		if cerr != nil {
 			// Most likely a concurrent first message from the same number won
 			// the insert. Use its row; anything else is a real failure.
@@ -264,6 +302,41 @@ func (h *Handler) Handle(ctx context.Context, inst *whatsapp.DeviceInstance, evt
 	_ = h.Store.Audit(ctx, store.AuditEvent{UserID: user.ID, Action: "signin_link_sent"})
 	link := h.PublicURL + "/signin/verify?t=" + url.QueryEscape(raw)
 	h.reply(ctx, inst, info.Chat, fmt.Sprintf("Here's your %s sign-in link. It works once, for 15 minutes:\n\n%s\n\nIf you didn't ask for this, ignore this message.", h.ProductName, link))
+}
+
+func (h *Handler) createUser(ctx context.Context, phone string) (*store.User, error) {
+	if h.DefaultMaxDevices > 0 {
+		return h.Store.CreateUserWithLimit(ctx, phone, h.DefaultMaxDevices)
+	}
+	return h.Store.CreateUser(ctx, phone)
+}
+
+// notYet answers an unknown number that may not sign up now: sign-up is
+// closed, or open but the server is full. It joins the waitlist and is told
+// its place, at most once an hour. A declined number gets the plain closed
+// reply. The reply is built from the product name and a number only, never
+// from anything the sender wrote or their profile, and it goes to the chat
+// they opened.
+func (h *Handler) notYet(ctx context.Context, inst *whatsapp.DeviceInstance, chat types.JID, phone string, now time.Time) {
+	closed := fmt.Sprintf("%s isn't open for sign-ups yet. We'll let you know when it is.", h.ProductName)
+	if h.Waitlist == nil {
+		h.reply(ctx, inst, chat, closed)
+		return
+	}
+	joined, position, err := h.Waitlist.JoinWaitlist(ctx, phone)
+	if err != nil {
+		logrus.WithError(err).Error("[WTF] sign-in: waitlist join failed")
+		return // never promise a place we did not record
+	}
+	if !h.waitlistLimiter().Allow(phone, now) {
+		return // silent: never amplify
+	}
+	if !joined {
+		h.reply(ctx, inst, chat, closed)
+		return
+	}
+	_ = h.Store.Audit(ctx, store.AuditEvent{Action: "waitlist_joined"})
+	h.reply(ctx, inst, chat, fmt.Sprintf("You're on the %s waitlist (number %d). We'll message you here when there's room.", h.ProductName, position))
 }
 
 // allow charges one reply to key and to the global budget. Both must pass.
