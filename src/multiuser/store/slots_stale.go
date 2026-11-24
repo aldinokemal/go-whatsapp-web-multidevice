@@ -18,8 +18,10 @@ type OwnedSlot struct {
 }
 
 // NeverLinkedSlotsBefore lists slots reserved before cutoff that never held a
-// WhatsApp identity, oldest first.
+// WhatsApp identity, oldest first. cutoff may be in any zone: it is compared
+// as UTC text against created_at, which the store always writes in UTC.
 func (s *Store) NeverLinkedSlotsBefore(ctx context.Context, cutoff time.Time) ([]OwnedSlot, error) {
+	cutoff = cutoff.UTC()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT device_id, user_id FROM device_owners WHERE `+neverLinked+` AND created_at < ?
 		 ORDER BY created_at, device_id`, cutoff)
@@ -42,6 +44,7 @@ func (s *Store) NeverLinkedSlotsBefore(ctx context.Context, cutoff time.Time) ([
 // never-linked slot reserved before cutoff, in one statement, so a slot that
 // was scanned in the meantime is never taken. It reports whether it did.
 func (s *Store) ExpireNeverLinkedSlot(ctx context.Context, deviceID string, cutoff time.Time) (bool, error) {
+	cutoff = cutoff.UTC() // see NeverLinkedSlotsBefore
 	res, err := s.db.ExecContext(ctx,
 		`DELETE FROM device_owners WHERE device_id = ? AND `+neverLinked+` AND created_at < ?`, deviceID, cutoff)
 	if err != nil {

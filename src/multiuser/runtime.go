@@ -330,7 +330,7 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 		Store: st, Send: signin.ClientSender{}, ProductName: s.ProductName, PublicURL: s.PublicURL,
 		SignupOpen: s.SignupOpen, IsSuperadmin: func(p string) bool { return IsSuperadmin(s, p) },
 		Limiter: signin.NewLimiter(3, time.Hour), ResolvePN: signin.DefaultResolvePN,
-		ServiceDeviceID: serviceID, Now: time.Now,
+		ServiceDeviceID: serviceID, Now: func() time.Time { return time.Now().UTC() },
 		// Phase 4: an unknown number that may not sign up now (sign-up closed,
 		// or open but full) joins the waitlist. Sign-up itself stays as
 		// WTF_SIGNUP_OPEN says (closed unless set).

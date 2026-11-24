@@ -32,7 +32,7 @@ type StaleSlotSweeper struct {
 	// and is skipped.
 	Live   func() []PairedDevice
 	MaxAge time.Duration    // 0 means StaleSlotAge
-	Now    func() time.Time // nil means time.Now
+	Now    func() time.Time // nil means time.Now; any zone, the cutoff is taken in UTC
 }
 
 func (s *StaleSlotSweeper) hasJID(id string) bool {
@@ -58,7 +58,7 @@ func (s *StaleSlotSweeper) SweepOnce(ctx context.Context) (int, error) {
 	if age <= 0 {
 		age = StaleSlotAge
 	}
-	cutoff := now().Add(-age)
+	cutoff := now().UTC().Add(-age)
 	stale, err := s.Store.NeverLinkedSlotsBefore(ctx, cutoff)
 	if err != nil {
 		return 0, err
