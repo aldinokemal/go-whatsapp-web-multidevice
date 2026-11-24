@@ -40,19 +40,27 @@ var audioMimeTypes = map[string]string{
 	".wav":  "audio/wav",
 }
 
-// audioMimeTypeFor takes the media's own mediaType ("ptt" or "audio") alongside the
-// downloaded filename: a real voice note has been seen to download with a generated name
-// carrying no extension at all (WhatsApp's own AudioMessage.Mimetype can be empty, and
-// pkg/utils's own ExtractMedia has nothing else to derive one from for a non-document
-// message), so the extension lookup alone is not reliable. A voice note is always
-// Opus-in-Ogg regardless of what any particular sender's client reported, so that is a
-// safe fallback specifically for "ptt" when no extension is available; a generic "audio"
-// message isn't guaranteed to be any one codec, so it stays the unknown fallback.
+// audioMimeTypeFor takes the media's own mediaType alongside the downloaded filename: a
+// real voice note has been seen to download with a generated name carrying no extension at
+// all (WhatsApp's own AudioMessage.Mimetype can be empty, and pkg/utils's own ExtractMedia
+// has nothing else to derive one from for a non-document message), so the extension lookup
+// alone is not reliable.
+//
+// mediaType is never actually "ptt" in practice, confirmed by the live re-test that caught
+// this: pkg/utils's ExtractMediaInfo is the only place that reads AudioMessage.GetPTT(), and
+// both branches return the identical hardcoded string "audio" regardless of it - "ptt" is
+// handled defensively throughout this codebase (forwarding, Chatwoot sync) as if it could
+// occur, but nothing ever produces it. A genuine WhatsApp AudioMessage - "ptt" or a regular
+// audio attachment alike, as distinct from a DocumentMessage, which keeps its own format and
+// extension - is always Opus-in-Ogg: WhatsApp transcodes both into the same container, which
+// is also why ExtractMediaInfo itself hardcodes the "ogg" extension for every AudioMessage it
+// sees. So when no extension is available this falls back to audio/ogg for either value,
+// rather than leaving a real voice note mislabelled application/octet-stream.
 func audioMimeTypeFor(mediaType, filename string) string {
 	if mt, ok := audioMimeTypes[strings.ToLower(filepath.Ext(filename))]; ok {
 		return mt
 	}
-	if mediaType == "ptt" {
+	if mediaType == "ptt" || mediaType == "audio" {
 		return "audio/ogg"
 	}
 	return "application/octet-stream"

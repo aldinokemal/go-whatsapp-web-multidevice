@@ -95,35 +95,30 @@ func TestDownloadMediaFallsBackCleanlyWhenTheAudioFileIsMissing(t *testing.T) {
 }
 
 func TestAudioMimeTypeForUnknownExtensionFallsBack(t *testing.T) {
-	assert.Equal(t, "application/octet-stream", audioMimeTypeFor("audio", "notes.txt"))
-	assert.Equal(t, "application/octet-stream", audioMimeTypeFor("audio", ""))
+	assert.Equal(t, "application/octet-stream", audioMimeTypeFor("document", "notes.txt"))
+	assert.Equal(t, "application/octet-stream", audioMimeTypeFor("document", ""))
 	assert.Equal(t, "audio/ogg", audioMimeTypeFor("audio", "voice.OGG"), "extension match is case-insensitive")
 }
 
-// A real voice note from Geathe Langridge (27765925492), downloaded through the live
-// download_media path on 2026-11-24, came back with a generated filename carrying no
-// extension at all ("1795553037-e5afd729-92b1-43c8-8dc6-2f96168b89c3") - WhatsApp's own
-// AudioMessage.Mimetype was apparently empty for that sender, so ExtractMedia's own
-// extension-detection (pkg/utils/whatsapp.go's determineMediaExtension) had nothing to
-// fall back to either. audioMimeTypeFor then silently mislabelled the inline block
-// application/octet-stream instead of audio/ogg. A WhatsApp voice note ("ptt") is always
-// Opus-in-Ogg regardless of what any particular sender's client reports, so that is a safe
-// fallback when the filename carries no recognisable extension.
+// A real voice note from a WhatsApp contact, downloaded through the live download_media
+// path on 2026-11-24, came back with media_type "audio" (never "ptt" - see audioMimeTypeFor's
+// own comment) and a generated filename carrying no extension at all
+// ("1795553037-e5afd729-92b1-43c8-8dc6-2f96168b89c3"): WhatsApp's own AudioMessage.Mimetype
+// was apparently empty for that sender, so ExtractMedia's own extension-detection
+// (pkg/utils/whatsapp.go's determineMediaExtension) had nothing to fall back to either.
+// audioMimeTypeFor then silently mislabelled the inline block application/octet-stream
+// instead of audio/ogg - a first fix here special-cased only "ptt", which this same live
+// re-test then proved never actually fires, so it fixed nothing. "audio" is always
+// Opus-in-Ogg too, so it now gets the same fallback.
 func TestAudioMimeTypeFallsBackToOggForAVoiceNoteWithNoFileExtension(t *testing.T) {
-	assert.Equal(t, "audio/ogg", audioMimeTypeFor("ptt", "1795553037-e5afd729-92b1-43c8-8dc6-2f96168b89c3"))
-}
-
-func TestAudioMimeTypeForGenericAudioWithNoExtensionStaysUnknown(t *testing.T) {
-	// Unlike "ptt", a plain "audio" message isn't guaranteed to be Ogg/Opus (could be an
-	// mp3, m4a, etc. shared as a file), so with no extension to go on this stays the
-	// generic fallback rather than guessing a specific codec.
-	assert.Equal(t, "application/octet-stream", audioMimeTypeFor("audio", "1795553037-e5afd729-92b1-43c8-8dc6-2f96168b89c3"))
+	assert.Equal(t, "audio/ogg", audioMimeTypeFor("audio", "1795553037-e5afd729-92b1-43c8-8dc6-2f96168b89c3"))
+	assert.Equal(t, "audio/ogg", audioMimeTypeFor("ptt", "1795553037-e5afd729-92b1-43c8-8dc6-2f96168b89c3"), "ptt never actually occurs, but is handled the same way if it ever did")
 }
 
 func TestDownloadMediaInlinesAVoiceNoteWithNoFileExtension(t *testing.T) {
 	path := writeTempImage(t, fakeAudioBytes, "1795553037-e5afd729-92b1-43c8-8dc6-2f96168b89c3")
 	svc := &downloadMediaStub{resp: domainMessage.DownloadMediaResponse{
-		MessageID: "M1", MediaType: "ptt",
+		MessageID: "M1", MediaType: "audio", // the real value every WhatsApp voice note actually arrives with
 		Filename: "1795553037-e5afd729-92b1-43c8-8dc6-2f96168b89c3", // matches a real download's generated name
 		FilePath: path, FileSize: int64(len(fakeAudioBytes)),
 	}}
