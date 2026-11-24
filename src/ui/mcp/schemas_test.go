@@ -26,6 +26,15 @@ func validate(t *testing.T, s *jsonschema.Schema, payload string) error {
 	return s.Validate(v)
 }
 
+// TestSendSchemaPointsToCreateUpload guards the one place an agent reaching
+// for image_base64 would actually see it: without this, a caller that
+// doesn't already know whatsapp_app's create_upload action exists has no way
+// to find it from here, and would hit the exact base64-reliability problem
+// this field's own description now warns about.
+func TestSendSchemaPointsToCreateUpload(t *testing.T) {
+	require.Contains(t, sendSchema, "create_upload")
+}
+
 func TestSchemas(t *testing.T) {
 	tests := []struct {
 		name    string
