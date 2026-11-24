@@ -100,7 +100,12 @@ func TestHandleAppDispatch(t *testing.T) {
 		uploadPath, _ := structured["upload_path"].(string)
 		fetchPath, _ := structured["fetch_path"].(string)
 		assert.True(t, strings.HasPrefix(uploadPath, "/uploads/"))
-		assert.Equal(t, uploadPath+"/file", fetchPath)
+		// The real format isn't known until after the PUT, and WTF's own
+		// image_url downloader insists on a jpg/png/webp-looking URL
+		// regardless of the actual Content-Type it also checks - see
+		// ui/rest/upload.go's GET route, which ignores this segment
+		// entirely and serves by ticket id alone.
+		assert.Equal(t, uploadPath+"/file.jpg", fetchPath)
 		assert.Equal(t, 600, structured["expires_in_seconds"])
 	})
 

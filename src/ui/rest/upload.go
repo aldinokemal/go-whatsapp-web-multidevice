@@ -29,7 +29,16 @@ func InitRestUpload(app fiber.Router, store *upload.Store) {
 		return c.JSON(fiber.Map{"status": "uploaded"})
 	})
 
-	app.Get("/uploads/:id/file", func(c fiber.Ctx) error {
+	// The trailing segment is wildcarded and never inspected - only :id is
+	// looked up. It exists because WTF's own DownloadImageFromURL (which
+	// image_url ultimately goes through) derives an extension from the
+	// URL's own last path segment and refuses anything not jpg/png/webp,
+	// regardless of the real Content-Type header; create_upload's returned
+	// fetch_path always names a harmless ".jpg" there for exactly this
+	// reason, since the real format isn't known until after the upload.
+	// Accepting (and ignoring) whatever name shows up here means a caller
+	// who, say, appends the real extension themselves still works too.
+	app.Get("/uploads/:id/*", func(c fiber.Ctx) error {
 		path, mimeType, err := store.Fetch(c.Params("id"))
 		if err != nil {
 			return uploadError(c, err)

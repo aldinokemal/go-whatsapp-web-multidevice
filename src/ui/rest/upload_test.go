@@ -42,9 +42,16 @@ func putUpload(t *testing.T, app *fiber.App, id string, body []byte) *http.Respo
 	return resp
 }
 
+// getUpload fetches via the real shape (/file.jpg) create_upload actually
+// hands out - see getUploadAt for fetching via a different trailing segment.
 func getUpload(t *testing.T, app *fiber.App, id string) *http.Response {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/uploads/"+id+"/file", nil)
+	return getUploadAt(t, app, "/uploads/"+id+"/file.jpg")
+}
+
+func getUploadAt(t *testing.T, app *fiber.App, path string) *http.Response {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	return resp
@@ -64,6 +71,26 @@ func TestUploadRouteRoundTrips(t *testing.T) {
 	got, readErr := io.ReadAll(getResp.Body)
 	require.NoError(t, readErr)
 	assert.Equal(t, onePixelPNG, got)
+}
+
+// TestUploadRouteGetIgnoresTheURLsTrailingSegment guards a real bug a live
+// end-to-end test caught: WTF's own image_url downloader derives a file
+// extension from the URL's own last path segment and refuses anything that
+// isn't jpg/png/webp there - create_upload always names a fixed ".jpg" for
+// that reason, since the real format isn't known until after the PUT. The
+// GET route must therefore serve correctly by ticket id alone, whatever
+// name shows up after it.
+func TestUploadRouteGetIgnoresTheURLsTrailingSegment(t *testing.T) {
+	app, store := newUploadTestApp(t)
+	id, err := store.Create("device-1", time.Minute, config.WhatsappSettingMaxImageSize)
+	require.NoError(t, err)
+	require.NoError(t, store.Upload(id, onePixelPNG))
+
+	for _, suffix := range []string{"file.jpg", "whatever.png", "no-extension-at-all"} {
+		resp := getUploadAt(t, app, "/uploads/"+id+"/"+suffix)
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "suffix %q", suffix)
+		assert.Equal(t, "image/png", resp.Header.Get("Content-Type"), "suffix %q", suffix)
+	}
 }
 
 func TestUploadRoutePutUnknownIDIs404(t *testing.T) {

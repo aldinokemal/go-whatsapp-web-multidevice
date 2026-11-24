@@ -112,7 +112,13 @@ func (h *AppHandler) handleApp(ctx context.Context, request mcpg.CallToolRequest
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
 		uploadPath := "/uploads/" + id
-		fetchPath := uploadPath + "/file"
+		// WTF's own image_url downloader (DownloadImageFromURL) derives a
+		// file extension from the URL's own last path segment and refuses
+		// anything that isn't jpg/png/webp there, regardless of the real
+		// Content-Type header it also checks. The real format isn't known
+		// until after the PUT, so this names a fixed, harmless ".jpg" -
+		// the GET route ignores the whole segment and serves by id alone.
+		fetchPath := uploadPath + "/file.jpg"
 		structured := map[string]any{
 			"upload_path":        uploadPath,
 			"fetch_path":         fetchPath,
