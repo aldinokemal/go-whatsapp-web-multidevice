@@ -39,6 +39,7 @@ func TestSchemas(t *testing.T) {
 		{"send missing phone", sendSchema, `{"type":"text","message":"hi"}`, true},
 		{"send bad type", sendSchema, `{"type":"fax","phone":"628"}`, true},
 		{"send image ok", sendSchema, `{"type":"image","phone":"628","image_url":"http://x/a.png","caption":"c"}`, false},
+		{"send image with inline base64 ok", sendSchema, `{"type":"image","phone":"628","image_base64":"aGk=","image_filename":"shot.png"}`, false},
 		{"send image missing url", sendSchema, `{"type":"image","phone":"628"}`, true},
 		{"send video ok", sendSchema, `{"type":"video","phone":"628","video_url":"http://x/a.mp4"}`, false},
 		{"send video missing url", sendSchema, `{"type":"video","phone":"628"}`, true},

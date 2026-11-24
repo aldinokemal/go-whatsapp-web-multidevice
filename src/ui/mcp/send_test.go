@@ -136,6 +136,32 @@ func TestHandleSendDispatch(t *testing.T) {
 		assert.True(t, svc.lastImage.HD)
 	})
 
+	t.Run("image with inline base64", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "image", "phone": "628", "image_base64": "aGVsbG8=", "image_filename": "shot.png",
+			"caption": "c",
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, svc.lastImage)
+		assert.Nil(t, svc.lastImage.ImageURL)
+		assert.Equal(t, []byte("hello"), svc.lastImage.ImageBytes)
+		assert.Equal(t, "shot.png", svc.lastImage.ImageFilename)
+	})
+
+	t.Run("image with invalid base64 is a tool error", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "image", "phone": "628", "image_base64": "not valid base64!!",
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		assert.True(t, res.IsError)
+		assert.Nil(t, svc.lastImage)
+	})
+
 	t.Run("video", func(t *testing.T) {
 		svc := &stubSendService{}
 		h := InitMcpSend(svc, &stubResolver{})

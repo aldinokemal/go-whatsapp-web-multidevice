@@ -1131,6 +1131,50 @@ func TestValidateSendImage_WithImageURL(t *testing.T) {
 	}
 }
 
+// TestValidateSendImage_WithImageBytes covers the MCP-only path: inline
+// base64 decoded straight into ImageBytes, with no multipart upload and no
+// URL to fetch.
+func TestValidateSendImage_WithImageBytes(t *testing.T) {
+	type args struct {
+		request domainSend.ImageRequest
+	}
+	tests := []struct {
+		name string
+		args args
+		err  any
+	}{
+		{
+			name: "should success with image bytes",
+			args: args{request: domainSend.ImageRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Caption:    "Hello this is testing",
+				ImageBytes: []byte{0x89, 0x50, 0x4e, 0x47},
+			}},
+			err: nil,
+		},
+		{
+			name: "should error with empty image bytes and nothing else",
+			args: args{request: domainSend.ImageRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Caption:    "Hello this is testing",
+				ImageBytes: []byte{},
+			}},
+			err: pkgError.ValidationError("either Image or ImageURL must be provided"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSendImage(context.Background(), tt.args.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}
+
 func TestValidateSendFile_WithDuration(t *testing.T) {
 	file := &multipart.FileHeader{
 		Filename: "sample-file.pdf",

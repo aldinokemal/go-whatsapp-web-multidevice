@@ -126,7 +126,7 @@ func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) err
 		return err
 	}
 
-	if request.Image == nil && (request.ImageURL == nil || *request.ImageURL == "") {
+	if request.Image == nil && (request.ImageURL == nil || *request.ImageURL == "") && len(request.ImageBytes) == 0 {
 		return pkgError.ValidationError("either Image or ImageURL must be provided")
 	}
 

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -67,17 +68,27 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			AllowReshare:   request.GetBool("allow_reshare", false),
 		})
 	case "image":
-		imageURL := request.GetString("image_url", "")
-		res, err = s.sendService.SendImage(ctx, domainSend.ImageRequest{
+		imageReq := domainSend.ImageRequest{
 			BaseRequest:  base,
-			ImageURL:     &imageURL,
 			Caption:      request.GetString("caption", ""),
 			Mentions:     request.GetStringSlice("mentions", nil),
 			ViewOnce:     request.GetBool("view_once", false),
 			Compress:     request.GetBool("compress", true),
 			HD:           request.GetBool("hd", false),
 			AllowReshare: request.GetBool("allow_reshare", false),
-		})
+		}
+		if b64 := request.GetString("image_base64", ""); b64 != "" {
+			imageBytes, decodeErr := base64.StdEncoding.DecodeString(b64)
+			if decodeErr != nil {
+				return mcpg.NewToolResultError(fmt.Sprintf("image_base64 is not valid base64: %v", decodeErr)), nil
+			}
+			imageReq.ImageBytes = imageBytes
+			imageReq.ImageFilename = request.GetString("image_filename", "")
+		} else {
+			imageURL := request.GetString("image_url", "")
+			imageReq.ImageURL = &imageURL
+		}
+		res, err = s.sendService.SendImage(ctx, imageReq)
 	case "video":
 		videoURL := request.GetString("video_url", "")
 		res, err = s.sendService.SendVideo(ctx, domainSend.VideoRequest{

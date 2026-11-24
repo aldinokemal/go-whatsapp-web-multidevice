@@ -438,6 +438,19 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		if err != nil {
 			return response, err
 		}
+	} else if len(request.ImageBytes) > 0 {
+		// Already-decoded bytes from the MCP tool: no download, no multipart
+		// form, just write what the caller handed us.
+		filename := request.ImageFilename
+		if filename == "" {
+			filename = "image.png"
+		}
+		imageName = generateUUID + filename
+		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, imageName)
+		err = os.WriteFile(oriImagePath, request.ImageBytes, 0644)
+		if err != nil {
+			return response, pkgError.InternalServerError(fmt.Sprintf("failed to save inline image %v", err))
+		}
 	}
 	deletedItems = append(deletedItems, oriImagePath)
 
