@@ -781,12 +781,18 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 		wantLookup, wantCreate       int
 		wantConversation             int
 		quoteChange                  func(*domainChatStorage.ChatwootMessageLink)
+		resolvedOnly, reopen, active bool
+		linkedMissing                bool
 		rejectedConversation         int
 		rejectStatus                 int
 	}{
 		{name: "unproven other spelling", wantLookup: 1, wantCreate: 1, wantConversation: 80},
 		{name: "delivered reply", linked: true, linkConfigID: 3, wantLookup: 1, wantConversation: 42},
 		{name: "quoted older reply", linked: true, linkConfigID: 3, quote: true, wantConversation: 41},
+		{name: "quoted resolved thread with newer open thread", linked: true, linkConfigID: 3, quote: true, active: true, wantConversation: 45},
+		{name: "reopen latest resolved", linked: true, linkConfigID: 3, quote: true, resolvedOnly: true, reopen: true, wantConversation: 44},
+		{name: "new thread when reopen disabled", linked: true, linkConfigID: 3, quote: true, resolvedOnly: true, wantConversation: 80},
+		{name: "linked conversation already deleted", linked: true, linkConfigID: 3, linkedMissing: true, wantLookup: 1, wantCreate: 1, wantConversation: 80},
 		{name: "quoted link from another chat", linked: true, linkConfigID: 3, quote: true, wantLookup: 1, wantConversation: 42,
 			quoteChange: func(link *domainChatStorage.ChatwootMessageLink) { link.WhatsAppChatJID = "123@s.whatsapp.net" }},
 		{name: "quoted link from another account", linked: true, linkConfigID: 3, quote: true, wantLookup: 1, wantConversation: 42,
@@ -803,6 +809,9 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 		{name: "outgoing mirror cannot use fallback", linked: true, fromMe: true, linkConfigID: 3, wantCreate: 1, wantConversation: 80},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			previousReopen := config.ChatwootReopenConversation
+			t.Cleanup(func() { config.ChatwootReopenConversation = previousReopen })
+			config.ChatwootReopenConversation = tc.reopen
 			repo := &deliveredChatwootReplyTestRepo{}
 			if tc.linked {
 				repo.link = &domainChatStorage.ChatwootMessageLink{
@@ -820,7 +829,8 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 				}
 				repo.quotedLink = &quote
 			}
-			var searches, creates, conversationCreates int
+			var searches, creates, conversationCreates, linkedConversation int
+			var toggles int
 			var postConversations []int
 			var posts []chatwoot.CreateMessageRequest
 			transport := chatwootRoutingTestTransport(func(r *http.Request) (*http.Response, error) {
@@ -844,6 +854,27 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 					require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 					require.Equal(t, phone, request.PhoneNumber)
 					body = chatwoot.Contact{ID: 8}
+				case "GET " + api + "/conversations/41", "GET " + api + "/conversations/42":
+					_, err := fmt.Sscanf(r.URL.Path, api+"/conversations/%d", &linkedConversation)
+					require.NoError(t, err)
+					if tc.linkedMissing || (tc.rejectStatus == http.StatusNotFound && len(posts) > 0) {
+						w.WriteHeader(http.StatusNotFound)
+						return w.Result(), nil
+					}
+					body = chatwoot.ConversationWebhook{ID: linkedConversation, InboxID: 2, Meta: chatwoot.ConversationMeta{Sender: chatwoot.Contact{ID: 7, Name: "Other spelling"}}}
+				case "GET " + api + "/contacts/7/conversations":
+					items := []chatwoot.Conversation{{ID: linkedConversation, InboxID: 2, Status: "open"}}
+					if tc.active || tc.resolvedOnly {
+						items[0].Status = "resolved"
+						items = append(items, chatwoot.Conversation{ID: 44, InboxID: 2, Status: "resolved"})
+					}
+					if tc.active {
+						items = append(items, chatwoot.Conversation{ID: 45, InboxID: 2, Status: "open"})
+					}
+					body = map[string]any{"payload": items}
+				case "POST " + api + "/conversations/44/toggle_status":
+					toggles++
+					body = map[string]any{}
 				case "GET " + api + "/contacts/8/conversations":
 					body = map[string]any{"payload": []any{}}
 					if conversationCreates > 0 {
@@ -853,6 +884,11 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 					body = map[string]any{"payload": []map[string]any{{"id": 70, "inbox_id": 2, "status": "open"}}}
 				case "POST " + api + "/conversations":
 					conversationCreates++
+					if tc.resolvedOnly {
+						var request chatwoot.CreateConversationRequest
+						require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+						require.Equal(t, 7, request.ContactID)
+					}
 					body = map[string]any{"id": 80}
 				case fmt.Sprintf("POST %s/conversations/%d/messages", api, tc.wantConversation),
 					fmt.Sprintf("POST %s/conversations/%d/messages", api, tc.rejectedConversation):
@@ -927,8 +963,17 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 				require.Equal(t, tc.wantLookup, repo.lookupCalls)
 				return
 			}
+			if tc.reopen {
+				require.Equal(t, 1, toggles)
+			} else {
+				require.Zero(t, toggles)
+			}
 			require.Equal(t, tc.wantCreate, creates)
-			require.Equal(t, tc.wantLookup, repo.lookupCalls)
+			expectedLookups := tc.wantLookup
+			if tc.rejectStatus == http.StatusNotFound {
+				expectedLookups *= 2
+			}
+			require.Equal(t, expectedLookups, repo.lookupCalls)
 			require.NotNil(t, repo.storedLink)
 			require.Equal(t, tc.wantConversation, repo.storedLink.ChatwootConversationID)
 
@@ -957,7 +1002,7 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 				require.Equal(t, 3, searches)
 				require.Equal(t, 1, creates)
 				require.Equal(t, 1, conversationCreates)
-				require.Equal(t, tc.wantLookup, repo.lookupCalls)
+				require.Equal(t, expectedLookups, repo.lookupCalls)
 			}
 		})
 	}

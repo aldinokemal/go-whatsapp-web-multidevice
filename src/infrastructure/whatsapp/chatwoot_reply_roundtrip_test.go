@@ -3,6 +3,7 @@ package whatsapp_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -58,14 +59,23 @@ func TestChatwootReplyRoundTripWithAlternatePhoneSpelling(t *testing.T) {
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
+				var response any
 				switch r.Method + " " + r.URL.Path {
 				case "GET /api/v1/accounts/1/contacts/search":
-					fmt.Fprintf(w, `{"payload":[{"id":7,"phone_number":"+%s"}]}`, contactPhone)
+					response = map[string]any{"payload": []chatwoot.Contact{{ID: 7, PhoneNumber: "+" + contactPhone}}}
+				case "GET /api/v1/accounts/1/conversations/42":
+					response = chatwoot.ConversationWebhook{ID: 42, InboxID: 2, Meta: chatwoot.ConversationMeta{Sender: chatwoot.Contact{ID: 7, Name: "Customer"}}}
+				case "GET /api/v1/accounts/1/contacts/7/conversations":
+					response = map[string]any{"payload": []chatwoot.Conversation{{ID: 42, InboxID: 2, Status: "open"}}}
 				case "POST /api/v1/accounts/1/conversations/42/messages":
-					fmt.Fprint(w, `{"id":73}`)
+					response = chatwoot.Message{ID: 73}
 				default:
 					t.Errorf("unexpected Chatwoot request %s %s", r.Method, r.URL.Path)
 					http.NotFound(w, r)
+					return
+				}
+				if err := json.NewEncoder(w).Encode(response); err != nil {
+					t.Errorf("encode Chatwoot response: %v", err)
 				}
 			}))
 			t.Cleanup(server.Close)

@@ -1111,6 +1111,19 @@ func structuredContactsArraySummary(contacts []webhookContactPayload) string {
 	return utils.FormatContactSummary(first.DisplayName, first.PhoneNumber, true)
 }
 
+func deliveredChatwootReplyLink(resolved *chatwoot.ResolvedConfig, deviceID, chatJID string, repo domainChatStorage.IChatStorageRepository, reply *chatwootReplyTarget) (*domainChatStorage.ChatwootMessageLink, error) {
+	cw := resolved.Client
+	if reply != nil {
+		link := reply.link
+		if link != nil && link.DeviceID == deviceID && link.WhatsAppChatJID == chatJID &&
+			link.ChatwootConfigID == resolved.ConfigID && link.ChatwootAccountID == cw.AccountID && link.ChatwootInboxID == cw.InboxID &&
+			link.Direction == "outgoing" && link.ChatwootMessageID > 0 && link.ChatwootConversationID > 0 && !strings.HasPrefix(link.SourceID, "WAID:") {
+			return link, nil
+		}
+	}
+	return repo.GetLatestOutgoingChatwootMessageLinkByChat(deviceID, chatJID, resolved.ConfigID, cw.AccountID, cw.InboxID)
+}
+
 func findChatwootConversation(resolved *chatwoot.ResolvedConfig, info *chatwootContactInfo, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, reply *chatwootReplyTarget) (conversationID int, fromLink bool, err error) {
 	// Lock per-identifier mutex to prevent duplicate contact/conversation creation
 	mu := getContactMutex(info.Identifier)
@@ -1124,21 +1137,16 @@ func findChatwootConversation(resolved *chatwoot.ResolvedConfig, info *chatwootC
 	}
 	if contact == nil && linkRepo != nil && deviceID != "" && !info.IsFromMe && !info.IsGroup &&
 		strings.HasSuffix(info.ChatJID, "@"+types.DefaultUserServer) && !strings.HasSuffix(info.Identifier, "@"+types.HiddenUserServer) {
-		// A delivered agent reply ties this exact WhatsApp chat to a conversation
-		// even when the Chatwoot contact uses a different phone spelling.
-		if reply != nil {
-			if link := reply.link; link != nil && link.DeviceID == deviceID && link.WhatsAppChatJID == info.ChatJID &&
-				link.ChatwootConfigID == resolved.ConfigID && link.ChatwootAccountID == cw.AccountID && link.ChatwootInboxID == cw.InboxID &&
-				link.Direction == "outgoing" && link.ChatwootMessageID > 0 && link.ChatwootConversationID > 0 && !strings.HasPrefix(link.SourceID, "WAID:") {
-				return link.ChatwootConversationID, true, nil
-			}
-		}
-		link, err := linkRepo.GetLatestOutgoingChatwootMessageLinkByChat(deviceID, info.ChatJID, resolved.ConfigID, cw.AccountID, cw.InboxID)
+		link, err := deliveredChatwootReplyLink(resolved, deviceID, info.ChatJID, linkRepo, reply)
 		if err != nil {
 			return 0, false, fmt.Errorf("failed to look up delivered Chatwoot reply: %w", err)
 		}
 		if link != nil {
-			return link.ChatwootConversationID, true, nil
+			contact, err = cw.ContactForConversation(link.ChatwootConversationID)
+			if err != nil {
+				return 0, false, fmt.Errorf("failed to resolve linked Chatwoot contact: %w", err)
+			}
+			fromLink = contact != nil
 		}
 	}
 	contact, err = cw.ReuseOrCreateContact(info.Name, info.Identifier, info.IsGroup, contact)
@@ -1151,7 +1159,7 @@ func findChatwootConversation(resolved *chatwoot.ResolvedConfig, info *chatwootC
 	if err != nil {
 		return 0, false, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
 	}
-	return conversation.ID, false, nil
+	return conversation.ID, fromLink, nil
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
@@ -1181,9 +1189,9 @@ func syncMessageToChatwoot(resolved *chatwoot.ResolvedConfig, info *chatwootCont
 	if fromLink && err != nil {
 		var statusErr *chatwoot.HTTPStatusError
 		if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
-			// The linked conversation was deleted. Resolve the exact contact
-			// again without consulting stale links.
-			conversationID, _, err = findChatwootConversation(resolved, info, deviceID, nil, nil)
+			// The selected conversation disappeared after selection. Check
+			// the linked contact again before creating a replacement.
+			conversationID, _, err = findChatwootConversation(resolved, info, deviceID, linkRepo, reply)
 			if err != nil {
 				return nil, err
 			}

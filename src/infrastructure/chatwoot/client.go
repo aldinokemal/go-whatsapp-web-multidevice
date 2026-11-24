@@ -636,6 +636,37 @@ func (c *Client) UpdateContactName(contactID int, name string) error {
 	return nil
 }
 
+// ContactForConversation resolves the contact behind a delivered link. A
+// deleted conversation or one moved to another inbox no longer proves a route.
+func (c *Client) ContactForConversation(id int) (*Contact, error) {
+	endpoint := fmt.Sprintf("%s/api/v1/accounts/%d/conversations/%d", c.BaseURL, c.AccountID, id)
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set(apiTokenHeader, c.APIToken)
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Op: "get linked conversation", Body: string(body)}
+	}
+	var conversation ConversationWebhook
+	if err := json.NewDecoder(resp.Body).Decode(&conversation); err != nil {
+		return nil, err
+	}
+	if conversation.ID != id || conversation.InboxID != c.InboxID || conversation.Meta.Sender.ID <= 0 {
+		return nil, nil
+	}
+	return &conversation.Meta.Sender, nil
+}
+
 type conversationListItem struct {
 	ID      int    `json:"id"`
 	InboxID int    `json:"inbox_id"`

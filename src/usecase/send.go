@@ -344,6 +344,10 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 		return contextInfo
 	}
 
+	if !whatsapp.ReplyChatAllowed(ctx, recipient.String(), message.ChatJID) {
+		return contextInfo
+	}
+
 	if contextInfo == nil {
 		contextInfo = &waE2E.ContextInfo{}
 	}

@@ -42,20 +42,29 @@ type replySend struct {
 // replySendStub records the sends; fail maps a 1-based call number to its error.
 type replySendStub struct {
 	domainSend.ISendUsecase
-	calls []replySend
-	fail  map[int]error
+	repo      *replyRepo
+	recipient string
+	calls     []replySend
+	fail      map[int]error
 }
 
 func (s *replySendStub) record(ctx context.Context, call replySend, reply *string) (domainSend.GenericResponse, error) {
+	recipient := s.recipient
+	if recipient == "" {
+		recipient = chatwootLinkChatJID(call.phone)
+	}
 	if reply != nil {
-		call.reply = *reply
+		m, err := s.repo.GetMessageByIDAndDevice(replyTestDevice, *reply)
+		if err == nil && m != nil && whatsapp.ReplyChatAllowed(ctx, recipient, m.ChatJID) {
+			call.reply = *reply
+		}
 	}
 	call.device, _ = whatsapp.DeviceFromContext(ctx)
 	s.calls = append(s.calls, call)
 	if err := s.fail[len(s.calls)]; err != nil {
 		return domainSend.GenericResponse{}, err
 	}
-	return domainSend.GenericResponse{RecipientJID: chatwootLinkChatJID(call.phone), MessageID: fmt.Sprintf("WA-SENT-%d", len(s.calls))}, nil
+	return domainSend.GenericResponse{RecipientJID: recipient, MessageID: fmt.Sprintf("WA-SENT-%d", len(s.calls))}, nil
 }
 
 func (s *replySendStub) SendText(ctx context.Context, r domainSend.MessageRequest) (domainSend.GenericResponse, error) {
@@ -205,6 +214,7 @@ func newReplyEnv(t *testing.T) *replyEnv {
 	dm := whatsapp.NewDeviceManager(nil, nil, nil)
 	dm.AddDevice(env.device)
 
+	env.sender.repo = env.repo
 	handler := &ChatwootHandler{SendUsecase: env.sender, DeviceManager: dm, ChatStorageRepo: env.repo}
 	env.app = fiber.New()
 	env.app.Post("/chatwoot/webhook", handler.HandleWebhook)
@@ -326,7 +336,7 @@ func TestChatwootSameChat(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			lids.mapped = tc.mapped
-			if got := chatwootSameChat(ctx, tc.a, tc.b); got != tc.want {
+			if got := whatsapp.ReplyChatAllowed(whatsapp.WithChatwootQuote(ctx, ""), tc.a, tc.b); got != tc.want {
 				t.Fatalf("chatwootSameChat(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
 			}
 		})
@@ -773,5 +783,33 @@ func TestChatwootReplyRejectsUnscopedLinkInPerDeviceMode(t *testing.T) {
 	env.post(t, replyBody(t, quotingID(50), nil))
 	if len(env.sender.calls) != 0 || len(env.repo.lookups) != 0 {
 		t.Fatalf("unscoped link triggered sends=%+v lookups=%+v", env.sender.calls, env.repo.lookups)
+	}
+}
+
+func TestChatwootReplyValidatesTheDeliveredPhone(t *testing.T) {
+	const short = "550012345678@s.whatsapp.net"
+	const long = "5500912345678@s.whatsapp.net"
+	for _, tc := range []struct{ requested, delivered string }{
+		{long, short}, {short, long},
+	} {
+		for _, quotedChat := range []string{tc.requested, tc.delivered} {
+			for _, attrs := range []map[string]any{quoting("WA-AGENT"), quotingID(41)} {
+				env := newReplyEnv(t)
+				env.repo.link.WhatsAppChatJID = tc.requested
+				env.sender.recipient = tc.delivered
+				env.seed(41, "WA-AGENT", quotedChat)
+				env.post(t, replyBody(t, attrs, nil))
+				want := ""
+				if quotedChat == tc.delivered {
+					want = "WA-AGENT"
+				}
+				if got := env.sender.calls[0].reply; got != want {
+					t.Fatalf("sending %s as %s, quoted chat %s: quote = %q, want %q", tc.requested, tc.delivered, quotedChat, got, want)
+				}
+				if got := env.repo.links[len(env.repo.links)-1].WhatsAppChatJID; got != tc.delivered {
+					t.Fatalf("stored link = %s, want %s", got, tc.delivered)
+				}
+			}
+		}
 	}
 }
