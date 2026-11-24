@@ -43,7 +43,9 @@ func Open(uri string) (*Store, error) {
 }
 
 // now is the only way store code reads the clock. Timestamps are compared as
-// text in SQL, so they must always be UTC regardless of what Now returns.
+// text in SQL, so they must always be UTC regardless of what Now returns. A
+// time that comes in from a caller (a cutoff) is converted with .UTC() before
+// it is bound, for the same reason. See utc.go.
 func (s *Store) now() time.Time { return s.Now().UTC() }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -132,6 +134,10 @@ var migrations = []string{
 		decided_at TIMESTAMP NULL,
 		decided_by TEXT NOT NULL DEFAULT '')`,
 	`CREATE INDEX waitlist_status_created ON waitlist(status, created_at)`,
+	// Rewrite every stored timestamp that is not UTC to UTC, so the text
+	// comparisons and ORDER BYs above hold for rows written before the clock
+	// was pinned to UTC. Run in Go (see timesToUTC), not as SQL.
+	migrateTimesToUTC,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -152,7 +158,12 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
+		if migrations[i] == migrateTimesToUTC {
+			err = timesToUTC(ctx, tx)
+		} else {
+			_, err = tx.ExecContext(ctx, migrations[i])
+		}
+		if err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}

@@ -76,7 +76,7 @@ func (s *Store) JoinWaitlist(ctx context.Context, phone string) (joined bool, po
 	if err := tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) + 1 FROM waitlist WHERE status = 'waiting'
 		 AND (created_at < ? OR (created_at = ? AND phone < ?))`,
-		created, created, phone).Scan(&position); err != nil {
+		created.UTC(), created.UTC(), phone).Scan(&position); err != nil {
 		return false, 0, err
 	}
 	return true, position, tx.Commit()
