@@ -83,7 +83,7 @@ const messageSchema = `{
   "type": "object",
   "required": ["action", "phone", "message_id"],
   "properties": {
-    "action": {"type": "string", "enum": ["react","edit","revoke","delete","mark_read","mark_played","star","unstar","download_media"], "description": "Operation on an existing message. revoke = delete for everyone (destructive); delete = delete for me only; mark_played sends the played receipt for an incoming audio message; download_media saves the file and returns its path; an image under 5MB comes back inline in the reply too, since its file_url needs an authenticated session no MCP client can supply on its own; a voice note or audio file under 25MB comes back with a transcript instead, where the server has transcription configured"},
+    "action": {"type": "string", "enum": ["react","edit","revoke","delete","mark_read","mark_played","star","unstar","download_media"], "description": "Operation on an existing message. revoke = delete for everyone (destructive); delete = delete for me only; mark_played sends the played receipt for an incoming audio message; download_media saves the file and returns its path; an image under 5MB, or a voice note/audio file under 16MB, comes back inline in the reply too (its file_url needs an authenticated session no MCP client can supply on its own). Audio is never transcribed server-side - no API key, no bundled model - so use whatever speech-to-text you have yourself, or ask the sender to type it"},
     "phone": {"type": "string", "description": "Phone number or group JID of the chat containing the message"},
     "message_id": {"type": "string", "description": "The WhatsApp message ID"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},

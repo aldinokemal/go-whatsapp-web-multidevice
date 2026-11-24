@@ -307,9 +307,6 @@ func initEnvConfig() {
 	if viper.IsSet("chatwoot_message_delete") {
 		config.ChatwootMessageDelete = viper.GetBool("chatwoot_message_delete")
 	}
-	if envTranscribeKey := viper.GetString("transcribe_openai_api_key"); envTranscribeKey != "" {
-		config.TranscribeOpenAIAPIKey = envTranscribeKey
-	}
 }
 
 func initFlags() {

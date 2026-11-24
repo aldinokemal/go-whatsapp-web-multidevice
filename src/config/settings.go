@@ -175,12 +175,4 @@ var (
 	// message when the opposite side reports deletion.
 	ChatwootMessageRead   = false
 	ChatwootMessageDelete = false
-
-	// TranscribeOpenAIAPIKey, when set, lets the MCP download_media action
-	// transcribe a voice note (WhatsApp media type "ptt") or audio file
-	// through OpenAI's transcription API, the same way an image under 5MB
-	// already comes back inline: no API client can otherwise hear audio at
-	// all. Left empty, download_media degrades to today's behaviour (saved
-	// to disk, no transcript) rather than failing.
-	TranscribeOpenAIAPIKey = ""
 )
