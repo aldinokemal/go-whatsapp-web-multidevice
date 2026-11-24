@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -155,15 +156,48 @@ func TestUploadOnAnExpiredAlreadyUploadedTicketCleansUpTheFile(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
-func TestCreateRefusesBeyondTheOutstandingTicketCeiling(t *testing.T) {
+func TestCreateRefusesBeyondTheGlobalTicketCeiling(t *testing.T) {
 	s := newTestStore(t)
 	for i := 0; i < maxOutstandingTickets; i++ {
+		_, err := s.Create(fmt.Sprintf("device-%d", i), time.Minute, 1<<20)
+		require.NoError(t, err)
+	}
+
+	// A different device each time, so the global backstop is what's hit,
+	// not the per-device cap (20 per device would stop this at i=20 for a
+	// single shared device id).
+	_, err := s.Create("device-overflow", time.Minute, 1<<20)
+	assert.ErrorIs(t, err, ErrTooManyTickets)
+}
+
+func TestCreateRefusesBeyondThePerDeviceTicketCeiling(t *testing.T) {
+	s := newTestStore(t)
+	for i := 0; i < maxOutstandingTicketsPerDevice; i++ {
 		_, err := s.Create("device-1", time.Minute, 1<<20)
 		require.NoError(t, err)
 	}
 
 	_, err := s.Create("device-1", time.Minute, 1<<20)
-	assert.ErrorIs(t, err, ErrTooManyTickets)
+	assert.ErrorIs(t, err, ErrTooManyTickets, "one device spamming create_upload must not need the global ceiling to be stopped")
+
+	// A different device sharing this instance is unaffected by device-1's
+	// own cap - the whole point of scoping it per device.
+	_, err = s.Create("device-2", time.Minute, 1<<20)
+	assert.NoError(t, err)
+}
+
+func TestCreateDoesNotCountAlreadyExpiredTicketsAgainstTheDeviceCap(t *testing.T) {
+	s := newTestStore(t)
+	for i := 0; i < maxOutstandingTicketsPerDevice; i++ {
+		_, err := s.Create("device-1", -time.Second, 1<<20) // already expired
+		require.NoError(t, err)
+	}
+
+	// Create sweeps anything already expired before counting against either
+	// cap, so a backlog merely waiting for the next Sweep tick can't look
+	// like exhausted quota to the very next legitimate caller.
+	_, err := s.Create("device-1", time.Minute, 1<<20)
+	assert.NoError(t, err)
 }
 
 func TestClearDirectoryRemovesLeftoverFilesButNotSubdirectories(t *testing.T) {

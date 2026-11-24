@@ -27,12 +27,16 @@ var (
 	ErrTooManyTickets  = errors.New("too many outstanding upload tickets")
 )
 
-// maxOutstandingTickets bounds total exposure (memory for the tickets
-// themselves, disk for whatever they hold) to a fixed ceiling regardless of
-// how fast a caller mints them; each still expires and is swept well within
-// a minute or two either way. Generous for real use (one agent, one image
-// at a time), low enough that spamming create_upload cannot run away.
-const maxOutstandingTickets = 1000
+// maxOutstandingTicketsPerDevice is the real limit a legitimate caller ever
+// hits: one agent working through one image at a time needs one or two, not
+// twenty. maxOutstandingTickets is a much higher backstop on the whole
+// store, so one device spamming create_upload cannot starve every other
+// device sharing this instance (the per-device cap alone would not stop a
+// caller who mints tickets under many different device ids).
+const (
+	maxOutstandingTicketsPerDevice = 20
+	maxOutstandingTickets          = 1000
+)
 
 // AllowedMimes is the content-type allowlist every upload is sniffed
 // against, matching the image types whatsapp_send already accepts.
@@ -97,7 +101,22 @@ func (s *Store) Create(deviceID string, ttl time.Duration, maxBytes int64) (stri
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.tickets) >= maxOutstandingTickets {
+
+	// Expire anything already due before counting against either cap, so a
+	// backlog merely waiting for the next Sweep tick can't itself look like
+	// exhausted quota.
+	now := time.Now()
+	deviceCount := 0
+	for existingID, existing := range s.tickets {
+		if now.After(existing.expiresAt) {
+			s.expireLocked(existingID, existing)
+			continue
+		}
+		if existing.deviceID == deviceID {
+			deviceCount++
+		}
+	}
+	if deviceCount >= maxOutstandingTicketsPerDevice || len(s.tickets) >= maxOutstandingTickets {
 		return "", ErrTooManyTickets
 	}
 	s.tickets[id] = &ticket{

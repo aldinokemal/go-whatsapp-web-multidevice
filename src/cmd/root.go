@@ -698,6 +698,13 @@ func initApp() {
 	if err := upload.ClearDirectory(config.PathUploads); err != nil {
 		logrus.Warnf("clearing stale uploads: %v", err)
 	}
+	// PathUploads lived under statics/ (served as plain public files in
+	// single-user mode) before it moved to storages/; clear whatever an
+	// older build of this binary left there too, so an upgrade can never
+	// leave a once-public, no-longer-ticket-checked file sitting around.
+	if err := upload.ClearDirectory("statics/uploads"); err != nil {
+		logrus.Warnf("clearing legacy statics/uploads: %v", err)
+	}
 	uploadStore = upload.NewStore(config.PathUploads)
 	go func() {
 		ticker := time.NewTicker(time.Minute)
