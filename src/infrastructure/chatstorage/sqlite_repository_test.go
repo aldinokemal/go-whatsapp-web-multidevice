@@ -35,6 +35,135 @@ func newTestSQLiteRepository(t *testing.T) *SQLiteRepository {
 	return repo
 }
 
+func TestGroupSubjectStoreChatAndRename(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	const group = "12345@g.us"
+	when := time.Now().Add(-time.Hour).Truncate(time.Second)
+	for _, device := range []string{"device-a", "device-b"} {
+		if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: device, JID: group, Name: "Group 12345", LastMessageTime: when, EphemeralExpiration: 42, Archived: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: "device-a", JID: group, Name: "Pat's book club", LastMessageTime: when}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.GetChatByDevice("device-a", group)
+	if err != nil || got == nil || got.Name != "Pat's book club" {
+		t.Fatalf("placeholder healing: %+v, %v", got, err)
+	}
+	// A stale snapshot must not replace the healed subject, even if it has a
+	// different, apparently meaningful name. Non-name metadata still updates.
+	later := when.Add(time.Minute)
+	for _, candidate := range []string{"Group 12345", "12345@g.us", "", "Stale subject"} {
+		if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: "device-a", JID: group, Name: candidate, LastMessageTime: later, EphemeralExpiration: 42, Archived: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err = repo.GetChatByDevice("device-a", group)
+	if err != nil || got == nil || got.Name != "Pat's book club" || !got.LastMessageTime.Equal(later) {
+		t.Fatalf("stale fallback changed group: %+v, %v", got, err)
+	}
+	beforeCreated, beforeUpdated := got.CreatedAt, got.UpdatedAt
+	if applied, err := repo.UpdateGroupSubject("device-a", group, "Pat's reading group"); err != nil || !applied {
+		t.Fatalf("rename applied=%v: %v", applied, err)
+	}
+	// A late response can heal only a placeholder.
+	if err := repo.FillGroupSubject("device-a", group, "Stale lookup"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repo.GetChatByDevice("device-a", group)
+	if err != nil || got == nil || got.Name != "Pat's reading group" || !got.CreatedAt.Equal(beforeCreated) || got.UpdatedAt.Before(beforeUpdated) || !got.LastMessageTime.Equal(later) || got.EphemeralExpiration != 42 || !got.Archived {
+		t.Fatalf("rename changed other fields: %+v, %v", got, err)
+	}
+	other, err := repo.GetChatByDevice("device-b", group)
+	if err != nil || other == nil || other.Name != "Group 12345" {
+		t.Fatalf("other device changed: %+v, %v", other, err)
+	}
+	if applied, err := repo.UpdateGroupSubject("device-a", "missing@g.us", "No insert"); err != nil || applied {
+		t.Fatalf("missing row applied=%v: %v", applied, err)
+	}
+	missing, err := repo.GetChatByDevice("device-a", "missing@g.us")
+	if err != nil || missing != nil {
+		t.Fatalf("rename inserted missing row: %+v, %v", missing, err)
+	}
+}
+
+func TestGroupSubjectHealsLegacyIDNames(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	const jid = "12345@g.us"
+	for _, tc := range []struct {
+		device, fallback string
+		useFill          bool
+	}{
+		{"a", jid, true}, {"b", "12345", true}, {"c", jid, false}, {"d", "12345", false},
+	} {
+		chat := &domainChatStorage.Chat{DeviceID: tc.device, JID: jid, Name: tc.fallback, LastMessageTime: time.Now()}
+		if err := repo.StoreChat(chat); err != nil {
+			t.Fatal(err)
+		}
+		if tc.useFill {
+			if err := repo.FillGroupSubject(tc.device, jid, "Real subject"); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			chat.Name = "Real subject"
+			if err := repo.StoreChat(chat); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := repo.GetChatByDevice(tc.device, jid)
+		if err != nil || got == nil || got.Name != "Real subject" {
+			t.Fatalf("heal %q: %+v, %v", tc.fallback, got, err)
+		}
+	}
+}
+
+func TestGroupSubjectInsertConflictDoesNotOverwrite(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	const group = "12345@g.us"
+	// A write originating from an earlier read of a missing chat must still
+	// preserve the subject written by another operation before its insert.
+	if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: "device-a", JID: group, Name: "Latest subject"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 10; i++ {
+		if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: "device-a", JID: group, Name: "Group 12345"}); err != nil {
+			t.Fatalf("conflict write %d: %v", i, err)
+		}
+	}
+	got, err := repo.GetChatByDevice("device-a", group)
+	if err != nil || got == nil || got.Name != "Latest subject" {
+		t.Fatalf("conflict replaced subject: %+v, %v", got, err)
+	}
+}
+func TestGroupMessagePushNameDoesNotReplaceSubject(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	group := types.NewJID("12345", types.GroupServer)
+	sender := types.NewJID("15550102000", types.DefaultUserServer)
+	device := "device-a"
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(device, nil, repo))
+	if got := repo.GetChatNameWithPushNameByDevice(device, group, group.String(), sender.User, "Sender Name"); got != "Group 12345" {
+		t.Fatalf("group getter returned participant name: %q", got)
+	}
+	if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: device, JID: group.String(), Name: "Team subject"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := repo.GetChatNameWithPushName(group, group.String(), sender.User, "Sender Name"); got != "Group 12345" {
+		t.Fatalf("unscoped getter returned a device's stored group name %q", got)
+	}
+	evt := &events.Message{Info: types.MessageInfo{
+		MessageSource: types.MessageSource{Chat: group, Sender: sender},
+		ID:            "group-msg", PushName: "Sender Name", Timestamp: time.Now(),
+	}, Message: &waE2E.Message{Conversation: proto.String("hello group")}}
+	if err := repo.CreateMessage(ctx, evt); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.GetChatByDevice(device, group.String())
+	if err != nil || got == nil || got.Name != "Team subject" {
+		t.Fatalf("participant pushname changed group: %+v, %v", got, err)
+	}
+}
+
 func TestSQLiteRepositoryInitializesMessageReactionsSchema(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 

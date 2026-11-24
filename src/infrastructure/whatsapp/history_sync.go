@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -128,6 +129,11 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 		// Device-scoped: another device's stored name for this chat (for
 		// example a contact name only that account saved) is not this one's.
 		chatName := chatStorageRepo.GetChatNameWithPushNameByDevice(deviceID, jid, chatJID, "", displayName)
+		if jid.Server == types.GroupServer && (chatName == "Group "+jid.User || chatName == chatJID || chatName == jid.User) {
+			if candidate := strings.TrimSpace(displayName); candidate != "" && candidate != chatJID && candidate != jid.User {
+				chatName = candidate
+			}
+		}
 
 		// Extract ephemeral expiration from conversation
 		ephemeralExpiration := conv.GetEphemeralExpiration()
@@ -326,7 +332,7 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 
 			// Store or update the chat
 			if storeChat {
-				if err := chatStorageRepo.StoreChat(chat); err != nil {
+				if err := StoreChatWithGroupSubject(ctx, chatStorageRepo, chat); err != nil {
 					log.Warnf("Failed to store chat %s: %v", chatJID, err)
 					continue
 				}

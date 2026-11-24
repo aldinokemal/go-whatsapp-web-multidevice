@@ -3,8 +3,12 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
+
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -41,6 +45,10 @@ func TestGroupNameLookupNeverFallsBackToTheGlobalAccount(t *testing.T) {
 	} {
 		if got := getGroupName(ctx, group); got != "" {
 			t.Fatalf("unresolved device received group name %q", got)
+		}
+		jid, _ := types.ParseJID(group)
+		if got := ResolveGroupSubject(ctx, jid); got != "" {
+			t.Fatalf("resolver used unscoped global account: %q", got)
 		}
 	}
 }
@@ -194,5 +202,336 @@ func TestGroupNameCacheSkipsAnUnidentifiedClient(t *testing.T) {
 	}
 	if _, ok := groupNameCache.Load(groupNameCacheKey{groupJID: group}); ok {
 		t.Fatal("an entry was stored without a device")
+	}
+}
+
+type groupSubjectRepo struct {
+	domainChatStorage.IChatStorageRepository
+	updates []string
+	err     error
+}
+
+func (r *groupSubjectRepo) UpdateGroupSubject(deviceID, groupJID, subject string) (bool, error) {
+	r.updates = append(r.updates, deviceID+"|"+groupJID+"|"+subject)
+	return r.err == nil, r.err
+}
+
+func TestResolveGroupSubjectDeviceIsolationAndFailure(t *testing.T) {
+	group := types.NewJID("120363000000000076", types.GroupServer)
+	clientA, ctxA := groupNameTestDevice(t, "15550000051")
+	clientB, ctxB := groupNameTestDevice(t, "15550000052")
+	name := "A's subject"
+	calls := stubGroupInfo(t, map[*whatsmeow.Client]*string{clientA: &name})
+	t.Cleanup(func() {
+		invalidateCachedGroupName(groupNameCacheDeviceID(clientA), group.String())
+		invalidateCachedGroupName(groupNameCacheDeviceID(clientB), group.String())
+	})
+	if got := ResolveGroupSubject(ctxA, group); got != name {
+		t.Fatalf("device A subject = %q", got)
+	}
+	if got := ResolveGroupSubject(ctxB, group); got != "" || calls[clientB.Store.ID.User] != 1 {
+		t.Fatalf("failed device B lookup = %q, calls = %d", got, calls[clientB.Store.ID.User])
+	}
+	if got := ResolveGroupSubject(ctxA, group); got != name || calls[clientA.Store.ID.User] != 1 {
+		t.Fatalf("cached subject = %q after %d lookups", got, calls[clientA.Store.ID.User])
+	}
+	if got := ResolveGroupSubject(ContextWithDevice(context.Background(), NewDeviceInstance("logged-out", nil, nil)), group); got != "" {
+		t.Fatalf("unidentified client subject = %q", got)
+	}
+}
+
+func waitForGroupRenameAttempt(t *testing.T, key groupNameCacheKey) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if value, ok := groupNameCache.Load(key); ok && value.(groupNameCacheEntry).write == nil {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("background rename was not attempted")
+}
+
+func TestGroupSubjectEventUpdatesOnlyNamedDeviceAndBeatsInflightFetch(t *testing.T) {
+	group := types.NewJID("120363000000000077", types.GroupServer)
+	client, ctx := groupNameTestDevice(t, "15550000053")
+	other, _ := groupNameTestDevice(t, "15550000054")
+	id := groupNameCacheDeviceID(client)
+	otherID := groupNameCacheDeviceID(other)
+	repo := &groupSubjectRepo{err: fmt.Errorf("storage failed")}
+	instance := NewDeviceInstance("slot", client, repo)
+	ctx = ContextWithDevice(ctx, instance)
+	originalLog := log
+	log = waLog.Noop
+	t.Cleanup(func() { log = originalLog })
+	setCachedGroupName(otherID, group.String(), "Other device")
+	oldFetch := fetchGroupInfoFn
+	started, release := make(chan struct{}), make(chan struct{})
+	fetchGroupInfoFn = func(_ context.Context, _ *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
+		close(started)
+		<-release
+		return &types.GroupInfo{JID: jid, GroupName: types.GroupName{Name: "Stale"}}, nil
+	}
+	t.Cleanup(func() {
+		fetchGroupInfoFn = oldFetch
+		invalidateCachedGroupName(id, group.String())
+		invalidateCachedGroupName(otherID, group.String())
+	})
+	result := make(chan string, 1)
+	go func() { result <- ResolveGroupSubject(ctx, group) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("fetch did not start")
+	}
+	handleGroupInfo(ctx, &events.GroupInfo{JID: group, Name: &types.GroupName{Name: "New subject"}}, id, client)
+	close(release)
+	waitForGroupRenameAttempt(t, groupNameCacheKey{id, group.String()})
+	if got := <-result; got != "New subject" {
+		t.Fatalf("stale fetch returned %q", got)
+	}
+	if got := ResolveGroupSubject(ctx, group); got != "New subject" {
+		t.Fatalf("cached event subject = %q", got)
+	}
+	if got, _ := getCachedGroupName(otherID, group.String()); got != "Other device" {
+		t.Fatalf("other device subject changed to %q", got)
+	}
+	if len(repo.updates) != 1 || repo.updates[0] != id+"|"+group.String()+"|New subject" {
+		t.Fatalf("repository calls = %v", repo.updates)
+	}
+	handleGroupInfo(ctx, &events.GroupInfo{JID: group, Name: &types.GroupName{}}, id, client)
+	handleGroupInfo(ctx, &events.GroupInfo{JID: group, Name: &types.GroupName{Name: "  "}}, id, client)
+	handleGroupInfo(ctx, &events.GroupInfo{JID: group, Join: []types.JID{group}}, id, client)
+	if len(repo.updates) != 1 {
+		t.Fatalf("subjectless event updated repository: %v", repo.updates)
+	}
+}
+
+func TestRenameBeforeFirstGroupInsertUsesAccountSubject(t *testing.T) {
+	group := types.NewJID("120363000000000078", types.GroupServer)
+	client, _ := groupNameTestDevice(t, "15550000055")
+	account := groupNameCacheDeviceID(client)
+	repo := &renameBeforeInsertRepo{groupSubjectRepo: &groupSubjectRepo{}}
+	wrapped := newDeviceChatStorage("outer-alias", newDeviceChatStorage("inner-companion", repo))
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance("outer-alias", client, wrapped))
+	t.Cleanup(func() { invalidateCachedGroupName(account, group.String()) })
+
+	// Resolution of an older history or message candidate preceded the rename.
+	chat := &domainChatStorage.Chat{DeviceID: account, JID: group.String(), Name: "Old subject"}
+	recordGroupSubject(account, chat.JID, "New subject", wrapped)
+	key := groupNameCacheKey{account, chat.JID}
+	waitForGroupRenameAttempt(t, key)
+	entry, _ := groupNameCache.Load(key)
+	expired := entry.(groupNameCacheEntry)
+	expired.expiresAt = time.Now().Add(-time.Hour)
+	groupNameCache.Store(key, expired)
+	if err := StoreChatWithGroupSubject(ctx, wrapped, chat); err != nil {
+		t.Fatal(err)
+	}
+	if repo.stored != "New subject" || len(repo.updates) != 2 || repo.updates[0] != account+"|"+chat.JID+"|New subject" {
+		t.Fatalf("stored %q, updates %v", repo.stored, repo.updates)
+	}
+}
+
+type renameBeforeInsertRepo struct {
+	*groupSubjectRepo
+	stored string
+}
+
+func (r *renameBeforeInsertRepo) StoreChat(chat *domainChatStorage.Chat) error {
+	if r.stored == "" {
+		r.stored = chat.Name
+	}
+	return nil
+}
+
+func TestRepeatedGroupLookupSharesFailure(t *testing.T) {
+	group := types.NewJID("120363000000000079", types.GroupServer)
+	client, ctx := groupNameTestDevice(t, "15550000056")
+	calls := stubGroupInfo(t, nil)
+	t.Cleanup(func() { invalidateCachedGroupName(groupNameCacheDeviceID(client), group.String()) })
+	for i := 0; i < 2; i++ {
+		if got := ResolveGroupSubject(ctx, group); got != "" {
+			t.Fatalf("unexpected subject %q", got)
+		}
+	}
+	if calls[client.Store.ID.User] != 1 {
+		t.Fatalf("got %d requests for the same failed lookup", calls[client.Store.ID.User])
+	}
+}
+
+func (r *renameBeforeInsertRepo) UpdateGroupSubject(deviceID, jid, name string) (bool, error) {
+	_, err := r.groupSubjectRepo.UpdateGroupSubject(deviceID, jid, name)
+	if err != nil || r.stored == "" {
+		return false, err
+	}
+	r.stored = name
+	return true, nil
+}
+
+func TestFailedGroupRenameRetriesLatestEvent(t *testing.T) {
+	key := groupNameCacheKey{"account", "567@g.us"}
+	defer groupNameCache.Delete(key)
+	repo := &renameBeforeInsertRepo{groupSubjectRepo: &groupSubjectRepo{err: errors.New("temporary write failure")}, stored: "Original"}
+	recordGroupSubject(key.deviceID, key.groupJID, "Intermediate", repo)
+	waitForGroupRenameAttempt(t, key)
+	recordGroupSubject(key.deviceID, key.groupJID, "Latest", repo)
+	waitForGroupRenameAttempt(t, key)
+	chat := &domainChatStorage.Chat{DeviceID: key.deviceID, JID: key.groupJID, Name: "Original"}
+	for _, want := range []string{"Original", "Latest", "Latest"} {
+		if err := StoreChatWithGroupSubject(context.Background(), repo, chat); err != nil {
+			t.Fatal(err)
+		}
+		if repo.stored != want {
+			t.Fatalf("stored %q, want %q", repo.stored, want)
+		}
+		repo.err = nil
+	}
+	if len(repo.updates) != 4 {
+		t.Fatalf("updates = %v", repo.updates)
+	}
+}
+
+func TestHistoryLookupAtCapacityAllowsLaterRetry(t *testing.T) {
+	client, ctx := groupNameTestDevice(t, "15550000057")
+	key := groupNameCacheKey{groupNameCacheDeviceID(client), "321@g.us"}
+	defer groupNameCache.Delete(key)
+	repo := &historyChatNameRepoSpy{historyMessageBatchRepoSpy: &historyMessageBatchRepoSpy{}, filled: make(chan string, 1)}
+	chat := &domainChatStorage.Chat{DeviceID: key.deviceID, JID: key.groupJID, Name: "Group 321"}
+	name := "Fetched"
+	stubGroupInfo(t, map[*whatsmeow.Client]*string{client: &name})
+	func() {
+		for i := 0; i < cap(historyLookupSlots); i++ {
+			historyLookupSlots <- struct{}{}
+			defer func() { <-historyLookupSlots }()
+		}
+		if err := StoreChatWithGroupSubject(ctx, repo, chat); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := groupNameCache.Load(key); ok {
+			t.Fatal("overload retained lookup reservation")
+		}
+	}()
+	if err := StoreChatWithGroupSubject(ctx, repo, chat); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-repo.filled:
+		if got != key.deviceID+"|"+key.groupJID+"|"+name {
+			t.Fatalf("unexpected fill %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("later write did not retry lookup")
+	}
+}
+
+type blockingGroupFill struct {
+	*renameBeforeInsertRepo
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockingGroupFill) FillGroupSubject(_, _, _ string) error {
+	close(r.started)
+	<-r.release
+	return nil
+}
+
+func TestForegroundGroupLookupCanCancelDuringFill(t *testing.T) {
+	client, base := groupNameTestDevice(t, "15550000058")
+	ctx, cancel := context.WithCancel(base)
+	defer cancel()
+	jid := types.NewJID("322", types.GroupServer)
+	key := groupNameCacheKey{groupNameCacheDeviceID(client), jid.String()}
+	defer groupNameCache.Delete(key)
+	oldFetch := fetchGroupInfoFn
+	network, reply := make(chan struct{}), make(chan struct{})
+	fetchGroupInfoFn = func(context.Context, *whatsmeow.Client, types.JID) (*types.GroupInfo, error) {
+		close(network)
+		<-reply
+		return &types.GroupInfo{GroupName: types.GroupName{Name: "Subject"}}, nil
+	}
+	defer func() { fetchGroupInfoFn = oldFetch }()
+	repo := &blockingGroupFill{renameBeforeInsertRepo: &renameBeforeInsertRepo{}, started: make(chan struct{}), release: make(chan struct{})}
+	defer close(repo.release)
+	result := make(chan string, 1)
+	go func() { result <- ResolveGroupSubject(ctx, jid) }()
+	<-network
+	if err := StoreChatWithGroupSubject(base, repo, &domainChatStorage.Chat{DeviceID: key.deviceID, JID: key.groupJID, Name: "Group 322"}); err != nil {
+		t.Fatal(err)
+	}
+	close(reply)
+	<-repo.started
+	cancel()
+	select {
+	case <-result:
+	case <-time.After(time.Second):
+		t.Fatal("foreground lookup waited for blocked SQLite fill")
+	}
+}
+
+func TestUnreadGroupCacheEntryExpires(t *testing.T) {
+	key := groupNameCacheKey{"account", "323@g.us"}
+	defer groupNameCache.Delete(key)
+	entry := groupNameCacheEntry{name: "Old", expiresAt: time.Now().Add(-time.Second)}
+	groupNameCache.Store(key, entry)
+	key.evictAtExpiry(entry)
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, ok := groupNameCache.Load(key); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expired unread result remains")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+type delayedGroupRenameRepo struct {
+	domainChatStorage.IChatStorageRepository
+	writes  chan string
+	release chan struct{}
+}
+
+func (r *delayedGroupRenameRepo) UpdateGroupSubject(_, _, subject string) (bool, error) {
+	r.writes <- subject
+	if subject == "Old" {
+		<-r.release
+	}
+	return true, nil
+}
+
+func TestGroupRenameEventsWhileStorageIsBlocked(t *testing.T) {
+	key := groupNameCacheKey{"device", "324@g.us"}
+	defer groupNameCache.Delete(key)
+	repo := &delayedGroupRenameRepo{writes: make(chan string, 3), release: make(chan struct{})}
+	var once sync.Once
+	release := func() { once.Do(func() { close(repo.release) }) }
+	defer release()
+	recordGroupSubject(key.deviceID, key.groupJID, "Old", repo)
+	select {
+	case <-repo.writes:
+	case <-time.After(time.Second):
+		t.Fatal("first write did not start")
+	}
+	returned := make(chan struct{})
+	go func() {
+		recordGroupSubject(key.deviceID, key.groupJID, "Intermediate", repo)
+		recordGroupSubject(key.deviceID, key.groupJID, "Latest", repo)
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		t.Fatal("SQLite blocked later events")
+	}
+	if got, _ := getCachedGroupName(key.deviceID, key.groupJID); got != "Latest" {
+		t.Fatalf("published %q", got)
+	}
+	release()
+	waitForGroupRenameAttempt(t, key)
+	if got := <-repo.writes; got != "Latest" {
+		t.Fatalf("saved %q", got)
 	}
 }

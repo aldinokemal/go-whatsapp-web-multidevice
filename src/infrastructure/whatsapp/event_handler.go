@@ -409,9 +409,14 @@ func handleGroupInfo(ctx context.Context, evt *events.GroupInfo, deviceID string
 		return
 	}
 
-	// A new subject makes this device's cached group name stale.
-	if evt.Name != nil {
-		invalidateCachedGroupName(groupNameCacheDeviceID(client), evt.JID.ToNonAD().String())
+	if evt.Name != nil && strings.TrimSpace(evt.Name.Name) != "" {
+		if storageID := groupNameCacheDeviceID(client); storageID != "" {
+			var repo domainChatStorage.IChatStorageRepository
+			if instance, ok := DeviceFromContext(ctx); ok && instance != nil {
+				repo = instance.GetChatStorage()
+			}
+			recordGroupSubject(storageID, evt.JID.ToNonAD().String(), evt.Name.Name, repo)
+		}
 	}
 
 	// Log group events for debugging

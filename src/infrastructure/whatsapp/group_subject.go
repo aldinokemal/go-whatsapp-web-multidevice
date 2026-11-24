@@ -1,0 +1,298 @@
+package whatsapp
+
+import (
+	"context"
+	"hash/maphash"
+	"strings"
+	"sync"
+	"time"
+
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/sirupsen/logrus"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types"
+)
+
+type groupNameCacheKey struct {
+	deviceID string
+	groupJID string
+}
+
+type groupNameCacheEntry struct {
+	name          string
+	expiresAt     time.Time
+	awaitingStore bool              // authoritative rename not yet written to a chat row
+	write         *groupRenameWrite // first persistence attempt, consumed by the worker or the next chat write
+	pending       *groupSubjectLookup
+}
+
+type groupRenameWrite struct {
+	repo domainChatStorage.IChatStorageRepository
+}
+
+type groupSubjectLookup struct {
+	done chan struct{}
+	name string                                   // set before done is closed
+	repo domainChatStorage.IChatStorageRepository // guarded by the key's lock
+}
+
+var (
+	groupNameCache         sync.Map
+	startGroupRenameWorker sync.Once
+	groupRenameWake        = make(chan struct{}, 1)
+	groupSubjectLocks      [mutexShardCount]sync.Mutex
+	groupSubjectHashSeed   = maphash.MakeSeed()
+	historyLookupSlots     = make(chan struct{}, 3) // leave capacity for foreground requests
+	groupSubjectFetchSlots = make(chan struct{}, 4)
+	fetchGroupInfoFn       = func(ctx context.Context, client *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
+		return client.GetGroupInfo(ctx, jid)
+	}
+)
+
+const groupNameCacheTTL = 5 * time.Minute
+
+func (key groupNameCacheKey) lock() *sync.Mutex {
+	return &groupSubjectLocks[maphash.Comparable(groupSubjectHashSeed, key)%mutexShardCount]
+}
+
+func groupNameCacheDeviceID(client *whatsmeow.Client) string {
+	if client == nil {
+		return ""
+	}
+	return client.Store.GetJID().ToNonAD().String()
+}
+
+func getCachedGroupName(deviceID, groupJID string) (string, bool) {
+	key := groupNameCacheKey{deviceID, groupJID}
+	if entry, ok := groupNameCache.Load(key); ok {
+		cached := entry.(groupNameCacheEntry)
+		if cached.awaitingStore || time.Now().Before(cached.expiresAt) {
+			return cached.name, true
+		}
+		if cached.pending == nil {
+			groupNameCache.CompareAndDelete(key, cached)
+		}
+	}
+	return "", false
+}
+
+func setCachedGroupName(deviceID, groupJID, name string) {
+	if deviceID != "" {
+		key := groupNameCacheKey{deviceID, groupJID}
+		entry := groupNameCacheEntry{name: name, expiresAt: time.Now().Add(groupNameCacheTTL)}
+		groupNameCache.Store(key, entry)
+		key.evictAtExpiry(entry)
+	}
+}
+
+// Evict unread results too. An older timer must never remove a newer event or lookup.
+func (key groupNameCacheKey) evictAtExpiry(entry groupNameCacheEntry) {
+	time.AfterFunc(time.Until(entry.expiresAt), func() { groupNameCache.CompareAndDelete(key, entry) })
+}
+
+func invalidateCachedGroupName(deviceID, groupJID string) {
+	groupNameCache.Delete(groupNameCacheKey{deviceID, groupJID})
+}
+
+// StoreChatWithGroupSubject serializes a group's first insert with rename events.
+// Save the row immediately, even when WhatsApp is slow or cannot supply a name.
+func StoreChatWithGroupSubject(ctx context.Context, repo domainChatStorage.IChatStorageRepository, chat *domainChatStorage.Chat) error {
+	if !strings.HasSuffix(chat.JID, "@g.us") || chat.DeviceID == "" {
+		return repo.StoreChat(chat)
+	}
+	key := groupNameCacheKey{chat.DeviceID, chat.JID}
+	mu := key.lock()
+	mu.Lock()
+	defer mu.Unlock()
+
+	groupUser := strings.TrimSuffix(chat.JID, "@g.us")
+	name, cached := getCachedGroupName(key.deviceID, key.groupJID)
+	if name != "" {
+		chat.Name = name
+	} else if chat.Name == groupUser || chat.Name == chat.JID {
+		chat.Name = "Group " + groupUser
+	}
+	if err := repo.StoreChat(chat); err != nil {
+		return err
+	}
+	if entry, ok := groupNameCache.Load(key); ok && entry.(groupNameCacheEntry).awaitingStore {
+		// StoreChat preserves an existing meaningful name. Only an event may replace it.
+		key.persistRename(repo, entry.(groupNameCacheEntry))
+	}
+	if cached || chat.Name != "Group "+groupUser {
+		return nil
+	}
+	instance, ok := DeviceFromContext(ctx)
+	if !ok || instance == nil {
+		return nil
+	}
+	client := instance.GetClient()
+	if groupNameCacheDeviceID(client) != key.deviceID {
+		return nil
+	}
+	lookup, start := key.reserveLookup(repo)
+	if start {
+		select {
+		case historyLookupSlots <- struct{}{}:
+			go func() {
+				defer func() { <-historyLookupSlots }()
+				key.fetch(context.WithoutCancel(ctx), client, types.NewJID(groupUser, types.GroupServer), lookup)
+			}()
+		default:
+			// No waiter can join until this lock is released. Allow the next write to retry.
+			groupNameCache.CompareAndDelete(key, groupNameCacheEntry{pending: lookup})
+		}
+	}
+	return nil
+}
+
+func recordGroupSubject(deviceID, groupJID, name string, repo domainChatStorage.IChatStorageRepository) {
+	key := groupNameCacheKey{deviceID, groupJID}
+	if repo == nil {
+		setCachedGroupName(deviceID, groupJID, name)
+		return
+	}
+	// Publish synchronously, without waiting for a shard held by a database
+	// writer. Multiple events for one group overwrite the same cache entry.
+	groupNameCache.Store(key, groupNameCacheEntry{name: name, awaitingStore: true, write: &groupRenameWrite{repo}})
+	startGroupRenameWorker.Do(func() { go runGroupRenameWorker() })
+	select {
+	case groupRenameWake <- struct{}{}:
+	default:
+	}
+}
+
+// One worker and one wake-up token bound background work. Events arriving
+// during a scan leave a token for the next pass. A failed write remains
+// available for the next chat write without busy-looping on a missing row.
+func runGroupRenameWorker() {
+	for range groupRenameWake {
+		groupNameCache.Range(func(rawKey, value any) bool {
+			entry := value.(groupNameCacheEntry)
+			if entry.write != nil {
+				key := rawKey.(groupNameCacheKey)
+				mu := key.lock()
+				mu.Lock()
+				if current, ok := groupNameCache.Load(key); ok && current == entry {
+					key.persistRename(entry.write.repo, entry)
+				}
+				mu.Unlock()
+			}
+			return true
+		})
+	}
+}
+
+// Caller serializes database writes under the key lock. A newer event can be
+// published while SQLite is busy; only acknowledge the exact event we wrote.
+func (key groupNameCacheKey) persistRename(repo domainChatStorage.IChatStorageRepository, entry groupNameCacheEntry) {
+	applied, err := repo.UpdateGroupSubject(key.deviceID, key.groupJID, entry.name)
+	if err != nil {
+		logrus.Warnf("Failed to update group subject for %s: %v", key.groupJID, err)
+	}
+	next := groupNameCacheEntry{name: entry.name, awaitingStore: err != nil || !applied}
+	if !next.awaitingStore {
+		next.expiresAt = time.Now().Add(groupNameCacheTTL)
+	}
+	if groupNameCache.CompareAndSwap(key, entry, next) && !next.awaitingStore {
+		key.evictAtExpiry(next)
+	}
+}
+
+// reserveLookup is called under the key's lock, after checking for a cached name.
+// Storage can join a lookup already started by a webhook and receive the result.
+func (key groupNameCacheKey) reserveLookup(repo domainChatStorage.IChatStorageRepository) (*groupSubjectLookup, bool) {
+	lookup := &groupSubjectLookup{done: make(chan struct{}), repo: repo}
+	entry, exists := groupNameCache.LoadOrStore(key, groupNameCacheEntry{pending: lookup})
+	if !exists {
+		return lookup, true
+	}
+	pending := entry.(groupNameCacheEntry).pending
+	if pending != nil && repo != nil {
+		pending.repo = repo
+	}
+	return pending, false
+}
+
+func (key groupNameCacheKey) fetch(ctx context.Context, client *whatsmeow.Client, jid types.JID, lookup *groupSubjectLookup) {
+	var name string
+	select {
+	case groupSubjectFetchSlots <- struct{}{}:
+		// Queued history work may already have been superseded by a rename.
+		entry, active := groupNameCache.Load(key)
+		if active && entry.(groupNameCacheEntry).pending == lookup && groupNameCacheDeviceID(client) == key.deviceID && ctx.Err() == nil {
+			fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			info, err := fetchGroupInfoFn(fetchCtx, client, jid)
+			cancel()
+			if err != nil {
+				logrus.Warnf("Failed to resolve group subject for %s: %v", jid, err)
+			} else if info != nil && strings.TrimSpace(info.Name) != "" {
+				name = info.Name
+			}
+		}
+		<-groupSubjectFetchSlots
+	case <-ctx.Done():
+	}
+
+	mu := key.lock()
+	mu.Lock()
+	defer mu.Unlock()
+	ttl := groupNameCacheTTL
+	if name == "" {
+		ttl = 30 * time.Second
+	}
+	entry := groupNameCacheEntry{name: name, expiresAt: time.Now().Add(ttl)}
+	if groupNameCache.CompareAndSwap(key, groupNameCacheEntry{pending: lookup}, entry) {
+		key.evictAtExpiry(entry)
+		if name != "" && lookup.repo != nil {
+			if err := lookup.repo.FillGroupSubject(key.deviceID, key.groupJID, name); err != nil {
+				logrus.Warnf("Failed to fill group subject for %s: %v", jid, err)
+			}
+		}
+	} else if current, ok := getCachedGroupName(key.deviceID, key.groupJID); ok {
+		// A rename arrived while the server was answering.
+		name = current
+	}
+	lookup.name = name
+	close(lookup.done)
+}
+
+// ResolveGroupSubject looks up a group on the account explicitly identified by ctx.
+func ResolveGroupSubject(ctx context.Context, jid types.JID) string {
+	instance, ok := DeviceFromContext(ctx)
+	if !ok || instance == nil || jid.IsEmpty() || jid.Server != types.GroupServer {
+		return ""
+	}
+	client := instance.GetClient()
+	key := groupNameCacheKey{groupNameCacheDeviceID(client), jid.ToNonAD().String()}
+	if key.deviceID == "" || ctx.Err() != nil {
+		return ""
+	}
+
+	mu := key.lock()
+	mu.Lock()
+	if name, ok := getCachedGroupName(key.deviceID, key.groupJID); ok {
+		mu.Unlock()
+		return name
+	}
+	lookup, start := key.reserveLookup(nil)
+	if lookup == nil {
+		// An event arrived between the cache check and lookup reservation.
+		name, _ := getCachedGroupName(key.deviceID, key.groupJID)
+		mu.Unlock()
+		return name
+	}
+	mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if start {
+		go key.fetch(ctx, client, jid, lookup)
+	}
+	select {
+	case <-lookup.done:
+		return lookup.name
+	case <-ctx.Done():
+		return ""
+	}
+}

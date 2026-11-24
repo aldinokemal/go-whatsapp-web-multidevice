@@ -57,6 +57,20 @@ func (r *deviceChatStorage) StoreChat(chat *domainChatStorage.Chat) error {
 	return r.base.StoreChat(r.withDeviceChat(chat))
 }
 
+func (r *deviceChatStorage) UpdateGroupSubject(deviceID, groupJID, subject string) (bool, error) {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.UpdateGroupSubject(deviceID, groupJID, subject)
+}
+
+func (r *deviceChatStorage) FillGroupSubject(deviceID, groupJID, subject string) error {
+	if deviceID == "" {
+		deviceID = r.deviceID
+	}
+	return r.base.FillGroupSubject(deviceID, groupJID, subject)
+}
+
 func (r *deviceChatStorage) GetChat(jid string) (*domainChatStorage.Chat, error) {
 	return r.base.GetChatByDevice(r.deviceID, jid)
 }
