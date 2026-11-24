@@ -831,7 +831,7 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 				repo.quotedLink = &quote
 			}
 			var searches, creates, conversationCreates, linkedConversation int
-			var toggles int
+			var toggles, failedCreates int
 			var postConversations []int
 			var posts []chatwoot.CreateMessageRequest
 			transport := chatwootRoutingTestTransport(func(r *http.Request) (*http.Response, error) {
@@ -888,11 +888,12 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 				case "GET " + api + "/contacts/9/conversations":
 					body = map[string]any{"payload": []map[string]any{{"id": 70, "inbox_id": 2, "status": "open"}}}
 				case "POST " + api + "/conversations":
-					conversationCreates++
 					if tc.deletedContact && creates == 0 {
+						failedCreates++
 						w.WriteHeader(http.StatusNotFound)
 						return w.Result(), nil
 					}
+					conversationCreates++
 					if tc.resolvedOnly {
 						var request chatwoot.CreateConversationRequest
 						require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
@@ -963,7 +964,8 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 				require.Equal(t, []int{tc.wantConversation}, postConversations)
 				if tc.deletedContact {
 					require.Equal(t, 2, searches)
-					require.Equal(t, 2, conversationCreates)
+					require.Equal(t, 1, conversationCreates)
+					require.Equal(t, 1, failedCreates)
 				} else {
 					require.Equal(t, 1, searches)
 				}
