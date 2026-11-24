@@ -319,7 +319,22 @@ func Setup(s Settings, dm *whatsapp.DeviceManager, inner domainDevice.IDeviceUse
 	// reserves the slot (store.ReserveOwner).
 	devices := owners.NewScopedDevicesCapped(inner, st, func() int { return s.MaxPhones })
 
-	serviceID := func(ctx context.Context) string { v, _, _ := st.Setting(ctx, store.SettingServiceDeviceID); return v }
+	// A read failure here (a transient SQLite error, a saturated connection
+	// pool) used to come back as "", which the sign-in handler cannot tell
+	// apart from "no service number configured" - so a real, well-formed
+	// sign-in request from an active conversation was silently dropped with
+	// no trace anywhere in the logs. Found live: a friend of the owner's sent
+	// the exact prefilled phrase, from an ordinary number, on the correctly
+	// configured service device, mid-conversation, and got no reply at all;
+	// nothing else in the pipeline (phrase match, device match, rate limit,
+	// message age) could explain total silence with zero logged error.
+	serviceID := func(ctx context.Context) string {
+		v, _, err := st.Setting(ctx, store.SettingServiceDeviceID)
+		if err != nil {
+			logrus.WithError(err).Error("[WTF] sign-in: could not read the service number setting")
+		}
+		return v
+	}
 	servicePhone := func(ctx context.Context) string {
 		if inst, ok := dm.GetDevice(serviceID(ctx)); ok && inst.IsLoggedIn() {
 			return strings.TrimPrefix(inst.PhoneNumber(), "+")
