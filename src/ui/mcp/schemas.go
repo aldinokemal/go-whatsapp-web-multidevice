@@ -154,7 +154,7 @@ const appSchema = `{
   "type": "object",
   "required": ["action"],
   "properties": {
-    "action": {"type": "string", "enum": ["status","login_qr","login_code","logout","reconnect"], "description": "Connection/session operation. login_qr returns a QR image; logout clears stored credentials (destructive)"},
+    "action": {"type": "string", "enum": ["status","login_qr","login_code","logout","reconnect","create_upload"], "description": "Connection/session operation. login_qr returns a QR image; logout clears stored credentials (destructive); create_upload mints a short-lived, unauthenticated PUT/GET pair for whatsapp_send's image_url, for a caller holding only local image bytes with nowhere to host them"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
     "phone": {"type": "string", "description": "login_code: phone number in international format (e.g. +628123456789)"}
   },

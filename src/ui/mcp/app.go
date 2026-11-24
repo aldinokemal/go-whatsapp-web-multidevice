@@ -7,24 +7,33 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/upload"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// uploadTicketTTL is how long a pre-signed upload ticket stays valid - long
+// enough for an agent to PUT a file and then call whatsapp_send, short
+// enough that a ticket nobody used is not a standing liability.
+const uploadTicketTTL = 10 * time.Minute
+
 type AppHandler struct {
 	appService domainApp.IAppUsecase
+	uploads    *upload.Store
 	resolver   deviceResolver
 }
 
-func InitMcpApp(appService domainApp.IAppUsecase, resolver deviceResolver) *AppHandler {
-	return &AppHandler{appService: appService, resolver: resolver}
+func InitMcpApp(appService domainApp.IAppUsecase, uploads *upload.Store, resolver deviceResolver) *AppHandler {
+	return &AppHandler{appService: appService, uploads: uploads, resolver: resolver}
 }
 
 func (h *AppHandler) AddAppTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_app",
-		mcpg.WithDescription("WhatsApp connection and session management: status, login_qr (returns QR image), login_code (pairing code for a phone number), logout, reconnect."),
+		mcpg.WithDescription("WhatsApp connection and session management: status, login_qr (returns QR image), login_code (pairing code for a phone number), logout, reconnect, create_upload (a pre-signed-style upload slot for whatsapp_send's image_base64/image_url)."),
 		mcpg.WithTitleAnnotation("Connection & Session"),
 		mcpg.WithReadOnlyHintAnnotation(false),
 		mcpg.WithDestructiveHintAnnotation(true),
@@ -94,6 +103,29 @@ func (h *AppHandler) handleApp(ctx context.Context, request mcpg.CallToolRequest
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
 		return mcpg.NewToolResultText(fmt.Sprintf("Reconnect initiated for %s", deviceID)), nil
+	case "create_upload":
+		if h.uploads == nil {
+			return mcpg.NewToolResultError("uploads are not available on this server"), nil
+		}
+		id, err := h.uploads.Create(deviceID, uploadTicketTTL, config.WhatsappSettingMaxImageSize)
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		uploadPath := "/uploads/" + id
+		fetchPath := uploadPath + "/file"
+		structured := map[string]any{
+			"upload_path":        uploadPath,
+			"fetch_path":         fetchPath,
+			"expires_in_seconds": int(uploadTicketTTL.Seconds()),
+			"max_bytes":          config.WhatsappSettingMaxImageSize,
+		}
+		fallback := fmt.Sprintf(
+			"Both paths are relative to this server's own base URL (the same host this MCP connection reaches), not absolute URLs. "+
+				"PUT the image's raw bytes (jpg/png/webp, under %d bytes) to <base_url>%s - no auth header needed, the path itself is the credential. "+
+				"Then call whatsapp_send with image_url set to <base_url>%s. Expires in %d seconds; one PUT, read as many times as needed until then.",
+			config.WhatsappSettingMaxImageSize, uploadPath, fetchPath, int(uploadTicketTTL.Seconds()),
+		)
+		return mcpg.NewToolResultStructured(structured, fallback), nil
 	default:
 		return mcpg.NewToolResultError(fmt.Sprintf("unknown app action: %s", action)), nil
 	}

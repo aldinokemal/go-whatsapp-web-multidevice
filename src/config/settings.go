@@ -39,6 +39,7 @@ var (
 	PathQrCode    = "statics/qrcode"
 	PathSendItems = "statics/senditems"
 	PathMedia     = "statics/media"
+	PathUploads   = "statics/uploads" // WTF: pre-signed-style MCP media uploads (pkg/upload)
 	PathStorages  = "storages"
 	PathUICache   = "storages/ui"
 

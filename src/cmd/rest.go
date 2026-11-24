@@ -103,6 +103,12 @@ func restServer(_ *cobra.Command, _ []string) {
 		return c.Status(http.StatusServiceUnavailable).SendString("Service Unavailable")
 	})
 
+	// Pre-signed-style media upload PUT/GET (public, no auth): registered
+	// before setupMultiUser/basic-auth so neither gate ever sees these paths.
+	// The ticket id minted by whatsapp_app's create_upload is the one
+	// credential; see pkg/upload's own doc comment.
+	rest.InitRestUpload(app, uploadStore)
+
 	var muRuntime *multiuser.Runtime // WTF
 	if config.MultiUserEnabled {
 		muRuntime, err = setupMultiUser(app, dm, muSettings)

@@ -24,6 +24,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/upload"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
 	_ "github.com/lib/pq"
@@ -53,6 +54,11 @@ var (
 	newsletterUsecase domainNewsletter.INewsletterUsecase
 	deviceUsecase     domainDevice.IDeviceUsecase
 	scheduleStop      func()
+
+	// uploadStore backs whatsapp_app's create_upload action (see
+	// pkg/upload): a pre-signed-style ticket store, independent of any
+	// device, so it is created once here rather than per-device.
+	uploadStore *upload.Store
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -682,10 +688,19 @@ func initApp() {
 	}
 
 	//preparing folder if not exist
-	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia, config.PathUICache)
+	err := utils.CreateFolder(config.PathQrCode, config.PathSendItems, config.PathStorages, config.PathMedia, config.PathUploads, config.PathUICache)
 	if err != nil {
 		logrus.Errorln(err)
 	}
+
+	uploadStore = upload.NewStore(config.PathUploads)
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			uploadStore.Sweep()
+		}
+	}()
 
 	ctx := context.Background()
 

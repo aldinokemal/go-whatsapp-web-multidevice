@@ -13,6 +13,7 @@ import (
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/upload"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -30,6 +31,10 @@ type Deps struct {
 	// (see wtf_tools.go).
 	Newsletter domainNewsletter.INewsletterUsecase
 	Call       domainCall.ICallUsecase
+	// Uploads backs whatsapp_app's create_upload action: a pre-signed-style
+	// ticket store so an MCP client holding only local bytes can still reach
+	// image_url, which only ever downloads from a URL.
+	Uploads *upload.Store
 
 	// WTF: ResolveDevice, when set, replaces the device manager for every
 	// device lookup (the X-Device-Id header and a per-call device_id): it
@@ -66,7 +71,7 @@ func NewServer(deps Deps, resolver deviceResolver) *server.MCPServer {
 	InitMcpMessage(deps.Message, resolver).AddMessageTools(s)
 	InitMcpChat(deps.Chat, deps.User, resolver).AddChatTools(s)
 	InitMcpGroup(deps.Group, resolver).AddGroupTools(s)
-	InitMcpApp(deps.App, resolver).AddAppTools(s)
+	InitMcpApp(deps.App, deps.Uploads, resolver).AddAppTools(s)
 	addWTFTools(s, deps, resolver) // WTF: the REST routes upstream's tools lacked
 	if deps.ExtraTools != nil {    // WTF
 		deps.ExtraTools(s)
