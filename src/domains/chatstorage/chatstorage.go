@@ -208,6 +208,16 @@ type MessageFilter struct {
 	IsFromMe  *bool
 }
 
+// CallRecordFilter represents query filters for stored call records
+// (synthetic messages with media_type "call").
+type CallRecordFilter struct {
+	DeviceID string
+	// ChatJIDs matches records stored under any of these chat JIDs.
+	ChatJIDs []string
+	Limit    int
+	Offset   int
+}
+
 // ScheduledSendFilter represents query filters for scheduled sends
 type ScheduledSendFilter struct {
 	DeviceID    string

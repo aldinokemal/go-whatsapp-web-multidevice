@@ -14,7 +14,7 @@ project root into `/app/storages` and `/app/statics`.
 | Path | Contents |
 | --- | --- |
 | `statics/media/` | Media downloaded for webhook payloads; REST/MCP downloads also use subdirectories by chat and message date. |
-| `storages/<timestamp>-<uuid>[.<extension>]` | Images saved by the incoming-image handler when automatic media downloads are enabled. |
+| `storages/<timestamp>-<uuid>-<name>` | Images saved by the incoming-image handler when automatic media downloads are enabled. |
 | `storages/whatsapp.db` | WhatsApp session and encryption state by default. Preserve it and any separate database configured with `DB_KEYS_URI`. |
 | `storages/chatstorage.db` | Chat/message history and other application records. Deleting media files does not prune this database. |
 | `storages/oauth.db` | MCP OAuth data by default. |

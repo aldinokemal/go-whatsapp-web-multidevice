@@ -156,7 +156,7 @@ func (r *BulkMediaRecovery) Recover(ctx context.Context, client *whatsmeow.Clien
 	}
 	extracted, err := r.ExpiredMediaRecovery.Recover(ctx, client, message, storageLocation, downloadErr)
 	if err != nil {
-		logrus.Warnf("Could not recover the expired media of message %s: %v", message.ID, err)
+		logrus.Warnf("Could not recover the expired media of message %s: %v", message.ID, utils.MediaErrorForLog(err))
 	}
 	if errors.Is(err, ErrMediaRetryTimeout) && r.phoneUnanswered.CompareAndSwap(false, true) {
 		logrus.Warn("The phone is not answering re-upload requests; expired media is not re-requested for the rest of this run")

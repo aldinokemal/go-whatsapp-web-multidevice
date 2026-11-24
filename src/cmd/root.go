@@ -840,7 +840,7 @@ func initApp() {
 
 	// Usecase
 	appUsecase = usecase.NewAppService(chatStorageRepo, dm)
-	callUsecase = usecase.NewCallService()
+	callUsecase = usecase.NewCallService(chatStorageRepo)
 	chatUsecase = usecase.NewChatService(chatStorageRepo)
 	baseSendUsecase := usecase.NewSendService(appUsecase, chatStorageRepo)
 	scheduleService := usecase.NewScheduleService(chatStorageRepo, baseSendUsecase, dm, config.PathStorages)

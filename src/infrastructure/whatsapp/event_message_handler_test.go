@@ -10,6 +10,8 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -435,6 +437,30 @@ func TestHandleMessageLogDoesNotSplitOnSenderNewline(t *testing.T) {
 	}
 	if evt.Info.PushName != pushName {
 		t.Fatalf("push name was mutated: %q", evt.Info.PushName)
+	}
+}
+
+func TestImageDownloadSuccessLogsOnlyMessageID(t *testing.T) {
+	originalLog, originalAutoDownload := log, config.WhatsappAutoDownloadMedia
+	t.Cleanup(func() { log, config.WhatsappAutoDownloadMedia = originalLog, originalAutoDownload })
+	capture := &captureLogger{}
+	log, config.WhatsappAutoDownloadMedia = capture, true
+
+	image := &waE2E.ImageMessage{Caption: protoString("family-photo")}
+	event := &events.Message{
+		Info:    types.MessageInfo{ID: "image-123"},
+		Message: &waE2E.Message{ImageMessage: image},
+	}
+	extract := func(_ context.Context, _ *whatsmeow.Client, _ string, media whatsmeow.DownloadableMessage) (utils.ExtractedMedia, error) {
+		if media != image {
+			t.Fatal("expected the incoming image to be downloaded")
+		}
+		return utils.ExtractedMedia{MediaPath: "storages/image-family-photo.jpg", Caption: image.GetCaption()}, nil
+	}
+	handleImageMessage(t.Context(), event, &whatsmeow.Client{}, extract)
+
+	if len(capture.lines) != 1 || capture.lines[0] != "Image downloaded for message image-123" {
+		t.Fatalf("unexpected download log: %q", capture.lines)
 	}
 }
 

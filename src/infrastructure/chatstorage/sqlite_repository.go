@@ -584,44 +584,30 @@ func (r *SQLiteRepository) GetMessages(filter *domainChatStorage.MessageFilter) 
 		return nil, fmt.Errorf("device_id is required for message queries (data isolation)")
 	}
 
-	var conditions []string
-	var args []any
-
-	conditions = append(conditions, "chat_jid = ?")
-	args = append(args, filter.ChatJID)
-
-	// Filter by device_id to ensure data isolation between devices
-	conditions = append(conditions, "device_id = ?")
-	args = append(args, filter.DeviceID)
+	query := selectChatMessages
+	args := []any{filter.DeviceID, filter.ChatJID}
 
 	// Timestamps are stored as UTC text and compared as strings, so bounds must be UTC too.
 	if filter.StartTime != nil {
-		conditions = append(conditions, "timestamp >= ?")
+		query += " AND timestamp >= ?"
 		args = append(args, filter.StartTime.UTC())
 	}
 
 	if filter.EndTime != nil {
-		conditions = append(conditions, "timestamp <= ?")
+		query += " AND timestamp <= ?"
 		args = append(args, filter.EndTime.UTC())
 	}
 
 	if filter.MediaOnly {
-		conditions = append(conditions, "media_type NOT IN ('', 'call')")
+		query += " AND media_type NOT IN ('', 'call')"
 	}
 
 	if filter.IsFromMe != nil {
-		conditions = append(conditions, "is_from_me = ?")
+		query += " AND is_from_me = ?"
 		args = append(args, *filter.IsFromMe)
 	}
 
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-		FROM messages
-		WHERE ` + strings.Join(conditions, " AND ") + `
-		ORDER BY timestamp DESC
-	`
+	query += " ORDER BY timestamp DESC"
 
 	// Safely add LIMIT and OFFSET using parameterized values
 	if filter.Limit > 0 {
@@ -674,27 +660,9 @@ func (r *SQLiteRepository) SearchMessages(deviceID, chatJID, searchText string, 
 		return []*domainChatStorage.Message{}, nil
 	}
 
-	var conditions []string
-	var args []any
-
-	conditions = append(conditions, "chat_jid = ?")
-	args = append(args, chatJID)
-
-	conditions = append(conditions, "device_id = ?")
-	args = append(args, deviceID)
-
-	// Add search condition using LIKE operator for case-insensitive search
-	conditions = append(conditions, "LOWER(content) LIKE ?")
-	args = append(args, "%"+strings.ToLower(searchText)+"%")
-
-	query := `
-		SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
-			media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
-			file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
-		FROM messages
-		WHERE ` + strings.Join(conditions, " AND ") + `
-		ORDER BY timestamp DESC
-	`
+	query := selectChatMessages
+	query += " AND LOWER(content) LIKE ? ORDER BY timestamp DESC"
+	args := []any{deviceID, chatJID, "%" + strings.ToLower(searchText) + "%"}
 
 	// Add limit with validation
 	if limit > 0 {
@@ -1390,6 +1358,14 @@ func (r *SQLiteRepository) getCount(query string, args ...any) (int64, error) {
 	err := r.db.QueryRow(query, args...).Scan(&count)
 	return count, err
 }
+
+// Device-scoped list queries share scanMessage's column order.
+const selectDeviceMessages = `SELECT id, chat_jid, device_id, sender, content, timestamp, is_from_me,
+	media_type, call_metadata, filename, url, direct_path, media_key, file_sha256,
+	file_enc_sha256, file_length, referral_metadata, context_metadata, created_at, updated_at
+	FROM messages WHERE device_id = ?`
+
+const selectChatMessages = selectDeviceMessages + " AND chat_jid = ?"
 
 // scanMessage is a private helper for scanning message rows
 func (r *SQLiteRepository) scanMessage(scanner interface{ Scan(...any) error }) (*domainChatStorage.Message, error) {
@@ -2934,6 +2910,64 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 		CallMetadata: string(metaBytes),
 	}
 	return r.StoreMessage(message)
+}
+
+// GetCallRecords retrieves stored call records (synthetic messages with
+// media_type "call") newest first, together with the unpaginated total.
+func (r *SQLiteRepository) GetCallRecords(filter *domainChatStorage.CallRecordFilter) ([]*domainChatStorage.Message, int64, error) {
+	if filter == nil || filter.DeviceID == "" {
+		return nil, 0, fmt.Errorf("device_id is required for call record queries (data isolation)")
+	}
+
+	const callScope = " AND media_type = 'call'"
+	const chatFilter = " AND chat_jid IN (SELECT value FROM json_each(?))"
+	const countDeviceCalls = "SELECT COUNT(*) FROM messages WHERE device_id = ?" + callScope
+	const selectDeviceCalls = selectDeviceMessages + callScope
+	countQuery, query := countDeviceCalls, selectDeviceCalls
+	args := []any{filter.DeviceID}
+	if len(filter.ChatJIDs) > 0 {
+		// Bind the alias list as one parameter, keeping the indexed chat_jid predicate.
+		jids, err := json.Marshal(filter.ChatJIDs)
+		if err != nil {
+			return nil, 0, err
+		}
+		countQuery += chatFilter
+		query += chatFilter
+		args = append(args, string(jids))
+	}
+
+	total, err := r.getCount(countQuery, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query += " ORDER BY timestamp DESC, id DESC"
+	if filter.Limit > 0 {
+		filter.Limit = min(filter.Limit, 1000)
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, filter.Limit, max(filter.Offset, 0))
+	}
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var messages []*domainChatStorage.Message
+	for rows.Next() {
+		message, err := r.scanMessage(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		messages = append(messages, message)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return messages, total, nil
 }
 
 // GetStorageStatistics returns current storage statistics for logging purposes

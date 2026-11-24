@@ -59,6 +59,48 @@ func TestWebhookIgnoreJID_GroupWildcardDropsGroupMessage(t *testing.T) {
 	}
 }
 
+// callOfferPayload mirrors createCallOfferPayload: a group call names the caller in
+// from and the group only in group_jid.
+func callOfferPayload(from, groupJID string) map[string]any {
+	inner := map[string]any{"call_id": "CALL1", "from": from}
+	if groupJID != "" {
+		inner["group_jid"] = groupJID
+	}
+	return map[string]any{"event": "call.offer", "device_id": "org_1", "payload": inner}
+}
+
+func TestWebhookIgnoreJID_GroupWildcardDropsGroupCallOffer(t *testing.T) {
+	payload := callOfferPayload("628111@s.whatsapp.net", "120363999000111@g.us")
+	if runIgnoreJidForward(t, []string{"@g.us"}, "call.offer", payload) {
+		t.Fatal("group call.offer should be dropped when @g.us is in WHATSAPP_WEBHOOK_IGNORE_JIDS")
+	}
+}
+
+func TestWebhookIgnoreJID_ExactGroupJIDDropsGroupCallOffer(t *testing.T) {
+	payload := callOfferPayload("628111@s.whatsapp.net", "120363999000111@g.us")
+	if runIgnoreJidForward(t, []string{"120363999000111@g.us"}, "call.offer", payload) {
+		t.Fatal("group call.offer should be dropped when its group JID is listed")
+	}
+}
+
+func TestWebhookIgnoreJID_GroupWildcardKeepsDirectCallOffer(t *testing.T) {
+	payload := callOfferPayload("628111@s.whatsapp.net", "")
+	if !runIgnoreJidForward(t, []string{"@g.us"}, "call.offer", payload) {
+		t.Fatal("1:1 call.offer should still be forwarded when only @g.us is ignored")
+	}
+}
+
+func TestChatwootExclusionIgnoresGroupJIDKey(t *testing.T) {
+	original := config.ChatwootIgnoreJids
+	config.ChatwootIgnoreJids = []string{"@g.us", "120363999000111@g.us"}
+	defer func() { config.ChatwootIgnoreJids = original }()
+
+	data := map[string]any{"from": "628111@s.whatsapp.net", "group_jid": "120363999000111@g.us"}
+	if chatwootPayloadExcluded(data) {
+		t.Fatal("CHATWOOT_IGNORE_JIDS should not match group_jid")
+	}
+}
+
 func TestWebhookIgnoreJID_GroupWildcardKeepsDirectMessage(t *testing.T) {
 	payload := ignoreJidPayload("628111@s.whatsapp.net", "628111@s.whatsapp.net")
 	if !runIgnoreJidForward(t, []string{"@g.us"}, "message", payload) {

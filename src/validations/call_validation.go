@@ -27,3 +27,21 @@ func ValidateRejectCall(ctx context.Context, callerJID string, callID string) er
 
 	return nil
 }
+
+func ValidateListCallLogs(ctx context.Context, request *domainCall.ListCallLogsRequest) error {
+	// Set default limit if not provided
+	if request.Limit == 0 {
+		request.Limit = 25
+	}
+
+	err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.Limit, validation.Min(1), validation.Max(100)),
+		validation.Field(&request.Offset, validation.Min(0)),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
