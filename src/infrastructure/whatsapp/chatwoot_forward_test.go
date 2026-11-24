@@ -775,16 +775,16 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 	t.Cleanup(func() { getChatwootClientFn = original })
 
 	for _, tc := range []struct {
-		name                         string
-		exact, linked, fromMe, quote bool
-		linkConfigID                 int64
-		wantLookup, wantCreate       int
-		wantConversation             int
-		quoteChange                  func(*domainChatStorage.ChatwootMessageLink)
-		resolvedOnly, reopen, active bool
-		linkedMissing                bool
-		rejectedConversation         int
-		rejectStatus                 int
+		name                          string
+		exact, linked, fromMe, quote  bool
+		linkConfigID                  int64
+		wantLookup, wantCreate        int
+		wantConversation              int
+		quoteChange                   func(*domainChatStorage.ChatwootMessageLink)
+		resolvedOnly, reopen, active  bool
+		linkedMissing, deletedContact bool
+		rejectedConversation          int
+		rejectStatus                  int
 	}{
 		{name: "unproven other spelling", wantLookup: 1, wantCreate: 1, wantConversation: 80},
 		{name: "delivered reply", linked: true, linkConfigID: 3, wantLookup: 1, wantConversation: 42},
@@ -792,6 +792,7 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 		{name: "quoted resolved thread with newer open thread", linked: true, linkConfigID: 3, quote: true, active: true, wantConversation: 45},
 		{name: "reopen latest resolved", linked: true, linkConfigID: 3, quote: true, resolvedOnly: true, reopen: true, wantConversation: 44},
 		{name: "new thread when reopen disabled", linked: true, linkConfigID: 3, quote: true, resolvedOnly: true, wantConversation: 80},
+		{name: "linked contact deleted during selection", linked: true, linkConfigID: 3, deletedContact: true, wantLookup: 1, wantCreate: 1, wantConversation: 80},
 		{name: "linked conversation already deleted", linked: true, linkConfigID: 3, linkedMissing: true, wantLookup: 1, wantCreate: 1, wantConversation: 80},
 		{name: "quoted link from another chat", linked: true, linkConfigID: 3, quote: true, wantLookup: 1, wantConversation: 42,
 			quoteChange: func(link *domainChatStorage.ChatwootMessageLink) { link.WhatsAppChatJID = "123@s.whatsapp.net" }},
@@ -863,6 +864,10 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 					}
 					body = chatwoot.ConversationWebhook{ID: linkedConversation, InboxID: 2, Meta: chatwoot.ConversationMeta{Sender: chatwoot.Contact{ID: 7, Name: "Other spelling"}}}
 				case "GET " + api + "/contacts/7/conversations":
+					if tc.deletedContact {
+						w.WriteHeader(http.StatusNotFound)
+						return w.Result(), nil
+					}
 					items := []chatwoot.Conversation{{ID: linkedConversation, InboxID: 2, Status: "open"}}
 					if tc.active || tc.resolvedOnly {
 						items[0].Status = "resolved"
@@ -884,6 +889,10 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 					body = map[string]any{"payload": []map[string]any{{"id": 70, "inbox_id": 2, "status": "open"}}}
 				case "POST " + api + "/conversations":
 					conversationCreates++
+					if tc.deletedContact && creates == 0 {
+						w.WriteHeader(http.StatusNotFound)
+						return w.Result(), nil
+					}
 					if tc.resolvedOnly {
 						var request chatwoot.CreateConversationRequest
 						require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
@@ -952,7 +961,12 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 			case 0:
 				require.NoError(t, err)
 				require.Equal(t, []int{tc.wantConversation}, postConversations)
-				require.Equal(t, 1, searches)
+				if tc.deletedContact {
+					require.Equal(t, 2, searches)
+					require.Equal(t, 2, conversationCreates)
+				} else {
+					require.Equal(t, 1, searches)
+				}
 			default:
 				require.Error(t, err)
 				require.True(t, chatwoot.Retryable(err))

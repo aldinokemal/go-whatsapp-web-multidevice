@@ -622,6 +622,10 @@ With `CHATWOOT_MESSAGE_READ=true`, WhatsApp read receipts update Chatwoot `last_
 
 Inbound replies and reactions are threaded onto the message they reference (again via the `WAID:` source-id), so a reply or 👍 lands attached to the right message in the Chatwoot conversation.
 
+If the exact phone lookup misses, GOWA can identify the contact from a delivered agent reply to the registered WhatsApp number. It checks the quoted reply first, then the latest delivered reply for the same device, chat, configuration, account and inbox. The contact’s active conversation and `CHATWOOT_REOPEN_CONVERSATION` still determine where the message lands.
+
+Until the delivery link has been written successfully, GOWA has no evidence that two phone spellings identify the same contact. Normal contact creation can create a duplicate in that case. A database read error is propagated for retry; a successful lookup with no matching row allows first-time contacts to message the inbox.
+
 Reaction removal notes include the removed emoji when it is available in local chat storage; otherwise they say a reaction was removed.
 
 - A message sent by an agent from Chatwoot has no `WAID:` source-id. When GOWA stored a link for it (written when the agent reply was delivered), a WhatsApp reply or reaction to it also sets Chatwoot's native `in_reply_to`. Only links written for the current Chatwoot destination (same config, or for the legacy env client the same account) and for the conversation the new message lands in are used; with `CHATWOOT_REOPEN_CONVERSATION=false` a returning contact can get a new conversation, and Chatwoot does not accept a reference across conversations.

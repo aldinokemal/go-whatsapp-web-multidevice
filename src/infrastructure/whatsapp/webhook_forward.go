@@ -1121,7 +1121,7 @@ func deliveredChatwootReplyLink(resolved *chatwoot.ResolvedConfig, deviceID, cha
 			return link, nil
 		}
 	}
-	return repo.GetLatestOutgoingChatwootMessageLinkByChat(deviceID, chatJID, resolved.ConfigID, cw.AccountID, cw.InboxID)
+	return latestDeliveredChatwootReply(repo, deviceID, chatJID, resolved.ConfigID, cw.AccountID, cw.InboxID)
 }
 
 func findChatwootConversation(resolved *chatwoot.ResolvedConfig, info *chatwootContactInfo, deviceID string, linkRepo domainChatStorage.IChatStorageRepository, reply *chatwootReplyTarget) (conversationID int, fromLink bool, err error) {
@@ -1157,17 +1157,13 @@ func findChatwootConversation(resolved *chatwoot.ResolvedConfig, info *chatwootC
 
 	conversation, err := cw.FindOrCreateConversation(contact.ID, info.ChatJID)
 	if err != nil {
-		return 0, false, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
+		return 0, fromLink, fmt.Errorf("failed to find/create conversation for contact %d: %w", contact.ID, err)
 	}
 	return conversation.ID, fromLink, nil
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
 func syncMessageToChatwoot(resolved *chatwoot.ResolvedConfig, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions, reply *chatwootReplyTarget, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) (*chatwootSyncResult, error) {
-	conversationID, fromLink, err := findChatwootConversation(resolved, info, deviceID, linkRepo, reply)
-	if err != nil {
-		return nil, err
-	}
 	cw := resolved.Client
 
 	messageType := "incoming"
@@ -1185,21 +1181,24 @@ func syncMessageToChatwoot(resolved *chatwoot.ResolvedConfig, info *chatwootCont
 		logrus.Infof("Chatwoot: Creating message (Length: %d, Attachments: %d)", len(body), len(attachments))
 		return cw.CreateMessage(conversationID, body, messageType, messageAttachments, attemptOpts)
 	}
-	msgID, err := post(conversationID)
-	if fromLink && err != nil {
-		var statusErr *chatwoot.HTTPStatusError
-		if errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
-			// The selected conversation disappeared after selection. Check
-			// the linked contact again before creating a replacement.
-			conversationID, _, err = findChatwootConversation(resolved, info, deviceID, linkRepo, reply)
-			if err != nil {
-				return nil, err
-			}
+	conversationID, fromLink, err := findChatwootConversation(resolved, info, deviceID, linkRepo, reply)
+	var msgID int
+	if err == nil {
+		msgID, err = post(conversationID)
+	} else if fromLink {
+		// The linked contact failed during selection. A 404 below gets one
+		// fresh contact resolution, outside the identifier lock.
+		linkRepo = nil
+	}
+	var statusErr *chatwoot.HTTPStatusError
+	if fromLink && errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+		conversationID, _, err = findChatwootConversation(resolved, info, deviceID, linkRepo, reply)
+		if err == nil {
 			msgID, err = post(conversationID)
 		}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to create message: %w", err)
+		return nil, fmt.Errorf("failed to forward message: %w", err)
 	}
 	chatwoot.MarkMessageAsSent(cw.AccountID, msgID)
 
