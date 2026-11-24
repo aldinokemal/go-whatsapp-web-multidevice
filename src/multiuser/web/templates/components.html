@@ -1,0 +1,80 @@
+{{/* Shared pieces added with the account-management work. */}}
+
+{{/* menu_start / menu_end wrap a row's kebab menu (house rule B1-B3): the
+     trigger is the icon alone with an accessible name, it sits left of the
+     row's primary button, and destructive items go last, in red
+     (class menu-item-danger). Items are buttons with class menu-item. */}}
+{{define "menu_start"}}<div class="menu" data-menu>
+  <button type="button" class="icon-btn menu-trigger" aria-haspopup="menu" aria-expanded="false" aria-label="{{.}}" data-menu-trigger>{{icon "ellipsis"}}</button>
+  <div class="menu-list" role="menu" hidden>{{end}}
+{{define "menu_end"}}</div>
+</div>{{end}}
+
+{{/* number_state is the left part of a WhatsApp number's row (icon, words,
+     state pill), shared by My WhatsApp and the admin's view of a user's
+     numbers. .N is a numberView; .Whose is "your" or "their". */}}
+{{define "number_state"}}{{$n := .N}}
+  {{if eq $n.State "connected"}}
+  <span class="row-icon row-icon-ok" aria-hidden="true">{{icon "smartphone"}}</span>
+  <div class="row-main">
+    <p class="row-title">{{$n.Title}}</p>
+    <p class="row-sub">{{if $n.Name}}<span class="row-sub-part">{{phone $n.Phone}}</span>{{end}}{{if not $n.Added.IsZero}}<span class="row-sub-part">Added {{since $n.Added}}</span>{{end}}</p>
+  </div>
+  <span class="pill pill-ok">Connected</span>
+  {{else if eq $n.State "disconnected"}}
+  <span class="row-icon row-icon-warn" aria-hidden="true">{{icon "smartphone"}}</span>
+  <div class="row-main">
+    <p class="row-title">{{$n.Title}}</p>
+    <p class="row-sub">{{if $n.Name}}<span class="row-sub-part">{{phone $n.Phone}}</span>{{end}}{{if not $n.Added.IsZero}}<span class="row-sub-part">Added {{since $n.Added}}</span>{{end}}</p>
+  </div>
+  <span class="pill pill-warn">Not connected</span>
+  {{else if eq $n.State "signed_out"}}
+  <span class="row-icon row-icon-muted" aria-hidden="true">{{icon "smartphone"}}</span>
+  <div class="row-main">
+    <p class="row-title">{{$n.Title}}</p>
+    <p class="row-sub row-sub-wrap">{{if $n.Name}}<span class="row-sub-part">{{phone $n.Phone}}</span>{{end}}<span class="row-sub-part">Signed out from {{.Whose}} phone.{{if eq .Whose "your"}} Link it again.{{end}}</span></p>
+  </div>
+  <span class="pill">Signed out</span>
+  {{else if eq $n.State "refused"}}
+  <span class="row-icon row-icon-muted" aria-hidden="true">{{icon "smartphone"}}</span>
+  <div class="row-main">
+    <p class="row-title">Not linked</p>
+    <p class="row-sub row-sub-wrap row-sub-alert">{{$n.RefusalText}}</p>
+  </div>
+  <span class="pill">Not linked</span>
+  {{else}}
+  <span class="row-icon row-icon-muted" aria-hidden="true">{{icon "smartphone"}}</span>
+  <div class="row-main">
+    <p class="row-title">Not linked yet</p>
+    <p class="row-sub">{{if eq .Whose "your"}}Scan the QR code to finish linking.{{else}}Waiting for them to scan the QR code.{{end}}</p>
+  </div>
+  <span class="pill">Not linked</span>
+  {{end}}
+{{end}}
+
+{{/* form_dialog is one dialog reused by every row it serves: the opener's
+     data-dialog-action sets where the form posts, data-dialog-value fills
+     the input and data-dialog-subject the line naming who it is for. */}}
+{{define "form_dialog"}}
+<dialog id="{{.ID}}" class="dialog" aria-labelledby="{{.ID}}-title">
+  <form method="post" action="" class="dialog-panel">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="dialog-head">
+      <h2 class="dialog-title" id="{{.ID}}-title">{{.Title}}</h2>
+      <button type="button" class="icon-btn icon-btn-bare" data-close-dialog aria-label="Close">{{icon "x"}}</button>
+    </div>
+    <div class="dialog-fields">
+      <p class="dialog-text" data-dialog-subject></p>
+      <div class="field">
+        <label class="label" for="{{.ID}}-input">{{.Label}}</label>
+        <input class="input{{if .Mono}} input-mono{{end}}" id="{{.ID}}-input" name="{{.Name}}" type="{{.Type}}" {{if .Min}}min="{{.Min}}" max="{{.Max}}" inputmode="numeric"{{else}}inputmode="tel" autocomplete="off"{{end}} required data-dialog-value>
+      </div>
+      {{if .Hint}}<p class="field-hint">{{.Hint}}</p>{{end}}
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-secondary" data-close-dialog>Cancel</button>
+      <button type="submit" class="btn btn-primary">{{.Button}}</button>
+    </div>
+  </form>
+</dialog>
+{{end}}

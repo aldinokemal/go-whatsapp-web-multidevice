@@ -218,6 +218,19 @@ func (s *store) issueAuthorizationCode(ctx context.Context, grant AuthorizationG
 	if err := cleanupExpiredTx(ctx, tx, now); err != nil {
 		return "", err
 	}
+	if c := grant.recordClient; c != nil {
+		redirects, err := json.Marshal(c.RedirectURIs)
+		if err != nil {
+			return "", fmt.Errorf("encode oauth redirect URIs: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT OR IGNORE INTO oauth_clients (
+    client_id, client_name, redirect_uris_json, application_type,
+    token_endpoint_auth_method, created_at
+) VALUES (?, ?, ?, ?, ?, ?)`, c.ID, c.Name, string(redirects), c.ApplicationType, "none", now.Unix()); err != nil {
+			return "", fmt.Errorf("record oauth client: %w", err)
+		}
+	}
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO oauth_authorization_codes (
     code_hash, client_id, subject, redirect_uri, code_challenge,
@@ -295,6 +308,9 @@ WHERE code_hash = ?`, hashSecret(req.Code)).Scan(
 		return TokenPair{}, ErrInvalidTarget
 	}
 	if !verifyPKCES256(req.CodeVerifier, codeChallenge) {
+		return TokenPair{}, ErrInvalidGrant
+	}
+	if req.allow != nil && !req.allow(subject) {
 		return TokenPair{}, ErrInvalidGrant
 	}
 
@@ -384,6 +400,9 @@ WHERE family_id = ? AND revoked_at IS NULL`, now.Unix(), familyID); err != nil {
 	}
 	if resource != req.Resource {
 		return TokenPair{}, ErrInvalidTarget
+	}
+	if req.allow != nil && !req.allow(subject) {
+		return TokenPair{}, ErrInvalidGrant
 	}
 
 	result, err := tx.ExecContext(ctx, `
@@ -532,4 +551,90 @@ func randomSecret(prefix string, byteLen int) (string, error) {
 		return "", fmt.Errorf("generate oauth secret: %w", err)
 	}
 	return prefix + base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// revokeSubject revokes every token the subject holds and deletes its unused
+// authorization codes: used when a person is disabled or deleted.
+func (s *store) revokeSubject(ctx context.Context, subject string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `
+UPDATE oauth_tokens SET revoked_at = ? WHERE subject = ? AND revoked_at IS NULL`, now.Unix(), subject); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM oauth_authorization_codes WHERE subject = ? AND used_at IS NULL`, subject); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// listGrants returns one row per live token family of the subject (a family
+// is live while it holds an unrevoked, unexpired refresh token), newest first.
+func (s *store) listGrants(ctx context.Context, subject string, now time.Time) ([]Grant, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT t.family_id, t.client_id, MIN(t.created_at), MAX(t.created_at), COALESCE(c.redirect_uris_json, '[]'),
+       COALESCE(c.client_name, ''), COALESCE(c.application_type, '')
+FROM oauth_tokens t
+LEFT JOIN oauth_clients c ON c.client_id = t.client_id
+WHERE t.subject = ?
+GROUP BY t.family_id, t.client_id
+HAVING SUM(CASE WHEN t.token_type = 'refresh' AND t.revoked_at IS NULL AND t.expires_at > ? THEN 1 ELSE 0 END) > 0
+ORDER BY MIN(t.created_at) DESC, t.family_id`, subject, now.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Grant
+	for rows.Next() {
+		var (
+			g             Grant
+			created, last int64
+			redirectsJSON string
+			name, appType string
+		)
+		if err := rows.Scan(&g.FamilyID, &g.ClientID, &created, &last, &redirectsJSON, &name, &appType); err != nil {
+			return nil, err
+		}
+		g.CreatedAt = time.Unix(created, 0).UTC()
+		g.LastUsedAt = time.Unix(last, 0).UTC()
+		var redirects []string
+		_ = json.Unmarshal([]byte(redirectsJSON), &redirects)
+		g.ClientHost = clientDisplayHost(g.ClientID, redirects)
+		if appType == applicationTypeCIMD {
+			// Written by the document's own host (an allowlisted one), not
+			// by whoever registered: safe to show beside that host.
+			g.ClientName = name
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// revokeGrant revokes one of the subject's token families. A family that is
+// not the subject's (or does not exist) is ErrInvalidGrant, so one person can
+// never end another's connection.
+func (s *store) revokeGrant(ctx context.Context, subject, familyID string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var n int
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM oauth_tokens WHERE family_id = ? AND subject = ?`, familyID, subject).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrInvalidGrant
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE oauth_tokens SET revoked_at = ? WHERE family_id = ? AND subject = ? AND revoked_at IS NULL`,
+		now.Unix(), familyID, subject); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

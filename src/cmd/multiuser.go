@@ -6,6 +6,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/multiuser"
+	uimcp "github.com/aldinokemal/go-whatsapp-web-multidevice/ui/mcp"
 	"github.com/gofiber/fiber/v3"
 	"github.com/spf13/viper"
 )
@@ -46,6 +47,31 @@ func setupMultiUser(app *fiber.App, dm *whatsapp.DeviceManager, s multiuser.Sett
 		return nil, err
 	}
 	deviceUsecase = rt.Devices // /devices REST routes now see only the caller's devices
-	rt.Install(app)
+	rt.Install(app, dm, mcpUsecaseDeps())
+	// Finish any account deletion left half done, free link slots nobody
+	// scanned and, while WTF_RETENTION_HOURS is on, delete message content
+	// and media past the window.
+	var chats multiuser.ChatData
+	if chatStorageRepo != nil {
+		chats = chatStorageRepo
+	}
+	rt.Start(chats)
 	return rt, nil
+}
+
+// mcpUsecaseDeps are the usecase instances the MCP tools call: the same ones
+// the REST handlers hold, so both surfaces share one whatsmeow session.
+func mcpUsecaseDeps() uimcp.Deps {
+	return uimcp.Deps{
+		App:      appUsecase,
+		Send:     sendUsecase,
+		Schedule: scheduleUsecase,
+		Chat:     chatUsecase,
+		User:     userUsecase,
+		Message:  messageUsecase,
+		Group:    groupUsecase,
+		// WTF: behind the REST routes upstream's MCP tools lacked.
+		Newsletter: newsletterUsecase,
+		Call:       callUsecase,
+	}
 }

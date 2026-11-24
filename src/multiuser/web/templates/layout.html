@@ -1,32 +1,224 @@
+{{/* Page frame. Every page starts with "head" and ends with "foot"; between
+     them a signed-in page wraps its content in "app_start"/"app_end" (the
+     sidebar shell) and a signed-out page in "auth_start"/"auth_end" (the
+     centred card). */}}
 {{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>{{.Title}} &middot; {{.Product}}</title>
+<link rel="preload" href="/ui/static/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/ui/static/app.css">
+{{/* brand-head: favicon, manifest, theme-color. The two theme-color values
+     are the light and dark top-bar surfaces; boot.js pins both to one when a
+     theme is chosen instead of following the system. */}}
+<meta name="application-name" content="{{.Product}}">
+<meta name="description" content="Link your WhatsApp and use it from any device.">
+<link rel="icon" href="/ui/static/brand/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" data-theme-color="light">
+<meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)" data-theme-color="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="{{.Product}}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="{{.Product}}">
+<meta property="og:title" content="{{.Product}}">
+<meta property="og:description" content="Link your WhatsApp and use it from any device.">
+<meta property="og:image" content="{{.PublicURL}}/ui/static/brand/og-image.png">
+<script src="/ui/static/sw-register.js" defer></script>
+<script src="/ui/static/boot.js"></script>
 <meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to main content</a>
-<header class="topbar">
-  <a class="brand" href="/">{{.Product}}</a>
-  {{if .User}}
-  <nav class="topnav" aria-label="Primary">
-    <a href="/">My WhatsApp</a>
-    <a href="/account">Account</a>
-    {{if .Superadmin}}<a href="/admin/users">Admin</a><a href="/admin/settings">Settings</a>{{end}}
-  </nav>
-  <form method="post" action="/signout" class="signout-form">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <button type="submit" class="btn btn-ghost">Sign out</button>
-  </form>
-  {{end}}
-</header>
 {{end}}
+
 {{define "foot"}}
 <script src="/ui/static/htmx.min.js" defer></script>
 <script src="/ui/static/app.js" defer></script>
 </body>
 </html>
 {{end}}
+
+{{define "brand"}}<a class="brand" href="/"><img class="brand-mark" src="/ui/static/brand/mark.svg" alt="" width="32" height="32"><span class="brand-name">{{.}}</span></a>{{end}}
+
+{{/* nav_link draws one menu entry. Current: the longest matching path. ID
+     and OOB let an htmx answer redraw it out of band (the Waitlist count). */}}
+{{define "nav_link"}}<a{{if .ID}} id="{{.ID}}"{{end}}{{if .OOB}} hx-swap-oob="true"{{end}} class="nav-link" href="{{.Href}}" data-tip="{{.Label}}"{{if .Current}} aria-current="page"{{end}}>{{icon .Icon}}<span class="nav-label">{{.Label}}</span>{{if .Count}}<span class="nav-count" aria-label="{{.Count}} waiting">{{.Count}}</span>{{end}}</a>{{end}}
+
+{{define "app_start"}}
+<div class="shell">
+  <header class="topbar">
+    <button type="button" class="icon-btn icon-btn-bare" data-nav-open aria-controls="sidebar" aria-expanded="false" aria-label="Open menu">{{icon "menu"}}</button>
+    {{template "brand" .Product}}
+  </header>
+  <div class="nav-backdrop" data-nav-close></div>
+  <aside class="sidebar" id="sidebar" aria-label="Menu">
+    <div class="sidebar-head">
+      {{template "brand" .Product}}
+      <button type="button" class="icon-btn icon-btn-bare rail-toggle" data-rail-toggle aria-controls="sidebar" aria-label="Collapse menu">{{icon "panel-left-close"}}</button>
+      <button type="button" class="icon-btn icon-btn-bare drawer-close" data-nav-close aria-label="Close menu">{{icon "x"}}</button>
+    </div>
+    <nav class="nav" aria-label="Primary">
+      {{template "nav_link" (dict "Href" "/" "Label" "My WhatsApp" "Icon" "smartphone" "Current" (eq .Path "/"))}}
+      {{template "nav_link" (dict "Href" "/account" "Label" "Account" "Icon" "user-round" "Current" (eq .Path "/account"))}}
+      {{if .Superadmin}}
+      <p class="nav-section">Admin</p>
+      {{template "nav_link" (dict "Href" "/admin/users" "Label" "Users" "Icon" "users" "Current" (eq .Path "/admin/users"))}}
+      {{template "nav_link" (dict "Href" "/admin/waitlist" "Label" "Waitlist" "Icon" "hourglass" "Current" (eq .Path "/admin/waitlist") "Count" .Waiting "ID" "nav-waitlist")}}
+      {{template "nav_link" (dict "Href" "/admin/activity" "Label" "Activity" "Icon" "activity" "Current" (eq .Path "/admin/activity"))}}
+      {{template "nav_link" (dict "Href" "/admin/settings" "Label" "Settings" "Icon" "settings" "Current" (eq .Path "/admin/settings"))}}
+      {{end}}
+    </nav>
+    <div class="sidebar-foot">
+      <div class="who">
+        <span class="avatar" aria-hidden="true">{{icon "user-round"}}</span>
+        <span class="who-text">
+          <span class="who-phone">{{phone .User.Phone}}</span>
+          <span class="who-role">{{if .Superadmin}}Admin{{else}}Member{{end}}</span>
+        </span>
+      </div>
+      <div class="sidebar-theme">{{template "theme_switcher" "nav"}}</div>
+      <form method="post" action="/signout" class="signout-form">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button type="submit" class="nav-link nav-button" data-tip="Sign out">{{icon "log-out"}}<span class="nav-label">Sign out</span></button>
+      </form>
+    </div>
+  </aside>
+  <main id="main" tabindex="-1" class="main">
+    <div class="page">
+{{end}}
+
+{{define "app_end"}}
+    </div>
+  </main>
+</div>
+{{end}}
+
+{{define "auth_start"}}
+<main id="main" tabindex="-1" class="auth">
+  <div class="auth-inner">
+    <div class="auth-brand">{{template "brand" .Product}}</div>
+    <div class="card auth-card">
+{{end}}
+
+{{define "auth_end"}}
+    </div>
+  </div>
+</main>
+{{end}}
+
+{{/* confirm draws a destructive confirmation dialog: one per thing it acts
+     on, opened by a data-open-dialog button (or one shared by many rows, with
+     an empty Action that the opener's data-dialog-action fills). An optional
+     Check/CheckName adds one ticked-by-default option; Items lists plainly
+     what goes. Typed asks the person to type something first (its label;
+     TypedName names the field): the form then posts with htmx, an error
+     comes back as this form again (confirm_form) and Busy is what the button
+     says while the request runs. HX posts with htmx too, into the opener's
+     data-dialog-target (a row), and closes the dialog when it answers.
+     Primary draws a confirmation that is not destructive (Let in). Cancel takes focus first so an accidental
+     Enter never destroys anything. */}}
+{{define "confirm"}}
+<dialog id="{{.ID}}" class="dialog dialog-confirm" aria-labelledby="{{.ID}}-title">
+  {{template "confirm_form" .}}
+</dialog>
+{{end}}
+
+{{define "confirm_form"}}
+  <form method="post" action="{{.Action}}" class="dialog-panel"{{if .Busy}} aria-live="polite"{{end}}{{if or .Typed .HX}} hx-post="{{.Action}}" hx-target="{{or .Target "this"}}" hx-swap="outerHTML" hx-disabled-elt="find button"{{if .HX}} data-close-on-success{{end}}{{end}}>
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    {{if .Status}}<input type="hidden" name="status" value="{{.Status}}">{{end}}
+    <div class="dialog-body">
+      <span class="badge-icon {{if .Primary}}badge-icon-brand{{else}}badge-icon-danger{{end}}" aria-hidden="true">{{icon .Icon}}</span>
+      <div class="dialog-main">
+        <h2 class="dialog-title" id="{{.ID}}-title">{{.Title}}</h2>
+        {{if not .Action}}<p class="dialog-subject" data-dialog-subject></p>{{end}}
+        {{if .Items}}<ul class="dialog-list" role="list">{{range .Items}}<li>{{icon "x"}}<span>{{.}}</span></li>{{end}}</ul>{{end}}
+        <p class="dialog-text">{{.Body}}</p>
+        {{if .Check}}<label class="check"><input type="checkbox" name="{{.CheckName}}" value="on" checked><span>{{.Check}}</span></label>{{end}}
+        {{if .Typed}}
+        <div class="field dialog-typed">
+          <label class="label" for="{{.ID}}-typed">{{.Typed}}</label>
+          <input class="input" id="{{.ID}}-typed" name="{{.TypedName}}" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" required{{if .Invalid}} aria-invalid="true"{{end}}{{if .Error}} aria-describedby="{{.ID}}-error"{{end}}>
+        </div>
+        {{end}}
+        {{if .Error}}<p class="form-error" id="{{.ID}}-error" role="alert"><span>{{.Error}}{{if .ErrorHref}} <a href="{{.ErrorHref}}">{{.ErrorLinkText}}</a>.{{end}}</span></p>{{end}}
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-secondary" data-close-dialog autofocus>Cancel</button>
+      <button type="submit" class="btn {{if .Primary}}btn-primary{{else}}btn-danger{{end}}">{{if .Busy}}<span class="when-idle">{{.Button}}</span><span class="when-busy">{{.Busy}}</span>{{else}}{{.Button}}{{end}}</button>
+    </div>
+  </form>
+{{end}}
+
+{{/* theme_switcher is the System / Light / Dark choice (house rule B4: a row
+     of buttons, one select on a phone). The argument makes ids unique when
+     the page draws it twice (sidebar and Account). app.js applies and stores
+     the choice; boot.js restores it before paint. */}}
+{{define "theme_switcher"}}
+<div class="switcher" data-theme-switcher>
+  <div class="switcher-buttons" role="group" aria-label="Theme">
+    <button type="button" class="switcher-btn" data-theme-choice="system" aria-pressed="true">{{icon "monitor"}}<span>System</span></button>
+    <button type="button" class="switcher-btn" data-theme-choice="light" aria-pressed="false">{{icon "sun"}}<span>Light</span></button>
+    <button type="button" class="switcher-btn" data-theme-choice="dark" aria-pressed="false">{{icon "moon"}}<span>Dark</span></button>
+  </div>
+  <div class="switcher-select select-wrap">
+    <label class="visually-hidden" for="theme-{{.}}">Theme</label>
+    <select class="input" id="theme-{{.}}" data-theme-select>
+      <option value="system">System theme</option>
+      <option value="light">Light theme</option>
+      <option value="dark">Dark theme</option>
+    </select>
+    {{icon "chevron-down"}}
+  </div>
+</div>
+{{end}}
+
+{{/* sheet draws a content dialog with a title bar and close button; its body
+     is filled by htmx into #link-dialog-body. */}}
+{{define "sheet"}}
+<dialog id="link-dialog" class="dialog dialog-sheet" aria-labelledby="link-dialog-title">
+  <div class="dialog-panel">
+    <div class="dialog-head">
+      <h2 class="dialog-title" id="link-dialog-title">{{.Title}}</h2>
+      <button type="button" class="icon-btn icon-btn-bare" data-close-dialog aria-label="Close">{{icon "x"}}</button>
+    </div>
+    <div id="link-dialog-body" class="link-body"></div>
+  </div>
+</dialog>
+{{end}}
+
+{{/* nav_switcher is an either/or choice that navigates (house rule B4): a
+     row of links on a wide screen, one select on a phone. .Items are
+     switchItems; .ID makes the select's id unique. */}}
+{{define "nav_switcher"}}
+<div class="switcher switcher-nav">
+  <nav class="switcher-buttons" aria-label="{{.Label}}">
+    {{range .Items}}<a class="switcher-btn" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><span>{{.Text}}</span>{{if .Count}}<span class="switcher-count">{{.Count}}</span>{{end}}</a>{{end}}
+  </nav>
+  <div class="switcher-select select-wrap">
+    <label class="visually-hidden" for="{{.ID}}">{{.Label}}</label>
+    <select class="input" id="{{.ID}}" data-nav-select>
+      {{range .Items}}<option value="{{.Href}}"{{if .Current}} selected{{end}}>{{.Text}}{{if .Count}} ({{.Count}}){{end}}</option>{{end}}
+    </select>
+    {{icon "chevron-down"}}
+  </div>
+</div>
+{{end}}
+
+{{/* pager is Previous / Next under a list, with what it shows. */}}
+{{define "pager"}}{{if or .Prev .Next}}
+<nav class="pager" aria-label="Pages">
+  {{if .Prev}}<a class="btn btn-secondary btn-sm" href="{{.Prev}}" rel="prev">{{icon "chevron-left"}}<span>Previous</span></a>{{end}}
+  <span class="pager-status">{{.First}}&ndash;{{.Last}} of {{.Total}}</span>
+  {{if .Next}}<a class="btn btn-secondary btn-sm" href="{{.Next}}" rel="next"><span>Next</span>{{icon "chevron-right"}}</a>{{end}}
+</nav>
+{{end}}{{end}}

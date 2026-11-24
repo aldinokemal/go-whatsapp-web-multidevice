@@ -7,6 +7,7 @@ import (
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -67,4 +68,35 @@ func TestResolveDeviceContext(t *testing.T) {
 		_, _, err := resolveDeviceContext(ctx, callReq(nil), &stubResolver{})
 		require.ErrorContains(t, err, "device identification required")
 	})
+}
+
+// WTF: with Deps.ResolveDevice set, every per-call lookup goes through the
+// context-aware hook; the context-free path never resolves anything.
+func TestHookResolverNeedsTheContext(t *testing.T) {
+	want := &whatsapp.DeviceInstance{}
+	type ctxKey struct{}
+	var gotCtx context.Context
+	h := hookResolver(func(ctx context.Context, id string) (*whatsapp.DeviceInstance, string, error) {
+		gotCtx = ctx
+		return want, id, nil
+	})
+	_, _, err := h.ResolveDevice("d1")
+	require.Error(t, err)
+
+	ctx := context.WithValue(context.Background(), ctxKey{}, "alice")
+	_, inst, err := resolveDeviceContext(ctx, callReq(map[string]any{"device_id": "d1"}), h)
+	require.NoError(t, err)
+	assert.Same(t, want, inst)
+	assert.Equal(t, "alice", gotCtx.Value(ctxKey{}), "the hook sees the request context")
+}
+
+func TestNewServerAddsExtraToolsOnlyWhenSet(t *testing.T) {
+	s := NewServer(Deps{}, nil)
+	_, has := s.ListTools()["extra_tool"]
+	assert.False(t, has)
+	s = NewServer(Deps{ExtraTools: func(ms *server.MCPServer) {
+		ms.AddTool(mcpg.NewTool("extra_tool"), func(context.Context, mcpg.CallToolRequest) (*mcpg.CallToolResult, error) { return nil, nil })
+	}}, nil)
+	_, has = s.ListTools()["extra_tool"]
+	assert.True(t, has)
 }

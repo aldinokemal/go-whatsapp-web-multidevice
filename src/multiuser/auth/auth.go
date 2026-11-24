@@ -37,6 +37,7 @@ const (
 	keyRaw     localsKey = iota // raw session id (string)
 	keyUser                     // *store.User
 	keyAuthErr                  // bool: the accounts store failed while loading the session
+	keyVia                      // string: "api_key" when an API key authenticated the request
 )
 
 // ErrInactiveUser is returned by StartSession for a user who is not active.
@@ -407,4 +408,30 @@ func bodyCSRF(c fiber.Ctx) string {
 		return ""
 	}
 	return string(c.Request().PostArgs().Peek("csrf"))
+}
+
+// IsSuperadminPhone reports whether phone (any spelling) is on the superadmin
+// allowlist. Used to refuse moving an account onto, or off, such a number.
+func (m *Manager) IsSuperadminPhone(phone string) bool {
+	p, err := store.NormalizePhone(phone)
+	return err == nil && m.cfg.Superadmins[p]
+}
+
+// CurrentSessionHash is the stored hash of this request's session, or "".
+func (m *Manager) CurrentSessionHash(c fiber.Ctx) string {
+	raw, _ := c.Locals(keyRaw).(string)
+	if raw == "" {
+		return ""
+	}
+	return store.HashToken(raw)
+}
+
+// SessionHandle is the opaque id a page uses for one stored session: an HMAC
+// of its stored hash, so neither the raw id nor the hash reaches HTML, and a
+// handle cannot be turned back into either. Handles are only ever matched
+// against the signed-in user's own sessions.
+func (m *Manager) SessionHandle(idHash string) string {
+	mac := hmac.New(sha256.New, m.cfg.Secret)
+	mac.Write([]byte("session-row:" + idHash))
+	return hex.EncodeToString(mac.Sum(nil))[:32]
 }

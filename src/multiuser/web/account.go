@@ -113,8 +113,26 @@ func mountAccount(app *fiber.App, d Deps) {
 		if err != nil {
 			return err
 		}
-		return d.render(c, fiber.StatusOK, "account.html", "Account", map[string]any{"Passkeys": passkeyViews(list)})
+		sessions, err := sessionViews(c, d, u.ID)
+		if err != nil {
+			return err
+		}
+		keys, err := apiKeysData(c, d, u.ID)
+		if err != nil {
+			return err
+		}
+		conns, err := connectionsData(c, d, u.ID)
+		if err != nil {
+			return err
+		}
+		del, err := deleteAccountData(c.Context(), d, u)
+		if err != nil {
+			return err
+		}
+		return d.render(c, fiber.StatusOK, "account.html", "Account", map[string]any{"Passkeys": passkeyViews(list), "Sessions": sessions, "APIKeys": keys, "Connections": conns, "Delete": del})
 	})
+	mountAPIKeys(app, d)
+	mountConnections(app, d)
 
 	app.Post("/auth/passkey/register/begin", page, csrf, func(c fiber.Ctx) error {
 		u, _ := userOf(c)
@@ -153,6 +171,7 @@ func mountAccount(app *fiber.App, d Deps) {
 		if err := d.Store.DeleteUserSessions(c.Context(), u.ID); err != nil {
 			return err
 		}
+		_ = d.Store.Audit(c.Context(), store.AuditEvent{UserID: u.ID, Action: "sessions_ended_all", IP: c.IP()})
 		return c.Redirect().Status(fiber.StatusSeeOther).To("/signin")
 	})
 }

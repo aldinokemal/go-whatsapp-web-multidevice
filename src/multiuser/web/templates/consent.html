@@ -1,0 +1,25 @@
+{{/* consent.html: the OAuth consent page (GET /oauth/authorize when signed
+     in). The requester is the host of the client's id URL, never the name it
+     gives itself (self-asserted). The form posts to itself; the handler
+     redirects to the client, which is why this page's CSP widens form-action
+     to that one origin. data-no-disable: the busy state must never disable
+     the submitter, or its decision value is dropped from the POST. */}}
+{{define "consent.html"}}{{template "head" .}}{{template "auth_start" .}}{{$v := .Data}}
+  <span class="badge-icon badge-icon-brand" aria-hidden="true">{{icon "plug"}}</span>
+  <h1 class="auth-title">Allow access to your WhatsApp?</h1>
+  <p class="auth-sub"><span class="consent-host">{{if $v.ClientHost}}{{$v.ClientHost}}{{else}}{{$v.RedirectHost}}{{end}}</span> wants to use your {{.Product}} account.</p>
+  {{if $v.ClientName}}<p class="card-sub consent-name">{{$v.ClientName}}</p>{{end}}
+  <p class="consent-text">It will be able to read and send messages on every WhatsApp number you've linked, until you disconnect it on your Account page.</p>
+  {{if $v.LoopbackOnly}}<p class="notice notice-warn">{{icon "triangle-alert"}}<span>This app runs on this computer. Only continue if you started this from Claude Code.</span></p>{{end}}
+  <dl class="consent-facts">
+    <div><dt>Signed in as</dt><dd>{{phone .User.Phone}}</dd></div>
+    <div><dt>Returns to</dt><dd>{{$v.RedirectHost}}</dd></div>
+  </dl>
+  <form method="post" action="{{$v.Action}}" class="consent-actions" data-no-disable>
+    <input type="hidden" name="csrf" value="{{$v.CSRF}}">
+    {{range $k, $val := $v.Hidden}}<input type="hidden" name="{{$k}}" value="{{$val}}">
+    {{end}}
+    <button type="submit" name="decision" value="deny" class="btn btn-secondary btn-lg">Cancel</button>
+    <button type="submit" name="decision" value="approve" class="btn btn-primary btn-lg">Allow</button>
+  </form>
+{{template "auth_end" .}}{{template "foot" .}}{{end}}

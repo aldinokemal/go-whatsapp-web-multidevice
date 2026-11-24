@@ -16,6 +16,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// WTF: OutboundClient, when set, replaces the HTTP client used to deliver
+// webhooks. Multi-user mode sets it to netguard's client so a per-device
+// webhook URL cannot reach private, loopback or metadata addresses (phase 2,
+// task 2). Nil keeps upstream behaviour.
+var OutboundClient func(timeout time.Duration, insecureSkipVerify bool) *http.Client
+
 func submitWebhook(ctx context.Context, payload map[string]any, url string, webhookConfig *chatstorage.DeviceWebhookConfig) error {
 	// Determine effective config - use device-specific if set, otherwise fall back to global
 	insecureSkipVerify := config.WhatsappWebhookInsecureSkipVerify
@@ -39,6 +45,9 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 	client := &http.Client{
 		Timeout:   10 * time.Second,
 		Transport: transport,
+	}
+	if OutboundClient != nil { // WTF: phase 2 task 2
+		client = OutboundClient(10*time.Second, insecureSkipVerify)
 	}
 
 	postBody, err := json.Marshal(payload)

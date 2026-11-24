@@ -13,6 +13,12 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// ErrInvalid is returned for a value outside what the store accepts.
+var ErrInvalid = errors.New("invalid value")
+
+// ErrPhoneTaken is returned when another user already has that phone number.
+var ErrPhoneTaken = errors.New("phone number already in use")
+
 type Store struct {
 	db  *sql.DB
 	Now func() time.Time
@@ -37,7 +43,9 @@ func Open(uri string) (*Store, error) {
 }
 
 // now is the only way store code reads the clock. Timestamps are compared as
-// text in SQL, so they must always be UTC regardless of what Now returns.
+// text in SQL, so they must always be UTC regardless of what Now returns. A
+// time that comes in from a caller (a cutoff) is converted with .UTC() before
+// it is bound, for the same reason. See utc.go.
 func (s *Store) now() time.Time { return s.Now().UTC() }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -88,6 +96,48 @@ var migrations = []string{
 		device_id TEXT NOT NULL DEFAULT '',
 		ip TEXT NOT NULL DEFAULT '',
 		at TIMESTAMP NOT NULL)`,
+	// Gap A/B: what a slot last held, and why its last link was refused.
+	`ALTER TABLE device_owners ADD COLUMN last_phone TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE device_owners ADD COLUMN last_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE device_owners ADD COLUMN signed_out_at TIMESTAMP NULL`,
+	`ALTER TABLE device_owners ADD COLUMN last_refusal TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE device_owners ADD COLUMN last_refusal_at TIMESTAMP NULL`,
+	// Gap D: when a session was last used.
+	`ALTER TABLE sessions ADD COLUMN last_seen_at TIMESTAMP NULL`,
+	// Gap E: who did it (when not the subject) and a short non-secret detail.
+	`ALTER TABLE audit_log ADD COLUMN actor_id TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE audit_log ADD COLUMN detail TEXT NOT NULL DEFAULT ''`,
+	`CREATE INDEX audit_log_user ON audit_log(user_id)`,
+	`CREATE INDEX audit_log_actor ON audit_log(actor_id)`,
+	// Phase 2: personal API keys. Only the hash of a key is kept.
+	`CREATE TABLE api_keys (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		key_hash TEXT NOT NULL UNIQUE,
+		prefix TEXT NOT NULL,
+		name TEXT NOT NULL,
+		created_at TIMESTAMP NOT NULL,
+		last_used_at TIMESTAMP NULL,
+		revoked_at TIMESTAMP NULL)`,
+	`CREATE INDEX api_keys_user ON api_keys(user_id)`,
+	// Phase 3: a name the owner gives each linked number. Self-contained (no
+	// dependency on the entry before it), so it can be reordered when merging.
+	`ALTER TABLE device_owners ADD COLUMN label TEXT NOT NULL DEFAULT ''`,
+	// Phase 4: people who asked the service number for an account. Not an
+	// account: no sign-in, no session, not counted against capacity. These
+	// two entries are a pair; keep them together and in this order.
+	`CREATE TABLE waitlist (
+		phone TEXT PRIMARY KEY,
+		status TEXT NOT NULL DEFAULT 'waiting',
+		created_at TIMESTAMP NOT NULL,
+		last_asked_at TIMESTAMP NOT NULL,
+		decided_at TIMESTAMP NULL,
+		decided_by TEXT NOT NULL DEFAULT '')`,
+	`CREATE INDEX waitlist_status_created ON waitlist(status, created_at)`,
+	// Rewrite every stored timestamp that is not UTC to UTC, so the text
+	// comparisons and ORDER BYs above hold for rows written before the clock
+	// was pinned to UTC. Run in Go (see timesToUTC), not as SQL.
+	migrateTimesToUTC,
 }
 
 func (s *Store) migrate(ctx context.Context) error {
@@ -108,7 +158,12 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
+		if migrations[i] == migrateTimesToUTC {
+			err = timesToUTC(ctx, tx)
+		} else {
+			_, err = tx.ExecContext(ctx, migrations[i])
+		}
+		if err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}

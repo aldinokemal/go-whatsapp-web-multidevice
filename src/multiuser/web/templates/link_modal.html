@@ -1,40 +1,82 @@
-{{/* link_modal.html is the htmx fragment returned by POST /ui/devices and
-     POST /ui/devices/:id/pair-code: the body of the shared "Link WhatsApp"
-     dialog. It is also used, via the shared "link_fragment" sub-template,
-     to re-render the same content inline inside a per-device dialog on
-     home.html, so an unlinked device can be re-opened without another
-     round trip to the server. */}}
-{{define "link_modal.html"}}{{template "link_fragment" (dict "ID" .Data.ID "Error" .Data.Error "PairCode" .Data.PairCode "CSRF" .CSRF)}}{{end}}
+{{/* link_modal.html is the htmx fragment returned by POST /ui/devices,
+     GET /ui/devices/:id/link and POST /ui/devices/:id/pair-code: the body of
+     the shared "Link WhatsApp" dialog, drawn by the "link_fragment"
+     sub-template. */}}
+{{define "link_modal.html"}}{{template "link_fragment" (dict "ID" .Data.ID "Error" .Data.Error "PairCode" .Data.PairCode "Mode" .Data.Mode "CSRF" .CSRF)}}{{end}}
 
 {{define "link_fragment"}}
 {{if .Error}}
 <p class="form-error" role="alert">{{.Error}}</p>
+<div class="dialog-foot"><button type="button" class="btn btn-secondary" data-close-dialog>Close</button></div>
 {{else if .PairCode}}
-<p>On your phone: WhatsApp, Settings, Linked devices, Link with phone number, then enter:</p>
-<p class="pair-code">{{.PairCode}}</p>
+<div class="pair-result" data-link-session data-expires-in="120">
+  <p class="pair-lead">Enter this code in WhatsApp on your phone</p>
+  <div class="pair-code-row">
+    <input class="pair-code" id="pair-code-value" type="text" value="{{.PairCode}}" readonly aria-label="Pairing code">
+    <button type="button" class="btn btn-secondary" data-copy="pair-code-value">{{icon "copy"}}<span>Copy</span></button>
+  </div>
+  <p class="copy-feedback" data-copy-feedback aria-live="polite"></p>
+  <ol class="steps">
+    <li>Open WhatsApp, then Settings</li>
+    <li>Tap Linked devices, then Link a device</li>
+    <li>Tap Link with phone number instead, then enter the code</li>
+  </ol>
+  <p class="waiting" aria-live="polite"><span class="pulse" aria-hidden="true"></span>Waiting for your phone</p>
+  {{template "link_ended" (dict "ID" .ID "Mode" "pair")}}
+  <div class="link-more">
+    <button type="button" class="btn btn-ghost mode-switch-btn" hx-get="/ui/devices/{{.ID}}/link?mode=pair" hx-target="closest .link-body" hx-swap="innerHTML">{{icon "refresh-cw"}}<span>Get a new code</span></button>
+    <button type="button" class="btn btn-ghost mode-switch-btn" hx-get="/ui/devices/{{.ID}}/link?mode=qr" hx-target="closest .link-body" hx-swap="innerHTML">{{icon "qr-code"}}<span>Use a QR code instead</span></button>
+  </div>
+</div>
 {{else}}
-{{/* The real QR rotates every few seconds, so polling alone isn't enough:
-     hx-swap="none" means htmx never touches the DOM with the response, so the
-     <img>'s own src never changes and the browser never re-fetches. app.js
-     listens for htmx:afterRequest on data-qr-refresh and re-points src at the
-     same URL with a cache-buster, which is what actually triggers the
-     browser to fetch a fresh frame. */}}
-<img class="qr-code" data-qr-refresh src="/ui/devices/{{.ID}}/qr.png" alt="QR code to link WhatsApp" width="280" height="280"
-     hx-get="/ui/devices/{{.ID}}/qr.png" hx-trigger="every 20s" hx-swap="none">
-<ol class="steps">
-  <li>Open WhatsApp on your phone</li>
-  <li>Tap Settings, then Linked devices</li>
-  <li>Tap Link a device, then scan this code</li>
-</ol>
-<details class="pair-alt">
-  <summary>Use a phone number instead</summary>
-  <form hx-post="/ui/devices/{{.ID}}/pair-code" hx-target="closest .link-body" hx-swap="innerHTML"
-        hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}'>
-    <label for="pair-phone-{{.ID}}">WhatsApp number</label>
-    <input id="pair-phone-{{.ID}}" type="tel" name="phone" placeholder="+1 555 555 0100" required>
-    <button type="submit" class="btn btn-secondary">Get code</button>
-  </form>
-</details>
+{{/* Two ways to link. A computer starts with the QR code (scanned with the
+     phone); a phone starts with the pairing code, since it cannot scan its
+     own screen. CSS picks the default; data-link-mode buttons switch. */}}
+<div class="link-modes" data-link-modes data-link-session data-expires-in="120"{{if .Mode}} data-mode="{{.Mode}}"{{end}}>
+  <section class="mode mode-qr" aria-label="Scan a QR code">
+    <div class="link-qr">
+      <div class="qr-frame">
+        {{/* app.js re-points this <img> (data-qr-refresh) at a fresh URL every
+             20 seconds while it is on the page, because the real code rotates. */}}
+        <img class="qr-code" data-qr-refresh src="/ui/devices/{{.ID}}/qr.png" alt="QR code to link WhatsApp" width="280" height="280">
+      </div>
+      <div class="link-steps">
+        <ol class="steps">
+          <li>Open WhatsApp on your phone</li>
+          <li>Tap Settings, then Linked devices</li>
+          <li>Tap Link a device, then scan this code</li>
+        </ol>
+        <p class="waiting" aria-live="polite"><span class="pulse" aria-hidden="true"></span>Waiting for scan</p>
+      </div>
+    </div>
+  </section>
+  {{template "link_ended" (dict "ID" .ID "Mode" "qr")}}
+  <section class="mode mode-pair" aria-label="Use a pairing code">
+    <form class="pair-form" hx-post="/ui/devices/{{.ID}}/pair-code" hx-target="closest .link-body" hx-swap="innerHTML"
+          hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}' hx-disabled-elt="find button">
+      <div class="field">
+        <label class="label" for="pair-phone-{{.ID}}">Your WhatsApp number</label>
+        <input class="input" id="pair-phone-{{.ID}}" type="tel" name="phone" inputmode="tel" autocomplete="tel" placeholder="+1 555 555 0100" required>
+      </div>
+      <button type="submit" class="btn btn-primary">Get pairing code</button>
+    </form>
+    <p class="pair-hint">You'll get a code to enter in WhatsApp on this phone.</p>
+  </section>
+  <button type="button" class="btn btn-ghost mode-switch-btn to-pair" data-link-mode="pair">{{icon "phone"}}<span>Use a phone number instead</span></button>
+  <button type="button" class="btn btn-ghost mode-switch-btn to-qr" data-link-mode="qr">{{icon "qr-code"}}<span>Show QR code instead</span></button>
+</div>
 {{end}}
 <div hx-get="/ui/devices/{{.ID}}/status" hx-trigger="every 3s" hx-swap="none"></div>
+{{end}}
+
+{{/* link_ended is shown by app.js in place of a code that can no longer
+     work: the QR image kept failing (data-failed), or two minutes passed
+     (data-expired). Polling stops then; "Get a new code" starts again. */}}
+{{define "link_ended"}}
+<div class="link-ended" role="alert">
+  <span class="badge-icon badge-icon-warn" aria-hidden="true">{{icon "clock"}}</span>
+  <p class="link-ended-title link-ended-expired">This code has expired.</p>
+  <p class="link-ended-title link-ended-failed">We couldn't load a code.</p>
+  <button type="button" class="btn btn-primary" hx-get="/ui/devices/{{.ID}}/link?mode={{.Mode}}" hx-target="closest .link-body" hx-swap="innerHTML">{{icon "refresh-cw"}}<span>Get a new code</span></button>
+</div>
 {{end}}

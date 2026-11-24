@@ -390,6 +390,24 @@ func (r *deviceChatStorage) DeleteDeviceData(deviceID string) error {
 	return r.base.DeleteDeviceData(target)
 }
 
+// WTF: PurgeMessagesBefore is device-agnostic by design (retention applies to
+// every device), so it passes straight through.
+func (r *deviceChatStorage) PurgeMessagesBefore(cutoff time.Time) (domainChatStorage.PurgeResult, error) {
+	if r.base == nil {
+		return domainChatStorage.PurgeResult{}, nil
+	}
+	return r.base.PurgeMessagesBefore(cutoff)
+}
+
+// WTF: PurgeFinishedScheduledSendsBefore is device-agnostic for the same
+// reason.
+func (r *deviceChatStorage) PurgeFinishedScheduledSendsBefore(cutoff time.Time) (int64, error) {
+	if r.base == nil {
+		return 0, nil
+	}
+	return r.base.PurgeFinishedScheduledSendsBefore(cutoff)
+}
+
 func (r *deviceChatStorage) SaveDeviceRecord(record *domainChatStorage.DeviceRecord) error {
 	return r.base.SaveDeviceRecord(record)
 }

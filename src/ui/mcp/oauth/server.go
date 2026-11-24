@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/sirupsen/logrus"
 	"github.com/valyala/fasthttp"
 )
 
@@ -28,6 +29,10 @@ const (
 	maxClientNameBytes   = 200
 	maxRedirectURIBytes  = 2048
 	maxRedirectURIsBytes = 8 * 1024
+
+	// applicationTypeCIMD marks a client resolved from its client ID
+	// metadata document rather than registered.
+	applicationTypeCIMD = "cimd"
 )
 
 type Server struct {
@@ -35,6 +40,9 @@ type Server struct {
 	resource           *url.URL
 	store              *store
 	validateCredential CredentialValidator
+	session            SessionAuthenticator
+	disableDCR         bool
+	cimd               *cimdResolver
 	now                func() time.Time
 }
 
@@ -58,6 +66,7 @@ type authorizationRequest struct {
 	State               string `form:"state"`
 	Username            string `form:"username"`
 	Password            string `form:"password"`
+	Decision            string `form:"decision"`
 }
 
 type tokenRequest struct {
@@ -117,8 +126,8 @@ var authorizeTemplate = template.Must(template.New("oauth-authorize").Parse(`<!d
 </html>`))
 
 func New(cfg Config, validateCredential CredentialValidator) (*Server, error) {
-	if validateCredential == nil {
-		return nil, errors.New("MCP OAuth requires a credential validator")
+	if validateCredential == nil && cfg.Session == nil {
+		return nil, errors.New("MCP OAuth requires a credential validator or a session authenticator")
 	}
 	issuer, err := normalizePublicURL(cfg.IssuerURL, "issuer")
 	if err != nil {
@@ -131,6 +140,13 @@ func New(cfg Config, validateCredential CredentialValidator) (*Server, error) {
 	if issuer.Scheme != resource.Scheme || !strings.EqualFold(issuer.Host, resource.Host) {
 		return nil, errors.New("MCP OAuth issuer and resource must use the same public origin")
 	}
+	nowFn := func() time.Time { return time.Now().UTC() }
+	var cimd *cimdResolver
+	if cfg.CIMD != nil {
+		if cimd, err = newCIMDResolver(cfg.CIMD, func() time.Time { return nowFn() }); err != nil {
+			return nil, err
+		}
+	}
 	storageURI := strings.TrimSpace(cfg.StorageURI)
 	if storageURI == "" {
 		storageURI = defaultStorageURI
@@ -139,13 +155,21 @@ func New(cfg Config, validateCredential CredentialValidator) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{
+	srv := &Server{
 		issuer:             issuer,
 		resource:           resource,
 		store:              store,
 		validateCredential: validateCredential,
-		now:                func() time.Time { return time.Now().UTC() },
-	}, nil
+		session:            cfg.Session,
+		disableDCR:         cfg.DisableDCR,
+		cimd:               cimd,
+		now:                nowFn,
+	}
+	if cimd != nil {
+		// Tests freeze s.now; the cache follows the same clock.
+		cimd.now = func() time.Time { return srv.now() }
+	}
+	return srv, nil
 }
 
 func (s *Server) Close() error {
@@ -169,7 +193,9 @@ func (s *Server) RegisterPublic(app *fiber.App) {
 	s.limitPublicPOSTBodies(app)
 	app.Get(wellKnownPath("oauth-authorization-server", s.issuer.Path), s.authorizationServerMetadata)
 	app.Get(wellKnownPath("oauth-protected-resource", s.resource.Path), s.protectedResourceMetadata)
-	app.Post(s.issuerEndpointPath("/oauth/register"), s.registerClient)
+	if !s.disableDCR {
+		app.Post(s.issuerEndpointPath("/oauth/register"), s.registerClient)
+	}
 	app.Get(s.issuerEndpointPath("/oauth/authorize"), s.authorizeGET)
 	app.Post(s.issuerEndpointPath("/oauth/authorize"), s.authorizePOST)
 	app.Post(s.issuerEndpointPath("/oauth/token"), s.token)
@@ -236,7 +262,7 @@ func (s *Server) MCPAuthMiddleware(basic CredentialValidator) fiber.Handler {
 			if credentials == "" {
 				return s.mcpUnauthorized(c, basic != nil, true)
 			}
-			principal, err := s.store.validateAccessToken(c.Context(), credentials, s.resource.String(), s.now())
+			principal, err := s.ValidateAccessToken(c.Context(), credentials)
 			if err != nil {
 				return s.mcpUnauthorized(c, basic != nil, true)
 			}
@@ -260,18 +286,24 @@ func (s *Server) MCPAuthMiddleware(basic CredentialValidator) fiber.Handler {
 
 func (s *Server) authorizationServerMetadata(c fiber.Ctx) error {
 	s.setNoStore(c)
-	return c.JSON(fiber.Map{
+	metadata := fiber.Map{
 		"issuer":                                         s.issuer.String(),
 		"authorization_endpoint":                         s.issuerEndpointURL("/oauth/authorize"),
 		"token_endpoint":                                 s.issuerEndpointURL("/oauth/token"),
-		"registration_endpoint":                          s.issuerEndpointURL("/oauth/register"),
 		"response_types_supported":                       []string{"code"},
 		"grant_types_supported":                          []string{"authorization_code", "refresh_token"},
 		"token_endpoint_auth_methods_supported":          []string{"none"},
 		"code_challenge_methods_supported":               []string{"S256"},
 		"scopes_supported":                               []string{defaultScope},
 		"authorization_response_iss_parameter_supported": true,
-	})
+	}
+	if !s.disableDCR {
+		metadata["registration_endpoint"] = s.issuerEndpointURL("/oauth/register")
+	}
+	if s.cimd != nil {
+		metadata["client_id_metadata_document_supported"] = true
+	}
+	return c.JSON(metadata)
 }
 
 func (s *Server) protectedResourceMetadata(c fiber.Ctx) error {
@@ -380,6 +412,9 @@ func (s *Server) authorizeGET(c fiber.Ctx) error {
 	if !valid {
 		return nil
 	}
+	if s.session != nil {
+		return s.sessionAuthorizeGET(c, req, client)
+	}
 	return s.renderAuthorize(c, fiber.StatusOK, req, client, "")
 }
 
@@ -395,17 +430,30 @@ func (s *Server) authorizePOST(c fiber.Ctx) error {
 	if !valid {
 		return nil
 	}
+	if s.session != nil {
+		return s.sessionAuthorizePOST(c, req, client)
+	}
 	if !s.validateCredential(req.Username, req.Password) {
 		return s.renderAuthorize(c, fiber.StatusUnauthorized, req, client, "Invalid username or password.")
 	}
-	code, err := s.store.issueAuthorizationCode(c.Context(), AuthorizationGrant{
+	return s.issueCodeAndRedirect(c, req, client, req.Username)
+}
+
+// issueCodeAndRedirect issues the authorization code for subject and sends
+// the browser back to the validated redirect URI with it.
+func (s *Server) issueCodeAndRedirect(c fiber.Ctx, req authorizationRequest, client Client, subject string) error {
+	grant := AuthorizationGrant{
 		ClientID:      req.ClientID,
-		Subject:       req.Username,
+		Subject:       subject,
 		RedirectURI:   req.RedirectURI,
 		CodeChallenge: req.CodeChallenge,
 		Resource:      req.Resource,
 		Scope:         req.Scope,
-	}, s.now(), codeTTL)
+	}
+	if client.ApplicationType == applicationTypeCIMD {
+		grant.recordClient = &client
+	}
+	code, err := s.store.issueAuthorizationCode(c.Context(), grant, s.now(), codeTTL)
 	if err != nil {
 		return oauthError(c, fiber.StatusInternalServerError, "server_error", "could not issue authorization code")
 	}
@@ -433,6 +481,9 @@ func (s *Server) token(c fiber.Ctx) error {
 	if req.Resource != s.resource.String() {
 		return oauthError(c, fiber.StatusBadRequest, "invalid_target", "resource does not match this MCP server")
 	}
+	if !s.clientStillAccepted(req.ClientID) {
+		return oauthError(c, fiber.StatusUnauthorized, "invalid_client", "unknown client_id")
+	}
 	var (
 		pair TokenPair
 		err  error
@@ -448,12 +499,14 @@ func (s *Server) token(c fiber.Ctx) error {
 			RedirectURI:  req.RedirectURI,
 			CodeVerifier: req.CodeVerifier,
 			Resource:     req.Resource,
+			allow:        s.activeCheck(c.Context()),
 		}, s.now(), accessTokenTTL, refreshTokenTTL)
 	case "refresh_token":
 		pair, err = s.store.rotateRefreshToken(c.Context(), RefreshExchange{
 			ClientID:     req.ClientID,
 			RefreshToken: req.RefreshToken,
 			Resource:     req.Resource,
+			allow:        s.activeCheck(c.Context()),
 		}, s.now(), accessTokenTTL, refreshTokenTTL)
 	default:
 		return oauthError(c, fiber.StatusBadRequest, "unsupported_grant_type", "supported grant types are authorization_code and refresh_token")
@@ -477,13 +530,61 @@ func (s *Server) token(c fiber.Ctx) error {
 	})
 }
 
-func (s *Server) validateAuthorizationRequest(c fiber.Ctx, req *authorizationRequest) (Client, bool, error) {
+// clientStillAccepted is the token endpoint's client check. A CIMD client
+// has no row to look up: its host must still be allowed. A registered client
+// is refused once registration is off.
+func (s *Server) clientStillAccepted(clientID string) bool {
+	if isCIMDClientID(clientID) {
+		return s.cimd != nil && s.cimd.hostAllowed(clientID)
+	}
+	return !s.disableDCR
+}
+
+// badConnectRequest is the session-mode page text for a request whose
+// client or redirect cannot be trusted.
+const badConnectRequest = "This request to connect an app isn't valid."
+
+// lookupClient finds the client an authorization request names: a CIMD
+// client from its fetched document, a registered one from the client table.
+// Errors here are answered in the browser, never at the redirect URI, which
+// is not trusted yet.
+func (s *Server) lookupClient(c fiber.Ctx, req *authorizationRequest) (Client, bool, error) {
+	if isCIMDClientID(req.ClientID) {
+		if s.cimd == nil {
+			return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id", badConnectRequest)
+		}
+		client, err := s.cimd.resolve(c.Context(), req.ClientID, c.IP())
+		if errors.Is(err, errCIMDBusy) {
+			return Client{}, false, s.browserError(c, fiber.StatusTooManyRequests, "temporarily_unavailable", "too many client metadata fetches", "Too many requests to connect an app. Try again in a minute.")
+		}
+		if err != nil {
+			// The client_id is a public URL, never a secret: log why, so a
+			// failed connect can be diagnosed from the server log.
+			logrus.Warnf("[MCP OAuth] client %q refused: %v", truncateForLog(req.ClientID), err)
+			return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_client", "the client's metadata document could not be used", badConnectRequest)
+		}
+		if !cimdRedirectMatches(client.RedirectURIs, req.RedirectURI) {
+			return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri is not one the client declared", badConnectRequest)
+		}
+		return client, true, nil
+	}
+	if s.disableDCR {
+		return Client{}, false, s.browserError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id", badConnectRequest)
+	}
 	client, err := s.store.getClient(c.Context(), req.ClientID)
 	if err != nil {
 		return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "unknown client_id")
 	}
 	if !redirectURIMatches(client, req.RedirectURI) {
 		return Client{}, false, oauthError(c, fiber.StatusBadRequest, "invalid_request", "redirect_uri does not match the registered client")
+	}
+	return client, true, nil
+}
+
+func (s *Server) validateAuthorizationRequest(c fiber.Ctx, req *authorizationRequest) (Client, bool, error) {
+	client, ok, err := s.lookupClient(c, req)
+	if !ok {
+		return Client{}, false, err
 	}
 	// Once the client and redirect URI are known to be safe, OAuth errors must
 	// be returned to the client at that redirect URI rather than as an endpoint
@@ -774,4 +875,19 @@ func (s *Server) authorizationError(c fiber.Ctx, req authorizationRequest, code,
 	redirectURL.RawQuery = query.Encode()
 	s.setNoStore(c)
 	return c.Redirect().Status(fiber.StatusFound).To(redirectURL.String())
+}
+
+// truncateForLog bounds attacker-chosen text before it reaches a log line.
+func truncateForLog(v string) string {
+	const max = 200
+	v = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return '?'
+		}
+		return r
+	}, v)
+	if len(v) > max {
+		return v[:max] + "..."
+	}
+	return v
 }

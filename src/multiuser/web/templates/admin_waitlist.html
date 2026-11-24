@@ -1,0 +1,109 @@
+{{define "admin_waitlist.html"}}{{template "head" .}}{{template "app_start" .}}
+  <div class="page-head">
+    <h1 class="page-title">Waitlist</h1>
+    {{template "waitlist_count" .Data}}
+  </div>
+
+  <div id="waitlist-tabs">{{template "nav_switcher" (dict "Label" "Show" "ID" "waitlist-tab" "Items" .Data.Tabs)}}</div>
+
+  {{if and .Data.Full (eq .Data.Status "waiting") .Data.Rows}}
+  <p class="notice notice-warn" role="status">{{icon "triangle-alert"}}<span>The server is full. Free a number or raise the limit before letting anyone in.</span></p>
+  {{end}}
+
+  {{if .Data.Rows}}
+  <div class="table card card-flush wl-table{{if eq .Data.Status "declined"}} wl-declined{{end}}" role="table" aria-label="{{if eq .Data.Status "declined"}}Declined numbers{{else}}People waiting{{end}}">
+    <div class="trow thead" role="row">
+      {{if eq .Data.Status "waiting"}}<span role="columnheader" class="num">Position</span>{{end}}
+      <span role="columnheader">Number</span>
+      <span role="columnheader">Joined</span>
+      <span role="columnheader">Status</span>
+      <span role="columnheader" class="end"><span class="visually-hidden">Actions</span></span>
+    </div>
+    {{range .Data.Rows}}{{template "waitlist_row" (dict "R" . "CSRF" $.CSRF)}}{{end}}
+  </div>
+  {{template "pager" .Data.Pager}}
+  {{else if eq .Data.Status "declined"}}
+  <div class="empty">
+    <span class="empty-art" aria-hidden="true">{{icon "ban"}}</span>
+    <h2 class="empty-title">No declined numbers.</h2>
+  </div>
+  {{else}}
+  <div class="empty">
+    <span class="empty-art" aria-hidden="true">{{icon "hourglass"}}</span>
+    <h2 class="empty-title">Nobody is waiting.</h2>
+    <p class="empty-text">People who message the sign-in number without an account appear here.</p>
+  </div>
+  {{end}}
+
+  {{template "confirm" (dict "ID" "admit-dialog" "Action" "" "HX" true "CSRF" .CSRF "Icon" "user-plus" "Primary" true
+       "Title" "Let this number in?" "Body" "We'll create their account and send them a sign-in link on WhatsApp, in the chat they started."
+       "Button" "Let in" "Busy" "Letting in…")}}
+  {{template "confirm" (dict "ID" "decline-dialog" "Action" "" "HX" true "CSRF" .CSRF "Icon" "ban"
+       "Title" "Decline this number?" "Body" "They won't be told. If they ask again, they'll hear that sign-up isn't open."
+       "Button" "Decline" "Busy" "Declining…")}}
+  {{template "confirm" (dict "ID" "remove-dialog" "Action" "" "HX" true "CSRF" .CSRF "Icon" "trash-2"
+       "Title" "Remove from the waitlist?" "Body" "Their place goes. If they message again, they join at the back."
+       "Button" "Remove" "Busy" "Removing…")}}
+{{template "app_end" .}}{{template "foot" .}}{{end}}
+
+{{/* waitlist_count is the page head's count (and capacity). */}}
+{{define "waitlist_count"}}<p class="page-sub list-count" id="waitlist-count"{{if .OOB}} hx-swap-oob="true"{{end}}>{{if eq .Status "declined"}}{{.Total}} declined{{else}}{{.Total}} waiting{{end}}{{with .Capacity}}{{if .Max}}<span class="page-sub-part">{{.Linked}} of {{.Max}} numbers linked</span>{{end}}{{end}}</p>{{end}}
+
+{{/* waitlist_row.html is one row again, for htmx, after an action, plus
+     the counts it changed, out of band: the page head, the Waiting /
+     Declined switcher and the menu's count. */}}
+{{define "waitlist_row.html"}}{{template "waitlist_row" (dict "R" .Data.Row "CSRF" .CSRF)}}
+{{with .Data.Counts}}{{template "waitlist_count" .}}
+<div id="waitlist-tabs" hx-swap-oob="true">{{template "nav_switcher" (dict "Label" "Show" "ID" "waitlist-tab" "Items" .Tabs)}}</div>
+{{template "nav_link" (dict "Href" "/admin/waitlist" "Label" "Waitlist" "Icon" "hourglass" "Current" true "Count" .Waiting "ID" "nav-waitlist" "OOB" true)}}{{end}}{{end}}
+
+{{/* waitlist_row is one person on the waitlist: position (waiting only),
+     number, when they joined, a status pill, then the actions: the kebab
+     left of Let in for someone waiting; Move back and Remove for someone
+     declined. After an action the row says what happened instead. */}}
+{{define "waitlist_row"}}{{$r := .R}}
+<div class="trow wl-row{{if $r.Result}} wl-done{{end}}" role="row" id="wl-{{$r.Digits}}">
+  {{if $r.Position}}<span role="cell" class="cell-pos num">{{$r.Position}}</span>{{end}}
+  <span role="cell" class="cell-user">
+    <span class="row-icon{{if eq $r.Result "error"}} row-icon-warn{{else if or (eq $r.Result "admitted") (eq $r.Result "sent-failed") (eq $r.Result "exists")}} row-icon-ok{{else}} row-icon-muted{{end}}" aria-hidden="true">{{icon "user-round"}}</span>
+    <span class="cell-phone">{{phone $r.Phone}}</span>
+  </span>
+  {{if $r.Result}}
+  <div role="cell" class="wl-result" aria-live="polite" tabindex="-1">
+    {{if eq $r.Result "admitted"}}<p class="row-flash row-flash-ok">{{icon "check"}}<span>Let in. Link sent on WhatsApp.</span></p>
+    {{else if eq $r.Result "sent-failed"}}
+    <p class="row-flash row-flash-warn">{{icon "triangle-alert"}}<span>Let in. Couldn't send on WhatsApp: copy the link and send it yourself.</span></p>
+    {{template "copy_link" (dict "ID" (printf "wl-link-%s" $r.Digits) "Link" $r.Link "Secondary" true)}}
+    {{else if eq $r.Result "exists"}}<p class="row-flash">{{icon "info"}}<span>{{$r.Message}}</span></p>
+    {{else if eq $r.Result "declined"}}<p class="row-flash">{{icon "ban"}}<span>Declined.</span></p>
+    {{else if eq $r.Result "reopened"}}<p class="row-flash row-flash-ok">{{icon "undo-2"}}<span>Back to waiting.</span></p>
+    {{else if eq $r.Result "removed"}}<p class="row-flash">{{icon "trash-2"}}<span>Removed from the waitlist.</span></p>
+    {{else}}<p class="row-flash row-flash-error" role="alert">{{icon "circle-alert"}}<span>{{$r.Message}}</span></p>{{end}}
+  </div>
+  {{else}}
+  <span class="cell-meta">
+    <span role="cell" class="cell-seen"><span class="compact-label">Joined </span>{{since $r.Joined}}{{with $r.AskedAgain}}<span class="cell-note">Asked again {{since .}}</span>{{end}}</span>
+  </span>
+  <span role="cell" class="cell-status">{{if eq $r.Status "declined"}}<span class="pill pill-muted">Declined</span>{{else}}<span class="pill pill-warn">Waiting</span>{{end}}</span>
+  <span role="cell" class="cell-actions end">
+    {{if eq $r.Status "declined"}}
+    <button type="button" class="btn btn-secondary btn-sm" hx-post="/admin/waitlist/{{$r.Digits}}/reopen" hx-target="#wl-{{$r.Digits}}" hx-swap="outerHTML"
+            hx-headers='{"X-CSRF-Token":"{{$.CSRF}}"}' hx-disabled-elt="this">{{icon "undo-2"}}<span>Move back to waiting</span></button>
+    <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="remove-dialog"
+            data-dialog-action="/admin/waitlist/{{$r.Digits}}/remove" data-dialog-target="#wl-{{$r.Digits}}" data-dialog-subject="{{$r.ConfirmText}}">Remove</button>
+    {{else}}
+    {{template "menu_start" "More actions"}}
+      <button type="button" class="menu-item" role="menuitem" data-open-dialog="decline-dialog"
+              data-dialog-action="/admin/waitlist/{{$r.Digits}}/decline" data-dialog-target="#wl-{{$r.Digits}}" data-dialog-subject="{{$r.ConfirmText}}">{{icon "ban"}}<span>Decline</span></button>
+      <button type="button" class="menu-item menu-item-danger" role="menuitem" data-open-dialog="remove-dialog"
+              data-dialog-action="/admin/waitlist/{{$r.Digits}}/remove" data-dialog-target="#wl-{{$r.Digits}}" data-dialog-subject="{{$r.ConfirmText}}">{{icon "trash-2"}}<span>Remove</span></button>
+    {{template "menu_end"}}
+    {{if $r.CanAdmit}}
+    <button type="button" class="btn btn-primary btn-sm" data-open-dialog="admit-dialog"
+            data-dialog-action="/admin/waitlist/{{$r.Digits}}/admit" data-dialog-target="#wl-{{$r.Digits}}" data-dialog-subject="{{$r.ConfirmText}}">{{icon "user-plus"}}<span>Let in</span></button>
+    {{end}}
+    {{end}}
+  </span>
+  {{end}}
+</div>
+{{end}}

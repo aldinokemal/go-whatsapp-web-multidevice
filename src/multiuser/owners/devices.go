@@ -18,12 +18,35 @@ import (
 type ScopedDevices struct {
 	inner domainDevice.IDeviceUsecase
 	st    *store.Store
+	// MaxTotal is the server-wide cap on linked numbers (WTF_MAX_PHONES).
+	// Nil or 0 means no cap.
+	MaxTotal func() int
+	// reserve is st.ReserveOwner; tests swap it to prove the race harness.
+	reserve reserveFunc
 }
+
+type reserveFunc func(ctx context.Context, deviceID, userID string, maxPerUser, maxTotal int) (store.Reservation, error)
 
 var ErrDeviceLimitReached = pkgError.ValidationError("you have reached your limit of linked WhatsApp accounts")
 
+// ErrServerFull: the server holds as many numbers as it has memory for.
+var ErrServerFull = pkgError.ValidationError("There's no room for another number right now. Try again later.")
+
 func NewScopedDevices(inner domainDevice.IDeviceUsecase, st *store.Store) domainDevice.IDeviceUsecase {
-	return &ScopedDevices{inner: inner, st: st}
+	return NewScopedDevicesCapped(inner, st, nil)
+}
+
+// NewScopedDevicesCapped is NewScopedDevices with a server-wide cap on linked
+// numbers, read on every add so a changed setting applies at once.
+func NewScopedDevicesCapped(inner domainDevice.IDeviceUsecase, st *store.Store, maxTotal func() int) domainDevice.IDeviceUsecase {
+	return &ScopedDevices{inner: inner, st: st, MaxTotal: maxTotal, reserve: st.ReserveOwner}
+}
+
+func (s *ScopedDevices) maxTotal() int {
+	if s.MaxTotal == nil {
+		return 0
+	}
+	return s.MaxTotal()
 }
 
 func (s *ScopedDevices) own(ctx context.Context, deviceID string) error {
@@ -43,13 +66,10 @@ func (s *ScopedDevices) ListDevices(ctx context.Context) ([]domainDevice.Device,
 	if !ok {
 		return []domainDevice.Device{}, nil
 	}
-	ids, err := s.st.DevicesOf(ctx, u.ID)
+	// One query gives both which devices are the user's and their names.
+	mine, err := s.st.LabelsOf(ctx, u.ID)
 	if err != nil {
 		return nil, err
-	}
-	mine := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		mine[id] = true
 	}
 	all, err := s.inner.ListDevices(ctx)
 	if err != nil {
@@ -57,7 +77,8 @@ func (s *ScopedDevices) ListDevices(ctx context.Context) ([]domainDevice.Device,
 	}
 	out := []domainDevice.Device{}
 	for _, d := range all {
-		if mine[d.ID] {
+		if label, ok := mine[d.ID]; ok {
+			d.Label = label
 			out = append(out, d)
 		}
 	}
@@ -66,19 +87,31 @@ func (s *ScopedDevices) ListDevices(ctx context.Context) ([]domainDevice.Device,
 
 // AddDevice ignores the requested id: the server picks it. Ownership is
 // reserved before the device is created, in one statement that also enforces
-// the user's limit, so concurrent adds cannot exceed it and a device never
-// exists without an owner.
+// the user's limit and the server-wide cap, so concurrent adds cannot exceed
+// either and a device never exists without an owner. Superadmins are held to
+// both, as everyone is: the memory a number costs is the same.
 func (s *ScopedDevices) AddDevice(ctx context.Context, _ string, webhook *chatstorage.DeviceWebhookConfig) (*domainDevice.Device, error) {
 	u, ok := auth.UserFrom(ctx)
 	if !ok {
 		return nil, pkgError.ErrDeviceNotFound
 	}
+	if err := validateWebhookConfig(ctx, webhook); err != nil {
+		return nil, err
+	}
 	id := NewDeviceID()
-	reserved, err := s.st.ReserveOwner(ctx, id, u.ID, u.MaxDevices)
+	reserve := s.reserve
+	if reserve == nil {
+		reserve = s.st.ReserveOwner
+	}
+	r, err := reserve(ctx, id, u.ID, u.MaxDevices, s.maxTotal())
 	if err != nil {
 		return nil, err
 	}
-	if !reserved {
+	switch r {
+	case store.Reserved:
+	case store.ServerFull:
+		return nil, ErrServerFull
+	default:
 		return nil, ErrDeviceLimitReached
 	}
 	dev, err := s.inner.AddDevice(ctx, id, webhook)
@@ -114,15 +147,66 @@ func (s *ScopedDevices) RemoveDevice(ctx context.Context, deviceID string) error
 		return err
 	}
 	u, _ := auth.UserFrom(ctx)
-	_ = s.st.Audit(ctx, store.AuditEvent{UserID: u.ID, Action: "device_remove", DeviceID: deviceID})
+	number := "" // kept in the audit line: the slot row that holds it is about to go
+	if sl, err := s.st.SlotOf(ctx, deviceID); err == nil {
+		number = sl.LastPhone
+	}
+	_ = s.st.Audit(ctx, store.AuditEvent{UserID: u.ID, ActorID: actorID(ctx), Action: "device_remove", DeviceID: deviceID, Detail: number})
 	return s.st.RemoveOwner(ctx, deviceID)
+}
+
+func actorID(ctx context.Context) string {
+	if a, ok := auth.ActorFrom(ctx); ok {
+		return a.ID
+	}
+	return ""
+}
+
+// RemoveDeviceAsAdmin unlinks one of target's numbers on an admin's behalf.
+// It runs the very same owner-checked RemoveDevice the user's own Unlink
+// uses, with target as the acting user, so a device that is not target's is
+// ErrDeviceNotFound. The audit line names admin as the actor. The caller must
+// already have checked that admin is a superadmin.
+func RemoveDeviceAsAdmin(ctx context.Context, devices domainDevice.IDeviceUsecase, admin, target *store.User, deviceID string) error {
+	return devices.RemoveDevice(asAdmin(ctx, admin, target), deviceID)
+}
+
+// RemoveAllDevicesAsAdmin unlinks every number target owns, the same way.
+// It returns how many were removed and stops at the first failure.
+func RemoveAllDevicesAsAdmin(ctx context.Context, devices domainDevice.IDeviceUsecase, st *store.Store, admin, target *store.User) (int, error) {
+	ids, err := st.DevicesOf(ctx, target.ID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range ids {
+		if err := RemoveDeviceAsAdmin(ctx, devices, admin, target, id); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+func asAdmin(ctx context.Context, admin, target *store.User) context.Context {
+	return auth.WithActor(auth.WithUser(ctx, target), admin)
 }
 
 func (s *ScopedDevices) GetDevice(ctx context.Context, id string) (*domainDevice.Device, error) {
 	if err := s.own(ctx, id); err != nil {
 		return nil, err
 	}
-	return s.inner.GetDevice(ctx, id)
+	dev, err := s.inner.GetDevice(ctx, id)
+	if err != nil || dev == nil {
+		return dev, err
+	}
+	u, _ := auth.UserFrom(ctx)
+	labels, err := s.st.LabelsOf(ctx, u.ID)
+	if err != nil {
+		return nil, err
+	}
+	dev.Label = labels[id]
+	return dev, nil
 }
 
 func (s *ScopedDevices) LoginDevice(ctx context.Context, id string) (domainApp.LoginResponse, error) {
@@ -164,6 +248,9 @@ func (s *ScopedDevices) SetDeviceWebhook(ctx context.Context, id, url string) er
 	if err := s.own(ctx, id); err != nil {
 		return err
 	}
+	if err := ValidateWebhookURL(ctx, url); err != nil {
+		return err
+	}
 	return s.inner.SetDeviceWebhook(ctx, id, url)
 }
 
@@ -178,6 +265,9 @@ func (s *ScopedDevices) SetDeviceWebhookConfig(ctx context.Context, id string, c
 	if err := s.own(ctx, id); err != nil {
 		return err
 	}
+	if err := validateWebhookConfig(ctx, cfg); err != nil {
+		return err
+	}
 	return s.inner.SetDeviceWebhookConfig(ctx, id, cfg)
 }
 
@@ -186,4 +276,10 @@ func (s *ScopedDevices) GetDeviceWebhookConfig(ctx context.Context, id string) (
 		return nil, err
 	}
 	return s.inner.GetDeviceWebhookConfig(ctx, id)
+}
+
+// ListDevicesAsAdmin lists target's numbers for an admin, through the same
+// owner-scoped ListDevices the user's own page uses.
+func ListDevicesAsAdmin(ctx context.Context, devices domainDevice.IDeviceUsecase, admin, target *store.User) ([]domainDevice.Device, error) {
+	return devices.ListDevices(asAdmin(ctx, admin, target))
 }

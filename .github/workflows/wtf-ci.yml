@@ -8,7 +8,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
-    if: github.repository_owner == 'arilewis93'
+    # Skipped on Aryeh's personal account so it burns no Actions minutes;
+    # runs unchanged if the repo moves to any other owner.
+    if: github.repository_owner != 'arilewis93'
     runs-on: ubuntu-latest
     defaults:
       run:

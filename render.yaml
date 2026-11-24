@@ -6,6 +6,19 @@ services:
     dockerContext: .
     plan: starter
     healthCheckPath: /health
+    # Only rebuild when something that goes into the image changes: the Go
+    # source and the Docker files. Tests, docs, the preview harness and the
+    # brand-asset generator never reach the binary.
+    buildFilter:
+      paths:
+        - src/**
+        - docker/**
+      ignoredPaths:
+        - "**/*.md"
+        - "**/*_test.go"
+        - "**/testdata/**"
+        - src/multiuser/web/preview/**
+        - src/multiuser/web/brand-src/**
     disk:
       name: data
       mountPath: /app/storages
@@ -13,13 +26,34 @@ services:
     envVars:
       - key: APP_PORT
         value: "10000"
+      # Render's proxy reaches the app from its private network. Trusting these
+      # ranges makes X-Forwarded-For count (the right-most entry that is not
+      # itself a proxy is the client), so rate limits are per real client, not
+      # shared. A direct connection from outside these ranges cannot spoof it.
+      - key: APP_TRUSTED_PROXIES
+        value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
       - key: WTF_MULTIUSER
         value: "true"
       - key: WTF_SIGNUP_OPEN
         value: "false"
+      # Server-wide cap on linked numbers: Aryeh sets the measured value.
+      - key: WTF_MAX_PHONES
+        sync: false
+      - key: WTF_DEFAULT_MAX_DEVICES
+        value: "2"
+      # Messages and media are deleted after this many hours.
+      - key: WTF_RETENTION_HOURS
+        value: "24"
       - key: WTF_PRODUCT_NAME
         value: WTF
       - key: SESSION_SECRET
         generateValue: true
       - key: WTF_SUPERADMIN_PHONES
         sync: false
+      # MCP for Claude, per person (OAuth issuer and resource derive from
+      # RENDER_EXTERNAL_URL, or WTF_PUBLIC_URL when set for a custom domain).
+      - key: WTF_MCP_ENABLED
+        value: "true"
+      # Only Claude's apps may connect (claude.ai, desktop, phone, Claude Code).
+      - key: WTF_MCP_CLIENT_HOSTS
+        value: claude.ai

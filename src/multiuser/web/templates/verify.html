@@ -1,21 +1,26 @@
-{{define "verify.html"}}{{template "head" .}}
-<main id="main" tabindex="-1" class="page page-centered">
-  <div class="card card-auth">
-  {{if .Data.Valid}}
-    <h1>Sign in to {{.Product}}</h1>
-    <p>Confirm you want to sign in.</p>
-    <form method="post" action="/signin/verify">
-      <input type="hidden" name="t" value="{{.Data.Token}}">
-      <input type="hidden" name="next" value="{{.Data.Next}}">
-      <p class="action-group">
-        <button type="submit" class="btn btn-primary">Sign in</button>
-      </p>
-    </form>
-  {{else}}
-    <h1>Link expired</h1>
-    <p>This sign-in link has already been used or has expired. Send us the message again for a new one.</p>
-    <p class="action-group"><a class="btn btn-secondary" href="/signin">Back to sign in</a></p>
-  {{end}}
+{{define "verify.html"}}{{template "head" .}}{{template "auth_start" .}}
+  {{if .Data.Disabled}}
+  <span class="badge-icon badge-icon-danger" aria-hidden="true">{{icon "user-x"}}</span>
+  <h1 class="auth-title">This account is disabled</h1>
+  <p class="auth-sub">This account is disabled. Contact your admin.</p>
+  <div class="auth-actions">
+    <a class="btn btn-secondary btn-lg btn-block" href="/signin">{{icon "arrow-left"}}<span>Back to sign in</span></a>
   </div>
-</main>
-{{template "foot" .}}{{end}}
+  {{else if .Data.Valid}}
+  <span class="badge-icon badge-icon-brand" aria-hidden="true">{{icon "log-in"}}</span>
+  <h1 class="auth-title">Sign in to {{.Product}}</h1>
+  <p class="auth-sub">Confirm you want to sign in.</p>
+  <form method="post" action="/signin/verify" class="auth-actions">
+    <input type="hidden" name="t" value="{{.Data.Token}}">
+    <input type="hidden" name="next" value="{{.Data.Next}}">
+    <button type="submit" class="btn btn-primary btn-lg btn-block">Sign in</button>
+  </form>
+  {{else}}
+  <span class="badge-icon badge-icon-warn" aria-hidden="true">{{icon "clock"}}</span>
+  <h1 class="auth-title">Link expired</h1>
+  <p class="auth-sub">This sign-in link has already been used or has expired. Send us the message again for a new one.</p>
+  <div class="auth-actions">
+    <a class="btn btn-secondary btn-lg btn-block" href="/signin">{{icon "arrow-left"}}<span>Back to sign in</span></a>
+  </div>
+  {{end}}
+{{template "auth_end" .}}{{template "foot" .}}{{end}}

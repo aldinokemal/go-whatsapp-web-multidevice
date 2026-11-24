@@ -1,0 +1,38 @@
+{{define "admin_activity.html"}}{{template "head" .}}{{template "app_start" .}}
+  <div class="page-head">
+    <h1 class="page-title">Activity</h1>
+    <p class="page-sub list-count">{{.Data.Total}} event{{if ne .Data.Total 1}}s{{end}}{{if .Data.Rows}}, showing {{.Data.First}}&ndash;{{.Data.Last}}{{end}}</p>
+  </div>
+
+  {{if .Data.Who}}
+  <p class="filter-chip">
+    <span>For <a href="{{.Data.WhoHref}}">{{phone .Data.Who.Phone}}</a></span>
+    <a class="icon-btn icon-btn-bare" href="/admin/activity" aria-label="Show everyone">{{icon "x"}}</a>
+  </p>
+  {{end}}
+
+  {{if .Data.Rows}}
+  <ul class="rows" role="list">
+    {{range .Data.Rows}}
+    <li class="row activity-row">
+      <span class="row-icon" aria-hidden="true">{{icon "activity"}}</span>
+      <div class="row-main">
+        <p class="activity-text">{{range .Parts}}{{if .Href}}<a href="{{.Href}}">{{.Text}}</a>{{else}}{{.Text}}{{end}}{{end}}</p>
+        <p class="row-sub"><time datetime="{{.At.Format "2006-01-02T15:04:05Z07:00"}}">{{since .At}}</time></p>
+      </div>
+    </li>
+    {{end}}
+  </ul>
+  {{if or .Data.Prev .Data.Next}}
+  <nav class="pager" aria-label="Pages">
+    {{if .Data.Prev}}<a class="btn btn-secondary btn-sm" href="{{.Data.Prev}}" rel="prev">Newer</a>{{end}}
+    {{if .Data.Next}}<a class="btn btn-secondary btn-sm" href="{{.Data.Next}}" rel="next">Older</a>{{end}}
+  </nav>
+  {{end}}
+  {{else}}
+  <div class="empty">
+    <span class="empty-art" aria-hidden="true">{{icon "activity"}}</span>
+    <p class="empty-text">Nothing has happened yet.</p>
+  </div>
+  {{end}}
+{{template "app_end" .}}{{template "foot" .}}{{end}}

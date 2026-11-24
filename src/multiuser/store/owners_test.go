@@ -42,15 +42,15 @@ func TestReserveOwnerEnforcesLimitAtomically(t *testing.T) {
 	ctx := context.Background()
 	a, _ := st.CreateUser(ctx, "+27825550100")
 
-	ok, err := st.ReserveOwner(ctx, "d_1", a.ID, 1)
+	r, err := st.ReserveOwner(ctx, "d_1", a.ID, 1, 0)
 	require.NoError(t, err)
-	require.True(t, ok)
-	ok, err = st.ReserveOwner(ctx, "d_2", a.ID, 1)
+	require.Equal(t, Reserved, r)
+	r, err = st.ReserveOwner(ctx, "d_2", a.ID, 1, 0)
 	require.NoError(t, err)
-	require.False(t, ok, "limit reached")
+	require.Equal(t, UserLimit, r, "limit reached")
 	_, err = st.OwnerOf(ctx, "d_2")
 	require.ErrorIs(t, err, ErrNotFound, "nothing recorded past the limit")
-	_, err = st.ReserveOwner(ctx, "d_1", a.ID, 5)
+	_, err = st.ReserveOwner(ctx, "d_1", a.ID, 5, 0)
 	require.Error(t, err, "a device id is never reserved twice")
 
 	b, _ := st.CreateUser(ctx, "+27825550101")
@@ -61,12 +61,12 @@ func TestReserveOwnerEnforcesLimitAtomically(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			ok, err := st.ReserveOwner(ctx, fmt.Sprintf("d_b%d", i), b.ID, 2)
+			r, err := st.ReserveOwner(ctx, fmt.Sprintf("d_b%d", i), b.ID, 2, 0)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
 				errs++
-			} else if ok {
+			} else if r == Reserved {
 				wins++
 			}
 		}(i)
@@ -99,4 +99,29 @@ func TestForeignKeysCascadeOnUserDelete(t *testing.T) {
 		require.NoError(t, st.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE user_id = ?`, a.ID).Scan(&n))
 		require.Zero(t, n, table)
 	}
+}
+
+func TestReserveOwnerServerCap(t *testing.T) {
+	st := openTest(t)
+	ctx := context.Background()
+	a, _ := st.CreateUser(ctx, "+27825550100")
+	b, _ := st.CreateUser(ctx, "+27825550101")
+
+	r, err := st.ReserveOwner(ctx, "d_a1", a.ID, 2, 2)
+	require.NoError(t, err)
+	require.Equal(t, Reserved, r)
+	r, _ = st.ReserveOwner(ctx, "d_b1", b.ID, 2, 2)
+	require.Equal(t, Reserved, r)
+	r, err = st.ReserveOwner(ctx, "d_b2", b.ID, 2, 2)
+	require.NoError(t, err)
+	require.Equal(t, ServerFull, r, "two linked, cap two")
+	_, err = st.OwnerOf(ctx, "d_b2")
+	require.ErrorIs(t, err, ErrNotFound, "nothing recorded past the cap")
+
+	r, _ = st.ReserveOwner(ctx, "d_b2", b.ID, 2, 0)
+	require.Equal(t, Reserved, r, "0 means no cap")
+	r, _ = st.ReserveOwner(ctx, "d_b3", b.ID, 2, 0)
+	require.Equal(t, UserLimit, r, "the user's own limit still applies")
+	r, _ = st.ReserveOwner(ctx, "d_b3", b.ID, 2, 3)
+	require.Equal(t, UserLimit, r, "both hit: the user's own limit is named")
 }

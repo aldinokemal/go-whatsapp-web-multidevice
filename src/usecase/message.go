@@ -10,7 +10,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
@@ -636,7 +635,8 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	}
 
 	// Create directory structure for organized storage
-	chatDir := filepath.Join(config.PathMedia, utils.ExtractPhoneNumber(message.ChatJID))
+	mediaBase, mediaURLPrefix := mediaRoot(ctx) // WTF: per-device directory in multi-user mode
+	chatDir := filepath.Join(mediaBase, utils.ExtractPhoneNumber(message.ChatJID))
 	dateDir := filepath.Join(chatDir, message.Timestamp.Format("2006-01-02"))
 
 	err = os.MkdirAll(dateDir, 0755)
@@ -676,6 +676,7 @@ func (service serviceMessage) DownloadMedia(ctx context.Context, request domainM
 	response.MediaType = message.MediaType
 	response.Filename = filepath.Base(extractedMedia.MediaPath)
 	response.FilePath = extractedMedia.MediaPath
+	response.FileURL = mediaFileURL(mediaBase, mediaURLPrefix, extractedMedia.MediaPath) // WTF: "" upstream
 	if fileInfo != nil {
 		response.FileSize = fileInfo.Size()
 	}

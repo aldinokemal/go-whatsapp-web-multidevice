@@ -41,6 +41,7 @@ tags:
     description: Chatwoot integration for customer support
 security:
   - basicAuth: []
+  - bearerAuth: []
 
 paths:
   /health:
@@ -2668,7 +2669,7 @@ paths:
                         example: statics/media/6289685028129/2026-06-09/audio.ogg
                       file_url:
                         type: string
-                        description: Public URL for downloading the saved media when it is stored under the served statics directory
+                        description: Public URL for downloading the saved media when it is stored under the served statics directory. In WTF multi-user mode it is <public URL>/files/<device id>/..., fetched with the owner's session or API key.
                         example: http://localhost:3000/statics/media/6289685028129/2026-06-09/audio.ogg
                       file_size:
                         type: integer
@@ -4390,6 +4391,13 @@ components:
     basicAuth:
       type: http
       scheme: basic
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        WTF multi-user mode only: a personal API key (wtfk_...) made on the
+        Account page. It acts as its owner on their own numbers only. Basic
+        Auth is off in multi-user mode.
   schemas:
     ChatwootDeviceConfig:
       type: object
@@ -5601,7 +5609,7 @@ components:
               example: statics/media/120363024512399999/2026-08-28/image.jpg
             file_url:
               type: string
-              description: Public URL for the saved media file
+              description: Public URL for the saved media file. In WTF multi-user mode it is <public URL>/files/<device id>/..., fetched with the owner's session or API key.
               example: http://localhost:3000/statics/media/120363024512399999/2026-08-28/image.jpg
             file_size:
               type: integer

@@ -1,59 +1,118 @@
-{{define "account.html"}}{{template "head" .}}
-<main id="main" tabindex="-1" class="page">
-  <div class="page-header">
-    <h1>Account</h1>
-    <button type="button" class="btn btn-primary" data-passkey-register data-csrf="{{.CSRF}}">Add a passkey</button>
+{{define "account.html"}}{{template "head" .}}{{template "app_start" .}}
+  <div class="page-head">
+    <h1 class="page-title">Account</h1>
+    <p class="page-sub">How you sign in, and where.</p>
   </div>
 
-  <p data-passkey-register-error role="alert" class="form-error"></p>
-
-  <div class="card">
-    <p><strong>Phone</strong><br>{{.User.Phone}}</p>
-    <button type="button" class="btn btn-secondary" data-open-dialog="signout-everywhere">Sign out everywhere</button>
-  </div>
-
-  <dialog id="signout-everywhere">
-    <h2>Sign out everywhere?</h2>
-    <p>Every device you're signed in on, this one included, will need to sign in again.</p>
-    <form method="post" action="/account/signout-everywhere">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <div class="action-group">
-        <button type="submit" class="btn btn-danger">Sign out everywhere</button>
-        <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
-      </div>
-    </form>
-  </dialog>
-
-  <h2>Passkeys</h2>
-  <p class="list-count">{{len .Data.Passkeys}} passkey{{if ne (len .Data.Passkeys) 1}}s{{end}}</p>
-  {{if .Data.Passkeys}}
-  <div class="device-list">
-    {{range .Data.Passkeys}}
-    <div class="device-card">
-      <div class="device-info">
-        <p class="device-name">{{.Name}}</p>
-        <span class="pill pill-muted">Added {{.Added}}</span>
-        <span class="pill pill-muted">Last used {{.LastUsed}}</span>
-      </div>
-      <div class="device-actions">
-        <button type="button" class="btn btn-ghost" data-open-dialog="remove-passkey-{{.CredentialID}}">Remove</button>
+  <section class="card" aria-labelledby="profile-title">
+    <div class="card-head">
+      <h2 class="card-title" id="profile-title">Profile</h2>
+    </div>
+    <div class="kv">
+      <span class="row-icon" aria-hidden="true">{{icon "phone"}}</span>
+      <div class="row-main">
+        <p class="row-sub">Phone number</p>
+        <p class="row-title">{{phone .User.Phone}}</p>
       </div>
     </div>
-    <dialog id="remove-passkey-{{.CredentialID}}">
-      <h2>Remove this passkey?</h2>
-      <p>"{{.Name}}" will no longer be able to sign you in.</p>
-      <form method="post" action="/account/passkeys/{{.CredentialID}}/delete">
-        <input type="hidden" name="csrf" value="{{$.CSRF}}">
-        <div class="action-group">
-          <button type="submit" class="btn btn-danger">Remove</button>
-          <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
+  </section>
+
+  <section class="card" aria-labelledby="passkeys-title">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title" id="passkeys-title">Passkeys</h2>
+        <p class="card-sub list-count">{{len .Data.Passkeys}} passkey{{if ne (len .Data.Passkeys) 1}}s{{end}}</p>
+      </div>
+      <button type="button" class="btn btn-secondary" data-passkey-register data-csrf="{{.CSRF}}">{{icon "plus"}}<span>Add a passkey</span></button>
+    </div>
+    <p data-passkey-register-error role="alert" class="form-error"></p>
+    {{if .Data.Passkeys}}
+    <ul class="rows rows-flush" role="list">
+      {{range .Data.Passkeys}}
+      <li class="row">
+        <span class="row-icon" aria-hidden="true">{{icon "key-round"}}</span>
+        <div class="row-main">
+          <p class="row-title">{{.Name}}</p>
+          <p class="row-sub"><span class="row-sub-part">Added {{.Added}}</span><span class="row-sub-part">{{if eq .LastUsed "never"}}Not used yet{{else}}Last used {{.LastUsed}}{{end}}</span></p>
         </div>
-      </form>
-    </dialog>
+        <div class="row-actions">
+          <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="remove-passkey-{{.CredentialID}}">Remove</button>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    {{range .Data.Passkeys}}
+    {{template "confirm" (dict "ID" (printf "remove-passkey-%s" .CredentialID) "Action" (printf "/account/passkeys/%s/delete" .CredentialID) "CSRF" $.CSRF "Icon" "key-round"
+         "Title" (printf "Remove %s?" .Name) "Body" "This passkey will no longer be able to sign you in." "Button" "Remove")}}
     {{end}}
-  </div>
-  {{else}}
-  <p class="empty-state">No passkeys yet. Add one so you can sign in without WhatsApp.</p>
+    {{else}}
+    <div class="empty empty-inset">
+      <span class="empty-art empty-art-sm" aria-hidden="true">{{icon "fingerprint"}}</span>
+      <p class="empty-text">No passkeys yet. Add one so you can sign in without WhatsApp.</p>
+    </div>
+    {{end}}
+  </section>
+
+  {{if .Data.Connections}}{{template "connections_card" .}}{{end}}
+
+  {{template "api_keys_card" .}}
+
+  <section class="card" aria-labelledby="appearance-title">
+    <div class="card-head card-head-row">
+      <div>
+        <h2 class="card-title" id="appearance-title">Appearance</h2>
+        <p class="card-sub">Choose a theme for this browser.</p>
+      </div>
+      {{template "theme_switcher" "account"}}
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="sessions-title">
+    <div class="card-head card-head-row">
+      <div>
+        <h2 class="card-title" id="sessions-title">Sessions</h2>
+        <p class="card-sub list-count">Signed in on {{len .Data.Sessions}} device{{if ne (len .Data.Sessions) 1}}s{{end}}</p>
+      </div>
+      <button type="button" class="btn btn-secondary btn-quiet-danger" data-open-dialog="signout-everywhere">{{icon "log-out"}}<span>Sign out everywhere</span></button>
+    </div>
+    <ul class="rows rows-flush" role="list">
+      {{range .Data.Sessions}}
+      <li class="row row-compact">
+        <span class="row-icon{{if .Current}} row-icon-ok{{end}}" aria-hidden="true">{{if .Phone}}{{icon "smartphone"}}{{else}}{{icon "monitor"}}{{end}}</span>
+        <div class="row-main">
+          <p class="row-title">{{.Device}}</p>
+          <p class="row-sub"><span class="row-sub-part">Signed in {{since .Started}}</span>{{if and (not .Current) .LastSeen}}<span class="row-sub-part">Last seen {{ago .LastSeen}}</span>{{end}}</p>
+        </div>
+        {{if .Current}}<span class="pill pill-brand">This device</span>{{else}}
+        <div class="row-actions">
+          <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="signout-session"
+                  data-dialog-action="/account/sessions/{{.Handle}}/signout" data-dialog-subject="{{.Device}}, signed in {{since .Started}}.">Sign out</button>
+        </div>{{end}}
+      </li>
+      {{end}}
+    </ul>
+  </section>
+
+  {{with .Data.Delete}}
+  <section class="card card-danger" aria-labelledby="delete-account-title">
+    <div class="card-head card-head-row">
+      <div>
+        <h2 class="card-title" id="delete-account-title">Delete account</h2>
+        <p class="card-sub">Removes your account, unlinks every WhatsApp number and deletes their messages. This can't be undone.</p>
+      </div>
+      {{if not .OwnsService}}<button type="button" class="btn btn-danger" data-open-dialog="delete-account">{{icon "trash-2"}}<span>Delete account</span></button>{{end}}
+    </div>
+    {{if .OwnsService}}<p class="notice">{{icon "info"}}<span>Your account has the sign-in number. <a href="/admin/settings">Choose another one in Settings</a> before you delete it.</span></p>{{end}}
+  </section>
+  {{if not .OwnsService}}{{template "confirm" (deleteConfirm . $.CSRF)}}{{end}}
   {{end}}
-</main>
-{{template "foot" .}}{{end}}
+
+  {{template "confirm" (dict "ID" "signout-session" "Action" "" "CSRF" .CSRF "Icon" "log-out"
+       "Title" "Sign out this device?" "Body" "It will need to sign in again." "Button" "Sign out")}}
+  {{template "confirm" (dict "ID" "signout-everywhere" "Action" "/account/signout-everywhere" "CSRF" .CSRF "Icon" "log-out"
+       "Title" "Sign out everywhere?" "Body" "Every device you're signed in on, this one included, will need to sign in again." "Button" "Sign out everywhere")}}
+{{template "app_end" .}}{{template "foot" .}}{{end}}
+
+{{/* delete_account_form.html is the Delete account dialog's form again, with
+     its error, for htmx (POST /account/delete). */}}
+{{define "delete_account_form.html"}}{{template "confirm_form" (deleteConfirm .Data .CSRF)}}{{end}}

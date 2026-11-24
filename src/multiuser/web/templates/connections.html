@@ -1,0 +1,72 @@
+{{/* connections.html: the Connected apps card on the Account page (MCP
+     OAuth grants, one row per connection) and its Connect Claude dialog.
+     A row always shows the host the app proved it is (the client id URL's
+     host). The name is shown only for CIMD clients, whose name comes from a
+     document on an allowlisted host (oauth.Grant.ClientName is empty for
+     anything self-registered). Drawn only when MCP is on.
+     The Add to Claude link is undocumented on Claude's side, so the dialog
+     also shows the address to paste by hand. */}}
+{{define "connections_card"}}{{$c := .Data.Connections}}
+  <section class="card" aria-labelledby="apps-title">
+    <div class="card-head">
+      <div>
+        <h2 class="card-title" id="apps-title">Connected apps</h2>
+        <p class="card-sub list-count">{{len $c.Grants}} app{{if ne (len $c.Grants) 1}}s{{end}}</p>
+      </div>
+      <button type="button" class="btn btn-primary" data-open-dialog="connect-claude">{{icon "plug"}}<span>Connect Claude</span></button>
+    </div>
+    {{if $c.Grants}}
+    <ul class="rows rows-flush" role="list">
+      {{range $c.Grants}}
+      <li class="row row-compact">
+        <span class="row-icon row-icon-ok" aria-hidden="true">{{icon "plug"}}</span>
+        <div class="row-main">
+          <p class="row-title">{{if .Name}}{{.Name}}{{else}}{{.Host}}{{end}}</p>
+          <p class="row-sub">{{if .Name}}<span class="row-sub-part">{{.Host}}</span>{{end}}<span class="row-sub-part">Connected {{.Connected}}</span><span class="row-sub-part">Last active {{.LastUsed}}</span></p>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="disconnect-app"
+                  data-dialog-action="/account/connections/{{.Family}}/revoke" data-dialog-subject="{{if .Name}}{{.Name}} ({{.Host}}){{else}}{{.Host}}{{end}}, connected {{.Connected}}.">Disconnect</button>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <div class="empty empty-inset">
+      <span class="empty-art empty-art-sm" aria-hidden="true">{{icon "plug"}}</span>
+      <p class="empty-text">Nothing connected yet. Connect Claude to use your WhatsApp from it.</p>
+    </div>
+    {{end}}
+  </section>
+
+  {{template "confirm" (dict "ID" "disconnect-app" "Action" "" "CSRF" .CSRF "Icon" "unlink"
+       "Title" "Disconnect this app?" "Body" "It will lose access at once. You can connect again any time." "Button" "Disconnect")}}
+
+  <dialog id="connect-claude" class="dialog dialog-sheet" aria-labelledby="connect-claude-title">
+    <div class="dialog-panel">
+      <div class="dialog-head">
+        <h2 class="dialog-title" id="connect-claude-title">Connect Claude</h2>
+        <button type="button" class="icon-btn icon-btn-bare" data-close-dialog aria-label="Close">{{icon "x"}}</button>
+      </div>
+      <div class="link-body connect-body">
+        <p class="dialog-text">Claude will be able to read and send messages on every number you've linked, until you disconnect it here.</p>
+        <section class="connect-step" aria-labelledby="connect-web-title">
+          <h3 class="connect-step-title" id="connect-web-title">{{icon "message-circle"}}<span>Claude on the web, desktop or phone</span></h3>
+          <a class="btn btn-primary btn-block" href="{{$c.AddLink}}" target="_blank" rel="noopener">{{icon "external-link"}}<span>Add to Claude</span></a>
+          <p class="connect-step-hint">Then press Connect and allow access.</p>
+        </section>
+        <section class="connect-step" aria-labelledby="connect-hand-title">
+          <h3 class="connect-step-title" id="connect-hand-title">{{icon "link-2"}}<span>Or add it by hand</span></h3>
+          <p class="connect-step-hint">In Claude, add a custom connector with this address.</p>
+          {{template "copy_link" (dict "ID" "connect-mcp-url" "Link" $c.MCPURL "Label" "Connector address" "Secondary" true)}}
+        </section>
+        <section class="connect-step" aria-labelledby="connect-code-title">
+          <h3 class="connect-step-title" id="connect-code-title">{{icon "terminal"}}<span>Claude Code</span></h3>
+          <p class="connect-step-hint">Run this, then sign in when Claude Code asks.</p>
+          {{template "copy_link" (dict "ID" "connect-claude-code" "Link" $c.ClaudeCode "Label" "Claude Code command" "Secondary" true)}}
+        </section>
+        <div class="dialog-foot"><button type="button" class="btn btn-secondary" data-close-dialog>Done</button></div>
+      </div>
+    </div>
+  </dialog>
+{{end}}

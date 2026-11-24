@@ -300,3 +300,16 @@ func TestStoreFailureIs500AndKeepsCookie(t *testing.T) {
 	require.JSONEq(t, `{"status":500,"code":"INTERNAL_ERROR","message":"could not check your session"}`, string(body))
 	noClear(resp)
 }
+
+// Security: an account being deleted is refused on the very next request,
+// with the session it already held (the first step of account deletion).
+func TestDeletingUserCannotUseASession(t *testing.T) {
+	app, _, st := setup(t)
+	u, _ := st.CreateUser(context.Background(), "+27825550199")
+	ck := login(t, app, u.ID)
+	require.Equal(t, http.StatusOK, get(t, app, "/page", ck).StatusCode)
+
+	require.NoError(t, st.SetUserStatus(context.Background(), u.ID, store.StatusDeleting))
+	require.Equal(t, http.StatusSeeOther, get(t, app, "/page", ck).StatusCode)
+	require.Equal(t, http.StatusUnauthorized, get(t, app, "/api/thing", ck).StatusCode)
+}

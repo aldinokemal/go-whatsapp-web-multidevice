@@ -3,7 +3,7 @@
 ## WTF fork
 
 This fork turns upstream GOWA into a small multi-user server: people sign in by
-messaging a WhatsApp "service number" (then register a passkey for next time),
+messaging a WhatsApp "sign-in number" (then register a passkey for next time),
 link their own WhatsApp device, and can only ever reach their own device and
 data — never another user's. Upstream's single-device behaviour is completely
 unchanged when multi-user mode is off (the default).
@@ -19,8 +19,26 @@ environment variables control it:
 | `WTF_SUPERADMIN_PHONES` | Comma-separated E.164 numbers. The only people who can sign in from nothing — everyone else needs an existing account or an invite. Never from a database column; always this env var. |
 | `WTF_PUBLIC_URL` | The externally-reachable base URL, used to build the WhatsApp sign-in link. Falls back to `RENDER_EXTERNAL_URL` on Render. |
 | `SESSION_SECRET` | Signs session cookies. Generate a real random value; never reuse the default. |
+| `WTF_MCP_ENABLED` | `true` (the default in multi-user mode) serves `/mcp` to Claude, per person, with OAuth sign-in. Needs an `https` public URL; with a plain-http one (local development) MCP stays off with a warning. |
+| `WTF_MAX_PHONES` | The most WhatsApp numbers the whole server may hold linked (an unscanned link counts while it waits; one nobody scans is freed after an hour). `0`, the default, means no cap; it must be set when `WTF_SIGNUP_OPEN=true`. Set it from the memory measurement. |
+| `WTF_DEFAULT_MAX_DEVICES` | How many numbers a new account may link, 1 to 20. Default `2`. Admins change one person's limit on Users. |
+| `WTF_RETENTION_HOURS` | How long messages and media are kept, in hours. Default `24`; `0` turns retention off (refused when `WTF_SIGNUP_OPEN=true`). |
+| `WTF_MCP_CLIENT_HOSTS` | Comma-separated exact host names whose apps may connect. Default `claude.ai` (Claude on the web, desktop, phone and Claude Code). |
 
-In multi-user mode, Basic Auth, the bundled gowa-ui dashboard, `/statics`,
+**Connecting Claude** — on the Account page, Connect Claude opens Claude's
+add-connector dialog already filled in (or paste the shown address,
+`<public URL>/mcp`, by hand; Claude Code: `claude mcp add --transport http
+wtf <public URL>/mcp`). People sign in with their usual WTF sign-in and
+approve; Connected apps lists each connection with Disconnect. Claude only
+ever reaches that person's own numbers. See `docs/mcp-oauth.md`.
+
+**API keys** — on the Account page, New key makes a personal key (`wtfk_…`,
+shown once) for the REST API: `Authorization: Bearer wtfk_…`. A key acts as
+its owner on all their numbers, never opens a page, and stops working the
+moment it is revoked or its owner is disabled. Downloaded media is fetched,
+owner-checked, from `/files/<device id>/…` with the same key or session.
+
+In multi-user mode, Basic Auth (including on `/mcp`), the bundled gowa-ui dashboard, `/statics`,
 global webhooks, auto-reply and the upstream `/ws` route are all forced off —
 this fork's own sign-in/session system is the only way in.
 
@@ -34,9 +52,32 @@ run:
 This mints a one-time sign-in link for that phone number (it must already be
 listed in `WTF_SUPERADMIN_PHONES`) without starting a WhatsApp connection.
 Open the link, sign in, register a passkey, then link your own WhatsApp number
-from the "My WhatsApp" page. Every other user signs in the same way a
-superadmin invites them to: by messaging the service number once an account
-exists for them.
+from the "My WhatsApp" page.
+
+**Everyone else** messages the sign-in number (an admin picks it from their
+own linked numbers in Admin › Settings). Someone with an account gets a
+sign-in link; someone without one joins the waitlist and is told their place.
+An admin lets people in from Admin › Waitlist, one click per person: that
+creates the account and sends the sign-in link in the chat they started. Admins
+can also add someone directly from Users › Add user.
+
+**Retention** — in multi-user mode, messages and media are deleted once they
+are older than `WTF_RETENTION_HOURS` (24 by default), for every account and
+number, the sign-in number included. An hourly run deletes messages and what
+hangs off them (reactions, edits, polls), chats left empty, downloaded media,
+sent files, history sync dumps, and scheduled sends that have finished (sent,
+failed or cancelled), along with expired sessions and sign-in links. History
+sync never stores what is already past the window, so a newly linked phone
+shows only the last 24 hours. All configuration is kept: accounts, passkeys,
+linked numbers and their names, WhatsApp sessions, contacts, settings,
+webhooks, API keys, connected apps, scheduled sends still to go, and the audit
+log. My WhatsApp says how long messages are kept.
+
+**Leaving** — Account › Delete account removes the account, unlinks every
+number it holds and deletes their messages and media here. An admin can delete
+a disabled person's account the same way, from the ⋯ menu on their row in
+Users. Disabling someone,
+or changing their number, revokes their API keys and connected apps for good.
 
 See `docs/superpowers/specs/` and `docs/superpowers/plans/` for the full
 design and build history of this fork.
@@ -130,6 +171,8 @@ Download:
 - **MCP (Model Context Protocol) server support** — Integrate with AI agents and tools using a standardized protocol.
 - **Optional MCP OAuth 2.1** — Connect remote MCP clients that cannot supply a Basic Auth header. See
   [MCP OAuth](./docs/mcp-oauth.md).
+- **MCP parity (multi-user mode)** — everything the web pages can do is an MCP tool too, through the same
+  code; admin tools for superadmins only. See [MCP parity](./docs/mcp-parity.md).
 - Mention users in message text and image, video, or file captions:
   - `@phoneNumber`
   - Example: `Hello @628974812XXXX, @628974812XXXX`

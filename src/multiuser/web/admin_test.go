@@ -58,8 +58,8 @@ func TestAdminUsersListsEveryoneWithCountAndLinkedPhones(t *testing.T) {
 	resp, body := e.do(t, req)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, body, "2 users")
-	require.Contains(t, body, "&#43;27825550100", "html/template escapes '+' in plain text content")
-	require.Contains(t, body, "&#43;27825550101")
+	require.Contains(t, body, "&#43;27 82 555 0100", "html/template escapes '+'; numbers are shown grouped")
+	require.Contains(t, body, "&#43;27 82 555 0101")
 	require.Contains(t, body, "You", "the caller's own row is marked")
 	_ = adminID
 }
@@ -143,7 +143,7 @@ func TestAdminSigninLinkIsShownNotSent(t *testing.T) {
 	resp, body := postForm(t, e, admin, "/admin/users/"+otherID+"/signin-link", url.Values{"csrf": {tok}})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, body, "/signin/verify?t=")
-	require.Contains(t, body, "Valid once, for 15 minutes")
+	require.Contains(t, body, "It works once, for 15 minutes.")
 }
 
 func TestAdminSettingsPageShowsCallerDevicesAndStats(t *testing.T) {
@@ -157,10 +157,9 @@ func TestAdminSettingsPageShowsCallerDevicesAndStats(t *testing.T) {
 	req.AddCookie(admin)
 	resp, body := e.do(t, req)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Contains(t, body, "27825550100", "the linked device is offered as a service number")
+	require.Contains(t, body, "27 82 555 0100", "the linked device is offered as a service number")
 	require.NotContains(t, body, `value="d_unlinked"`, "an unlinked device slot is not offered")
-	require.Contains(t, body, "Goroutines")
-	require.Contains(t, body, "Linked phones (all users)")
+	require.Contains(t, body, "Numbers linked")
 }
 
 func TestDeviceName(t *testing.T) {
@@ -176,4 +175,20 @@ func TestDeviceName(t *testing.T) {
 	for ua, want := range cases {
 		require.Equal(t, want, deviceName(ua), ua)
 	}
+}
+
+// Behaviour: an account whose deletion has started cannot be re-enabled from
+// the admin page; it stays deleting and the admin is told why.
+func TestEnablingADeletingUserIsRefused(t *testing.T) {
+	e := withDevices(t, &devStub{})
+	admin, _ := signedIn(t, e, "+27825550100")
+	_, victimID := signedIn(t, e, "+27825550101")
+	require.NoError(t, e.st.SetUserStatus(context.Background(), victimID, store.StatusDeleting))
+	tok := csrfFor(t, e, admin)
+
+	resp, body := postForm(t, e, admin, "/admin/users/"+victimID+"/status", url.Values{"csrf": {tok}, "status": {"active"}})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.Contains(t, body, "being deleted")
+	u, _ := e.st.UserByID(context.Background(), victimID)
+	require.Equal(t, store.StatusDeleting, u.Status)
 }

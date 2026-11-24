@@ -1,73 +1,156 @@
-{{define "admin_users.html"}}{{template "head" .}}
-<main id="main" tabindex="-1" class="page">
-  <div class="page-header">
-    <h1>Users</h1>
+{{define "admin_users.html"}}{{template "head" .}}{{template "app_start" .}}
+  <div class="page-head">
+    <h1 class="page-title">Users</h1>
+    <div class="page-actions">
+      <button type="button" class="btn btn-primary" data-open-dialog="add-user">{{icon "user-plus"}}<span>Add user</span></button>
+    </div>
+    <p class="page-sub list-count" id="users-count">{{.Data.Total}} user{{if ne .Data.Total 1}}s{{end}}</p>
   </div>
 
-  <p class="form-error" role="alert">{{.Data.Error}}</p>
-  <p class="list-count">{{len .Data.Rows}} user{{if ne (len .Data.Rows) 1}}s{{end}}</p>
+  {{if .Data.Error}}<p class="form-error" role="alert">{{.Data.Error}}</p>{{end}}
 
+  <div class="list-tools">
+    {{/* House rule T8: types ahead (app.js debounces, from two digits),
+         hx-sync drops a stale request, Enter still submits, no Apply. */}}
+    <form class="list-search" method="get" action="/admin/users" role="search"
+          hx-get="/admin/users" hx-trigger="submit, typeahead" hx-target="#users-results" hx-select="#users-results"
+          hx-select-oob="#users-count,#users-tabs" hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace">
+      {{if .Data.Query.Status}}<input type="hidden" name="status" value="{{.Data.Query.Status}}">{{end}}
+      {{if .Data.Query.Sort}}<input type="hidden" name="sort" value="{{.Data.Query.Sort}}">{{if .Data.Query.Desc}}<input type="hidden" name="dir" value="desc">{{end}}{{end}}
+      <label class="visually-hidden" for="users-q">Search by number</label>
+      {{icon "search"}}
+      <input class="input" id="users-q" type="search" name="q" value="{{.Data.Query.Q}}" placeholder="Search by number"
+             inputmode="tel" autocomplete="off" data-typeahead>
+    </form>
+    <div id="users-tabs">{{template "nav_switcher" (dict "Label" "Status" "ID" "users-status" "Items" .Data.Tabs)}}</div>
+  </div>
+
+  <div id="users-results" class="list-results">
   {{if .Data.Rows}}
-  <div class="list" role="table" aria-label="Users">
-    <div class="list-row list-head" role="row">
-      <span role="columnheader">Phone</span>
+  <div class="table card card-flush users-table" role="table" aria-label="Users">
+    <div class="trow thead" role="row">
+      {{template "sort_header" .Data.Headers.phone}}
       <span role="columnheader">Status</span>
-      <span role="columnheader">Linked phones</span>
-      <span role="columnheader">Last sign-in</span>
-      <span role="columnheader">Actions</span>
+      <span role="columnheader" class="num">Numbers</span>
+      {{template "sort_header" .Data.Headers.created}}
+      {{template "sort_header" .Data.Headers.last_login}}
+      <span role="columnheader" class="end"><span class="visually-hidden">Actions</span></span>
     </div>
     {{range .Data.Rows}}
-    <div class="list-row" role="row">
-      <span role="cell" data-label="Phone">{{.Phone}}{{if .IsSelf}} <span class="pill pill-muted">You</span>{{end}}</span>
-      <span role="cell" data-label="Status">
+    <div class="trow{{if .Highlight}} trow-hl{{end}}" role="row" id="user-{{.ID}}">
+      <span role="cell" class="cell-user">
+        <span class="row-icon{{if .Active}} row-icon-ok{{else}} row-icon-muted{{end}}" aria-hidden="true">{{icon "user-round"}}</span>
+        <span class="cell-phone">{{phone .Phone}}</span>
+        {{if .IsSelf}}<span class="pill pill-brand">You</span>{{end}}
+        {{if .JustAdded}}<span class="pill pill-brand" title="Just added">New</span>{{end}}
+      </span>
+      <span role="cell" class="cell-status">
         {{if .Active}}<span class="pill pill-ok">Active</span>{{else}}<span class="pill pill-muted">Disabled</span>{{end}}
       </span>
-      <span role="cell" data-label="Linked phones">{{.DeviceCount}}</span>
-      <span role="cell" data-label="Last sign-in">{{.LastSignIn}}</span>
-      <span role="cell" data-label="Actions" class="device-actions">
-        {{if not .IsSelf}}
+      <span class="cell-meta">
+        <span role="cell" class="cell-count num">
+          {{if .Numbers}}
+          <button type="button" class="disclosure" aria-expanded="false" aria-controls="numbers-{{.ID}}" data-disclosure
+                  aria-label="{{.DeviceCount}} of {{.MaxDevices}} numbers linked. Show them">{{.DeviceCount}} of {{.MaxDevices}}{{icon "chevron-down"}}</button>
+          {{else}}{{.DeviceCount}} of {{.MaxDevices}}<span class="compact-label"> numbers</span>{{end}}
+        </span>
+        <span role="cell" class="cell-added"><span class="compact-label">Added </span>{{since .Added}}</span>
+        <span role="cell" class="cell-seen"><span class="compact-label">Last sign-in </span>{{.LastSignIn}}</span>
+      </span>
+      <span role="cell" class="cell-actions end">
+        {{template "menu_start" "More actions"}}
+          <button type="button" class="menu-item" role="menuitem" data-open-dialog="limit-dialog"
+                  data-dialog-action="/admin/users/{{.ID}}/limit" data-dialog-value="{{.MaxDevices}}" data-dialog-subject="For {{phone .Phone}}">{{icon "hash"}}<span>Number limit</span></button>
+          {{if and (not .IsSelf) (not .IsAdmin)}}
+          <button type="button" class="menu-item" role="menuitem" data-open-dialog="phone-dialog"
+                  data-dialog-action="/admin/users/{{.ID}}/phone" data-dialog-value="{{.Phone}}" data-dialog-subject="They'll be signed out everywhere and sign in with the new number. Their API keys and connected apps stop working.">{{icon "phone"}}<span>Change number</span></button>
+          {{end}}
+          <a class="menu-item" role="menuitem" href="/admin/activity?user={{.ID}}">{{icon "activity"}}<span>Activity</span></a>
+          {{if not .IsSelf}}
+          {{if .Active}}
+          <button type="button" class="menu-item menu-item-danger" role="menuitem" data-open-dialog="disable-{{.ID}}">{{icon "user-x"}}<span>Disable</span></button>
+          {{else}}
+          <form method="post" action="/admin/users/{{.ID}}/status" class="inline-form">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}">
+            <input type="hidden" name="status" value="active">
+            <button type="submit" class="menu-item" role="menuitem">{{icon "user-check"}}<span>Enable</span></button>
+          </form>
+          {{if .Delete}}
+          <button type="button" class="menu-item menu-item-danger" role="menuitem" data-open-dialog="delete-{{.ID}}">{{icon "trash-2"}}<span>Delete account</span></button>
+          {{end}}
+          {{end}}
+          {{end}}
+        {{template "menu_end"}}
         {{if .Active}}
-        <button type="button" class="btn btn-ghost" data-open-dialog="disable-{{.ID}}">Disable</button>
-        {{else}}
-        <form method="post" action="/admin/users/{{.ID}}/status" class="inline-form">
-          <input type="hidden" name="csrf" value="{{$.CSRF}}">
-          <input type="hidden" name="status" value="active">
-          <button type="submit" class="btn btn-secondary">Enable</button>
-        </form>
-        {{end}}
-        {{end}}
-        <button type="button" class="btn btn-secondary" data-open-dialog="link-dialog"
+        <button type="button" class="btn btn-secondary btn-sm" data-open-dialog="link-dialog" data-dialog-title="Sign-in link"
                 hx-post="/admin/users/{{.ID}}/signin-link" hx-target="#link-dialog-body" hx-swap="innerHTML"
-                hx-headers='{"X-CSRF-Token":"{{$.CSRF}}"}'>Get sign-in link</button>
+                hx-headers='{"X-CSRF-Token":"{{$.CSRF}}"}'>{{icon "link-2"}}<span>Get sign-in link</span></button>
+        {{end}}
       </span>
     </div>
-    {{if .Active}}
-    <dialog id="disable-{{.ID}}">
-      <h2>Disable this user?</h2>
-      <p>They'll be signed out everywhere right away.</p>
-      <form method="post" action="/admin/users/{{.ID}}/status">
-        <input type="hidden" name="csrf" value="{{$.CSRF}}">
-        <input type="hidden" name="status" value="disabled">
-        <div class="action-group">
-          <button type="submit" class="btn btn-danger">Disable</button>
-          <button type="button" class="btn btn-ghost" data-close-dialog>Cancel</button>
-        </div>
-      </form>
-    </dialog>
+    {{if .Numbers}}
+    <div class="trow-child" role="row" id="numbers-{{.ID}}" hidden>
+      <ul class="rows rows-nested" role="list" aria-label="Numbers of {{phone .Phone}}">
+        {{$u := .}}
+        {{range .Numbers}}
+        <li class="row row-compact">
+          {{template "number_state" (dict "N" . "Whose" "their")}}
+          <div class="row-actions">
+            <button type="button" class="btn btn-secondary btn-sm btn-quiet-danger" data-open-dialog="admin-unlink"
+                    data-dialog-action="/admin/users/{{$u.ID}}/devices/{{.ID}}/unlink"
+                    data-dialog-subject="{{if .Title}}{{.Title}}{{else}}An unfinished link{{end}}, on {{phone $u.Phone}}.">{{if .Linked}}Unlink{{else}}Remove{{end}}</button>
+          </div>
+        </li>
+        {{end}}
+      </ul>
+    </div>
     {{end}}
     {{end}}
   </div>
+  {{template "pager" .Data.Pager}}
+  {{range .Data.Rows}}{{if and .Active (not .IsSelf)}}
+  {{template "confirm" (dict "ID" (printf "disable-%s" .ID) "Action" (printf "/admin/users/%s/status" .ID) "CSRF" $.CSRF "Status" "disabled" "Icon" "user-x"
+       "Title" (printf "Disable %s?" (phone .Phone)) "Body" "They'll be signed out everywhere right away, and their API keys and connected apps stop working for good." "Button" "Disable"
+       "Check" "Also unlink their numbers" "CheckName" "unlink")}}
+  {{end}}{{if .Delete}}
+  {{template "confirm" (adminDeleteConfirm .Delete $.CSRF)}}
+  {{end}}{{end}}
+  {{template "confirm" (dict "ID" "admin-unlink" "Action" "" "CSRF" .CSRF "Icon" "unlink"
+       "Title" "Unlink this number?" "Body" "It stops working here right away. They can link it again." "Button" "Unlink")}}
+  {{template "form_dialog" (dict "ID" "limit-dialog" "CSRF" .CSRF "Title" "Number limit" "Label" "How many numbers they may link"
+       "Name" "max_devices" "Type" "number" "Min" "0" "Max" "20" "Hint" "From 0 to 20. Lowering it unlinks nothing." "Button" "Save")}}
+  {{template "form_dialog" (dict "ID" "phone-dialog" "CSRF" .CSRF "Title" "Change number" "Label" "New phone number"
+       "Name" "phone" "Type" "tel" "Hint" "Include the country code, for example +27 82 555 0101." "Button" "Change number")}}
+  {{else if .Data.Filtered}}
+  <div class="empty">
+    <span class="empty-art" aria-hidden="true">{{icon "search"}}</span>
+    <h2 class="empty-title">No users match{{if .Data.Query.Q}} &ldquo;{{.Data.Query.Q}}&rdquo;{{end}}.</h2>
+    <a class="btn btn-secondary" href="/admin/users">Show everyone</a>
+  </div>
   {{else}}
-  <p class="empty-state">No users yet.</p>
+  <div class="empty">
+    <span class="empty-art" aria-hidden="true">{{icon "users"}}</span>
+    <p class="empty-text">No users yet.</p>
+  </div>
   {{end}}
+  </div>
 
-  <dialog id="link-dialog">
-    <h2>Sign-in link</h2>
-    <div id="link-dialog-body"></div>
-    <button type="button" class="btn btn-ghost" data-close-dialog>Close</button>
+  {{template "sheet" (dict "Title" "Sign-in link")}}
+
+  <dialog id="add-user" class="dialog dialog-sheet" aria-labelledby="add-user-title">
+    <div class="dialog-panel">
+      <div class="dialog-head">
+        <h2 class="dialog-title" id="add-user-title">Add user</h2>
+        <button type="button" class="icon-btn icon-btn-bare" data-close-dialog aria-label="Close">{{icon "x"}}</button>
+      </div>
+      <div id="add-user-body" class="link-body">{{template "add_user_form" (dict "CSRF" .CSRF)}}</div>
+    </div>
   </dialog>
-</main>
-{{template "foot" .}}{{end}}
+{{template "app_end" .}}{{template "foot" .}}{{end}}
+
+{{/* admin_delete_form.html is an admin's Delete account dialog form again,
+     with its error, for the htmx answer of POST /admin/users/:id/delete. */}}
+{{define "admin_delete_form.html"}}{{template "confirm_form" (adminDeleteConfirm .Data .CSRF)}}{{end}}
 
 {{/* signin_link.html is the htmx fragment POST /admin/users/:id/signin-link
      returns into #link-dialog-body: either the fresh link to copy, or the
@@ -77,11 +160,53 @@
 {{if .Data.Error}}
 <p class="form-error" role="alert">{{.Data.Error}}</p>
 {{else}}
-<p>Valid once, for 15 minutes. Send it to them yourself.</p>
+<p class="dialog-text">Send them this link. {{oneTimeLinkNote}}</p>
+{{template "copy_link" (dict "ID" "signin-link-value" "Link" .Data.Link)}}
+{{end}}
+{{end}}
+
+{{define "copy_link"}}
 <div class="link-copy">
-  <input type="text" id="signin-link-value" value="{{.Data.Link}}" readonly aria-label="Sign-in link">
-  <button type="button" class="btn btn-secondary" data-copy="signin-link-value">Copy</button>
+  <input class="input input-mono" type="text" id="{{.ID}}" value="{{.Link}}" readonly aria-label="{{or .Label "Sign-in link"}}">
+  <button type="button" class="btn {{if .Secondary}}btn-secondary{{else}}btn-primary{{end}}" data-copy="{{.ID}}">{{icon "copy"}}<span>Copy</span></button>
 </div>
 <p class="copy-feedback" data-copy-feedback aria-live="polite"></p>
 {{end}}
+
+{{/* add_user.html is the htmx fragment POST /admin/users returns into
+     #add-user-body: the form again with its error and what was typed, or the
+     new user's one-time sign-in link. Closing the dialog after a success
+     opens the list with the new row pinned first and highlighted
+     (data-reload-on-close, house rule D4). */}}
+{{define "add_user.html"}}
+{{if .Data.Link}}
+<div data-reload-on-close="/admin/users?new={{.Data.ID}}">
+  <p class="added-line">{{icon "circle-check-big"}}<span>{{phone .Data.Phone}} can now sign in.</span></p>
+  <p class="dialog-text">Send them this link. {{oneTimeLinkNote}}</p>
+  {{template "copy_link" (dict "ID" "new-user-link" "Link" .Data.Link)}}
+  <div class="dialog-foot"><button type="button" class="btn btn-secondary" data-close-dialog>Done</button></div>
+</div>
+{{else}}
+{{template "add_user_form" (dict "CSRF" .CSRF "Phone" .Data.Phone "Error" .Data.Error)}}
 {{end}}
+{{end}}
+
+{{define "add_user_form"}}
+<form class="add-user-form" hx-post="/admin/users" hx-target="#add-user-body" hx-swap="innerHTML"
+      hx-headers='{"X-CSRF-Token":"{{.CSRF}}"}' hx-disabled-elt="find button[type=submit]">
+  <div class="field">
+    <label class="label" for="add-user-phone">WhatsApp number</label>
+    <input class="input" id="add-user-phone" type="tel" name="phone" inputmode="tel" autocomplete="off"
+           placeholder="+27 82 555 0100" value="{{.Phone}}" required{{if .Error}} aria-invalid="true" aria-describedby="add-user-error"{{end}}>
+  </div>
+  {{if .Error}}<p class="form-error" id="add-user-error" role="alert">{{.Error}}</p>{{end}}
+  <div class="dialog-foot">
+    <button type="button" class="btn btn-secondary" data-close-dialog>Cancel</button>
+    <button type="submit" class="btn btn-primary">Add user</button>
+  </div>
+</form>
+{{end}}
+
+{{/* sort_header is a column header that sorts the list (house rule T7):
+     ascending first, then descending; the sorted one carries aria-sort. */}}
+{{define "sort_header"}}<span role="columnheader"{{if .AriaSort}} aria-sort="{{.AriaSort}}"{{end}}><a class="sort-link" href="{{.Href}}">{{.Label}}{{if eq .AriaSort "ascending"}}{{icon "arrow-up"}}{{else if eq .AriaSort "descending"}}{{icon "arrow-down"}}{{end}}</a></span>{{end}}
