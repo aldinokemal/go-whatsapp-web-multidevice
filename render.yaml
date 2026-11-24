@@ -6,6 +6,19 @@ services:
     dockerContext: .
     plan: starter
     healthCheckPath: /health
+    # Only rebuild when something that goes into the image changes: the Go
+    # source and the Docker files. Tests, docs, the preview harness and the
+    # brand-asset generator never reach the binary.
+    buildFilter:
+      paths:
+        - src/**
+        - docker/**
+      ignoredPaths:
+        - "**/*.md"
+        - "**/*_test.go"
+        - "**/testdata/**"
+        - src/multiuser/web/preview/**
+        - src/multiuser/web/brand-src/**
     disk:
       name: data
       mountPath: /app/storages
