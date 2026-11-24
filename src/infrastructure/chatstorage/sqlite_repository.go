@@ -36,19 +36,20 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 	if strings.HasSuffix(chat.JID, "@g.us") {
 		// Message/history candidates may be stale. Only a placeholder can be
 		// healed by StoreChat; explicit renames go through UpdateGroupSubject.
-		placeholder := "Group " + strings.TrimSuffix(chat.JID, "@g.us")
-		meaningful := strings.TrimSpace(chat.Name) != "" && chat.Name != placeholder &&
-			chat.Name != chat.JID && chat.Name != strings.TrimSuffix(chat.JID, "@g.us")
+		groupID := strings.TrimSuffix(chat.JID, "@g.us")
+		// Both a bare group ID and its generated "Group <id>" label are fallbacks.
+		meaningful := strings.TrimSpace(chat.Name) != "" && chat.Name != chat.JID &&
+			chat.Name != groupID && strings.TrimPrefix(chat.Name, "Group ") != groupID
 		_, err := r.db.Exec(`
 			INSERT INTO chats (jid, device_id, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(jid, device_id) DO UPDATE SET
-				name = CASE WHEN ? AND (chats.name = ? OR chats.name = '') THEN excluded.name ELSE chats.name END,
+				name = CASE WHEN ? AND chats.name IN ('', 'Group ' || ?) THEN excluded.name ELSE chats.name END,
 				last_message_time = excluded.last_message_time,
 				ephemeral_expiration = excluded.ephemeral_expiration,
 				updated_at = excluded.updated_at,
 				archived = excluded.archived
-		`, chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, now, chat.Archived, meaningful, placeholder)
+		`, chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, now, chat.Archived, meaningful, groupID)
 		return err
 	}
 
@@ -89,7 +90,7 @@ func (r *SQLiteRepository) setGroupSubject(deviceID, groupJID, subject string, o
 		return false, fmt.Errorf("group subject requires device id, group JID, and nonempty subject")
 	}
 	result, err := r.db.Exec(`UPDATE chats SET name = ?, updated_at = ?
-		WHERE device_id = ? AND jid = ? AND (NOT ? OR name IN ('', ?))`, subject, time.Now(), deviceID, groupJID, onlyPlaceholder, "Group "+groupID)
+		WHERE device_id = ? AND jid = ? AND (NOT ? OR name IN ('', 'Group ' || ?))`, subject, time.Now(), deviceID, groupJID, onlyPlaceholder, groupID)
 	if err != nil {
 		return false, err
 	}
