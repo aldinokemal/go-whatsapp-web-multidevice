@@ -59,34 +59,6 @@ func TestOpenImageForSendAppliesEXIFOrientationForHD(t *testing.T) {
 	assert.Equal(t, 2, got.Bounds().Dy())
 }
 
-func TestSafeImageExtensionForOnlyEverTrustsTheExtension(t *testing.T) {
-	tests := []struct {
-		name     string
-		filename string
-		want     string
-	}{
-		{"ordinary png", "shot.png", ".png"},
-		{"ordinary jpeg", "photo.JPEG", ".jpeg"},
-		{"empty filename falls back", "", ".png"},
-		{"unknown extension falls back", "notes.txt", ".png"},
-		// A traversal attempt's directory segments are never part of the
-		// returned value - only an allowlisted extension ever comes back,
-		// which is what keeps the caller from ever writing outside
-		// config.PathSendItems.
-		{"path traversal still yields only the safe extension", "../../etc/passwd.png", ".png"},
-		{"traversal with disallowed extension falls back", "../../etc/passwd", ".png"},
-		{"no extension at all falls back", "../../etc/passwd.", ".png"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := safeImageExtensionFor(tt.filename)
-			assert.Equal(t, tt.want, got)
-			assert.NotContains(t, got, "/")
-			assert.NotContains(t, got, "..")
-		})
-	}
-}
-
 func TestSaveProcessedImageUsesJPEGForHDPNG(t *testing.T) {
 	directory := t.TempDir()
 	gotPath, err := saveProcessedImage(image.NewRGBA(image.Rect(0, 0, 32, 16)), directory, "report.png", true)

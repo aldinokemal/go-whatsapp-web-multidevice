@@ -27,10 +27,11 @@ func validate(t *testing.T, s *jsonschema.Schema, payload string) error {
 }
 
 // TestSendSchemaPointsToCreateUpload guards the one place an agent reaching
-// for image_base64 would actually see it: without this, a caller that
-// doesn't already know whatsapp_app's create_upload action exists has no way
-// to find it from here, and would hit the exact base64-reliability problem
-// this field's own description now warns about.
+// for image_url would actually see it: without this, a caller that wants to
+// send an image it only holds as local bytes (no URL to fetch, and no
+// image_base64 any more - that path proved unreliable for an LLM-driven
+// caller and was removed) has no way to discover whatsapp_app's
+// create_upload action from here.
 func TestSendSchemaPointsToCreateUpload(t *testing.T) {
 	require.Contains(t, sendSchema, "create_upload")
 }
@@ -48,7 +49,6 @@ func TestSchemas(t *testing.T) {
 		{"send missing phone", sendSchema, `{"type":"text","message":"hi"}`, true},
 		{"send bad type", sendSchema, `{"type":"fax","phone":"628"}`, true},
 		{"send image ok", sendSchema, `{"type":"image","phone":"628","image_url":"http://x/a.png","caption":"c"}`, false},
-		{"send image with inline base64 ok", sendSchema, `{"type":"image","phone":"628","image_base64":"aGk=","image_filename":"shot.png"}`, false},
 		{"send image missing url", sendSchema, `{"type":"image","phone":"628"}`, true},
 		{"send video ok", sendSchema, `{"type":"video","phone":"628","video_url":"http://x/a.mp4"}`, false},
 		{"send video missing url", sendSchema, `{"type":"video","phone":"628"}`, true},

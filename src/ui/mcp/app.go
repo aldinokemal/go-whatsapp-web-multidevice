@@ -33,7 +33,7 @@ func InitMcpApp(appService domainApp.IAppUsecase, uploads *upload.Store, resolve
 
 func (h *AppHandler) AddAppTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_app",
-		mcpg.WithDescription("WhatsApp connection and session management: status, login_qr (returns QR image), login_code (pairing code for a phone number), logout, reconnect, create_upload (a pre-signed-style upload slot for whatsapp_send's image_base64/image_url)."),
+		mcpg.WithDescription("WhatsApp connection and session management: status, login_qr (returns QR image), login_code (pairing code for a phone number), logout, reconnect, create_upload (a pre-signed-style upload slot for whatsapp_send's image_url, for a caller holding only local image bytes)."),
 		mcpg.WithTitleAnnotation("Connection & Session"),
 		mcpg.WithReadOnlyHintAnnotation(false),
 		mcpg.WithDestructiveHintAnnotation(true),
