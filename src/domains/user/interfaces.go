@@ -24,6 +24,10 @@ type IUserListing interface {
 	MyListGroups(ctx context.Context) (response MyListGroupsResponse, err error)
 	MyListNewsletter(ctx context.Context) (response MyListNewsletterResponse, err error)
 	MyListContacts(ctx context.Context) (response MyListContactsResponse, err error)
+	MyListLabels(ctx context.Context) (response MyListLabelsResponse, err error)
+	MyListLabelChats(ctx context.Context, labelID string) (response MyListLabelChatsResponse, err error)
+	// MySyncLabels rebuilds the stored labels from WhatsApp and returns them.
+	MySyncLabels(ctx context.Context) (response MyListLabelsResponse, err error)
 }
 
 // IUserContactsDetailed is an optional capability of a user usecase: it is kept

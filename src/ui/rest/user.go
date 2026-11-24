@@ -21,6 +21,9 @@ func InitRestUser(app fiber.Router, service domainUser.IUserUsecase) User {
 	app.Get("/user/my/groups", rest.UserMyListGroups)
 	app.Get("/user/my/newsletters", rest.UserMyListNewsletter)
 	app.Get("/user/my/contacts", rest.UserMyListContacts)
+	app.Get("/user/my/labels", rest.UserMyListLabels)
+	app.Post("/user/my/labels/sync", rest.UserMySyncLabels)
+	app.Get("/user/my/labels/:label_id/chats", rest.UserMyListLabelChats)
 	if detailed, ok := service.(domainUser.IUserContactsDetailed); ok {
 		app.Get("/user/my/contacts/detailed", userMyListContactsDetailed(detailed))
 	}
@@ -164,6 +167,45 @@ func (controller *User) UserMyListContacts(c fiber.Ctx) error {
 		Status:  200,
 		Code:    "SUCCESS",
 		Message: "Success get list contacts",
+		Results: response,
+	})
+}
+
+func (controller *User) UserMyListLabels(c fiber.Ctx) error {
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
+	response, err := controller.Service.MyListLabels(ctx)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get list labels",
+		Results: response,
+	})
+}
+
+func (controller *User) UserMySyncLabels(c fiber.Ctx) error {
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
+	response, err := controller.Service.MySyncLabels(ctx)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success sync labels",
+		Results: response,
+	})
+}
+
+func (controller *User) UserMyListLabelChats(c fiber.Ctx) error {
+	ctx := whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c))
+	response, err := controller.Service.MyListLabelChats(ctx, c.Params("label_id"))
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: "Success get label chats",
 		Results: response,
 	})
 }

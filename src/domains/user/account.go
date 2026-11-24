@@ -73,6 +73,36 @@ type MyListContactsResponseData struct {
 	Name string    `json:"name"`
 }
 
+// MyListLabelsResponse lists the device's WhatsApp labels: WhatsApp Business
+// labels and the chat lists of the consumer app.
+type MyListLabelsResponse struct {
+	Data []MyListLabelsResponseData `json:"data"`
+}
+
+type MyListLabelsResponseData struct {
+	LabelID      string `json:"label_id"`
+	Name         string `json:"name"`
+	Color        int32  `json:"color"`
+	Type         string `json:"type,omitempty"`
+	PredefinedID int32  `json:"predefined_id,omitempty"`
+	OrderIndex   int32  `json:"order_index"`
+	IsActive     bool   `json:"is_active"`
+	IsImmutable  bool   `json:"is_immutable"`
+	ChatCount    int    `json:"chat_count"`
+}
+
+type MyListLabelChatsResponse struct {
+	LabelID string                         `json:"label_id"`
+	Data    []MyListLabelChatsResponseData `json:"data"`
+}
+
+// MyListLabelChatsResponseData is one labeled chat. JID is the phone JID when
+// the chat's LID resolves to one; LID is set when the label was stored for a LID.
+type MyListLabelChatsResponseData struct {
+	JID string `json:"jid"`
+	LID string `json:"lid,omitempty"`
+}
+
 // MyListContactsDetailedResponse lists the device's person contacts with each
 // contact-store name in its own field, so a client can tell the name saved in
 // the address book from the contact's own push name or business name.

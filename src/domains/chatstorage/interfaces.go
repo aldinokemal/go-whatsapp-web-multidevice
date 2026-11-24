@@ -154,6 +154,21 @@ type IChatStorageRepository interface {
 	DeleteChatwootDeviceConfig(deviceID string) error
 	CountChatwootDeviceConfigs() (int, error)
 
+	// Label operations, fed by label_edit and label_jid app state mutations.
+	UpsertLabel(label *Label) error
+	// DeleteLabel removes a label and its chat associations.
+	DeleteLabel(deviceID, labelID string) error
+	UpsertLabelAssociation(association *LabelAssociation) error
+	DeleteLabelAssociation(deviceID, labelID, chatJID string) error
+	// ListLabels returns the device's labels ordered by order index.
+	ListLabels(deviceID string) ([]*Label, error)
+	// ListLabelAssociations returns the device's associations whose label is
+	// stored, for one label or, with an empty labelID, for every label.
+	ListLabelAssociations(deviceID, labelID string) ([]*LabelAssociation, error)
+	// DeleteLabelDataBefore removes the device's labels and associations last
+	// written before the given time, after a full resync rewrote the live ones.
+	DeleteLabelDataBefore(deviceID string, before time.Time) error
+
 	// Statistics
 	GetChatMessageCount(chatJID string) (int64, error)
 	GetChatMessageCountByDevice(deviceID, chatJID string) (int64, error)

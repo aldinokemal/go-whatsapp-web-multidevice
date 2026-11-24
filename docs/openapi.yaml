@@ -1327,6 +1327,102 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
+  /user/my/labels:
+    get:
+      operationId: userMyLabels
+      tags:
+        - user
+      summary: Get list of labels and chat lists
+      description: |
+        Lists the labels of the device: WhatsApp Business labels and the chat lists of
+        the WhatsApp app, which reach linked devices as the same app state records.
+        Labels are stored as their `label_edit` and `label_jid` app state changes arrive,
+        whatever `WHATSAPP_WEBHOOK_EVENTS` says. A device paired before label storage
+        existed, or labels created before pairing, show up only after
+        `POST /user/my/labels/sync`. Deleted labels are left out. `chat_count` counts
+        the chats returned by `/user/my/labels/{label_id}/chats`.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyListLabelsResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /user/my/labels/sync:
+    post:
+      operationId: userMySyncLabels
+      tags:
+        - user
+      summary: Rebuild the stored labels from WhatsApp
+      description: |
+        Fetches the `regular` app state collection, which carries labels, again from
+        WhatsApp and stores every label and labeled chat in it. Labels and chats that
+        the fetch no longer contains are then removed. The fetch is read-only on
+        WhatsApp's side. While it runs, the `label.edit` and `label.association`
+        webhooks are sent again for every label record it fetches. Returns the
+        labels as `GET /user/my/labels` does.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyListLabelsResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+  /user/my/labels/{label_id}/chats:
+    get:
+      operationId: userMyLabelChats
+      tags:
+        - user
+      summary: Get the chats of a label
+      description: |
+        Lists the chats that carry the label, sorted by `jid`. A chat stored under its
+        LID is returned with the phone-number JID the device's LID store maps it to, or
+        with the LID itself when there is no mapping; `lid` is set in both cases. An
+        unknown or deleted label returns an empty list.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - name: label_id
+          in: path
+          required: true
+          schema:
+            type: string
+          example: '5'
+          description: Label ID from `/user/my/labels`
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyListLabelChatsResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
   /user/check:
     get:
       operationId: userCheck
@@ -6458,6 +6554,92 @@ components:
           description: Verified business name; omitted when blank.
           example: "Aldino Store"
 
+
+    MyListLabelsResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get list labels"
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyListLabel'
+    MyListLabel:
+      type: object
+      required:
+        - label_id
+        - name
+        - chat_count
+      properties:
+        label_id:
+          type: string
+          example: "5"
+        name:
+          type: string
+          example: "Follow up"
+        color:
+          type: integer
+          description: Color index used by the WhatsApp apps.
+          example: 3
+        type:
+          type: string
+          description: WhatsApp list type (`CUSTOM`, `PREDEFINED`, `UNREAD`, `GROUPS`, `FAVORITES`, ...); omitted when WhatsApp sends none.
+          example: "CUSTOM"
+        predefined_id:
+          type: integer
+          description: ID of a predefined WhatsApp Business label; omitted when zero.
+          example: 0
+        order_index:
+          type: integer
+          example: 2
+        is_active:
+          type: boolean
+          example: true
+        is_immutable:
+          type: boolean
+          example: false
+        chat_count:
+          type: integer
+          example: 12
+    MyListLabelChatsResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "SUCCESS"
+        message:
+          type: string
+          example: "Success get label chats"
+        results:
+          type: object
+          properties:
+            label_id:
+              type: string
+              example: "5"
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MyListLabelChat'
+    MyListLabelChat:
+      type: object
+      required:
+        - jid
+      properties:
+        jid:
+          type: string
+          description: Chat JID; a phone-number JID when the stored LID maps to one, otherwise as stored (user, LID or group JID).
+          example: "628123123123123@s.whatsapp.net"
+        lid:
+          type: string
+          description: LID the label was stored under; omitted when it was stored under a phone-number or group JID.
+          example: "123456789012345@lid"
 
     GroupParticipantRequestItem:
       type: object

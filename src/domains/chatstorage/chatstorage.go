@@ -237,3 +237,27 @@ type ChatFilter struct {
 	HasMedia   bool
 	IsArchived *bool
 }
+
+// Label is one WhatsApp label (a WhatsApp Business label or a chat list of the
+// consumer app) as last set through app state sync.
+type Label struct {
+	DeviceID     string    `db:"device_id"`
+	LabelID      string    `db:"label_id"`
+	Name         string    `db:"name"`
+	Color        int32     `db:"color"`
+	PredefinedID int32     `db:"predefined_id"`
+	Type         string    `db:"type"`
+	OrderIndex   int32     `db:"order_index"`
+	IsActive     bool      `db:"is_active"`
+	IsImmutable  bool      `db:"is_immutable"`
+	UpdatedAt    time.Time `db:"updated_at"`
+}
+
+// LabelAssociation links a chat to a label. ChatJID is the JID from the app
+// state index, which may be a LID.
+type LabelAssociation struct {
+	DeviceID  string    `db:"device_id"`
+	LabelID   string    `db:"label_id"`
+	ChatJID   string    `db:"chat_jid"`
+	UpdatedAt time.Time `db:"updated_at"`
+}

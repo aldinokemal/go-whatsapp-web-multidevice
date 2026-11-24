@@ -693,6 +693,9 @@ hidden from you, the field is omitted on offline events.
 
 Label events are triggered when WhatsApp label metadata changes or a label is applied to or removed from a chat. These
 events come from WhatsApp app-state sync and are forwarded as `label.edit` or `label.association`.
+The same changes are stored per device and can be read with `GET /user/my/labels` and
+`GET /user/my/labels/{label_id}/chats`. `POST /user/my/labels/sync` fetches the labels again and sends both events
+once more for every label record it fetches.
 
 ### Label Edit
 

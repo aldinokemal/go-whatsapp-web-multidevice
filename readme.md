@@ -739,6 +739,9 @@ You may also fork or modify the source code.
 | ✅       | Get My Privacy Settings                | GET    | /user/my/privacy                    |
 | ✅       | List My Contacts                       | GET    | /user/my/contacts                   |
 | ✅       | List My Contacts (detailed names)      | GET    | /user/my/contacts/detailed          |
+| ✅       | List My Labels                         | GET    | /user/my/labels                     |
+| ✅       | Sync My Labels                         | POST   | /user/my/labels/sync                |
+| ✅       | List Label Chats                       | GET    | /user/my/labels/:label_id/chats     |
 | ✅       | Check WhatsApp User                    | GET    | /user/check                         |
 | ✅       | Get Business Profile                   | GET    | /user/business-profile              |
 | ✅       | Send Message                           | POST   | /send/message                       |

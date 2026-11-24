@@ -2,8 +2,11 @@ package whatsapp
 
 import (
 	"context"
+	"sync"
 	"time"
 
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
@@ -131,4 +134,87 @@ func labelAppStateTimestamp(evt *events.AppState) string {
 	}
 
 	return time.Now().UTC().Format(time.RFC3339)
+}
+
+// storeLabelAppState applies a label_edit or label_jid mutation to the label
+// store of the device whose client received it. Chats keep the JID of the app
+// state index, so a later unlabel of the same index finds the row; readers
+// resolve LIDs to phone JIDs.
+func storeLabelAppState(evt *events.AppState, chatStorageRepo domainChatStorage.IChatStorageRepository, client *whatsmeow.Client) error {
+	if evt == nil || evt.SyncActionValue == nil || len(evt.Index) < 2 || chatStorageRepo == nil {
+		return nil
+	}
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		return nil
+	}
+	deviceID := client.Store.ID.ToNonAD().String()
+	labelID := evt.Index[1]
+
+	switch evt.Index[0] {
+	case appstate.IndexLabelEdit:
+		action := evt.LabelEditAction
+		if action == nil {
+			return nil
+		}
+		if action.GetDeleted() {
+			return chatStorageRepo.DeleteLabel(deviceID, labelID)
+		}
+		label := &domainChatStorage.Label{
+			DeviceID:     deviceID,
+			LabelID:      labelID,
+			Name:         action.GetName(),
+			Color:        action.GetColor(),
+			PredefinedID: action.GetPredefinedID(),
+			OrderIndex:   action.GetOrderIndex(),
+			IsActive:     action.GetIsActive(),
+			IsImmutable:  action.GetIsImmutable(),
+		}
+		if action.Type != nil {
+			label.Type = action.GetType().String()
+		}
+		return chatStorageRepo.UpsertLabel(label)
+	case appstate.IndexLabelAssociationChat:
+		if len(evt.Index) < 3 || evt.LabelAssociationAction == nil {
+			return nil
+		}
+		chatJID := evt.Index[2]
+		if jid, err := types.ParseJID(chatJID); err == nil {
+			chatJID = jid.ToNonAD().String()
+		}
+		if !evt.LabelAssociationAction.GetLabeled() {
+			return chatStorageRepo.DeleteLabelAssociation(deviceID, labelID, chatJID)
+		}
+		return chatStorageRepo.UpsertLabelAssociation(&domainChatStorage.LabelAssociation{
+			DeviceID: deviceID,
+			LabelID:  labelID,
+			ChatJID:  chatJID,
+		})
+	default:
+		return nil
+	}
+}
+
+var labelResyncMu sync.Mutex
+
+// FetchLabelAppState re-downloads the regular app state patch, which carries
+// label_edit and label_jid, and dispatches every mutation in it as an event,
+// so the label store is rebuilt through the normal event path before it
+// returns.
+//
+// whatsmeow drops the events of a full sync unless EmitAppStateEventsOnFullSync
+// is set, so the flag is set for this call only. whatsmeow reads it only for
+// full syncs and app state recovery, never for the incremental syncs that
+// run after pairing.
+func FetchLabelAppState(ctx context.Context, client *whatsmeow.Client) error {
+	if client == nil {
+		return pkgError.ErrWaCLI
+	}
+	labelResyncMu.Lock()
+	defer labelResyncMu.Unlock()
+
+	previous := client.EmitAppStateEventsOnFullSync
+	client.EmitAppStateEventsOnFullSync = true
+	defer func() { client.EmitAppStateEventsOnFullSync = previous }()
+
+	return client.FetchAppState(ctx, appstate.WAPatchRegular, true, false)
 }
