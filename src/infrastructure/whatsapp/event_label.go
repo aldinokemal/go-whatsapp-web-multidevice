@@ -2,7 +2,9 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
@@ -196,6 +198,14 @@ func storeLabelAppState(evt *events.AppState, chatStorageRepo domainChatStorage.
 
 var labelResyncMu sync.Mutex
 
+// labelStoreFailures counts label mutations that could not be stored, for
+// every device. A resync compares it around the fetch.
+var labelStoreFailures atomic.Int64
+
+// ErrLabelStoreIncomplete means a resync fetched the labels but at least one
+// of them was not stored, so the store must not be pruned against it.
+var ErrLabelStoreIncomplete = errors.New("label store was not fully rebuilt")
+
 // FetchLabelAppState re-downloads the regular app state patch, which carries
 // label_edit and label_jid, and dispatches every mutation in it as an event,
 // so the label store is rebuilt through the normal event path before it
@@ -216,5 +226,22 @@ func FetchLabelAppState(ctx context.Context, client *whatsmeow.Client) error {
 	client.EmitAppStateEventsOnFullSync = true
 	defer func() { client.EmitAppStateEventsOnFullSync = previous }()
 
-	return client.FetchAppState(ctx, appstate.WAPatchRegular, true, false)
+	return fetchLabelAppState(func() error {
+		return client.FetchAppState(ctx, appstate.WAPatchRegular, true, false)
+	})
+}
+
+// fetchLabelAppState runs a label fetch and fails when a label mutation could
+// not be stored while it ran. The counter is shared by all devices, so a
+// failure on another device at the same moment also fails this sync; the
+// caller then keeps its rows and the sync can be repeated.
+func fetchLabelAppState(fetch func() error) error {
+	failuresBefore := labelStoreFailures.Load()
+	if err := fetch(); err != nil {
+		return err
+	}
+	if labelStoreFailures.Load() != failuresBefore {
+		return ErrLabelStoreIncomplete
+	}
+	return nil
 }

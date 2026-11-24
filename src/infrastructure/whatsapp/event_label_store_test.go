@@ -3,6 +3,7 @@ package whatsapp_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -95,4 +96,40 @@ func TestLabelAppStateEventsAreStored(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, labels, 1)
 	require.Equal(t, "5", labels[0].LabelID)
+}
+
+type failingLabelStore struct {
+	domain.IChatStorageRepository
+}
+
+func (failingLabelStore) UpsertLabel(*domain.Label) error {
+	return errors.New("database is locked")
+}
+
+// A resync must not report success when a fetched label was not stored:
+// the caller prunes every row the fetch did not rewrite.
+func TestLabelResyncFailsWhenALabelWasNotStored(t *testing.T) {
+	wa.QuietLogForTest(t)
+	db, err := sql.Open(sqlite.DriverName, filepath.Join(t.TempDir(), "labels.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	repo := storage.NewStorageRepository(db)
+	require.NoError(t, repo.InitializeSchema())
+	wa.CaptureDeviceEventsForTest(t, repo, func(map[string]any, string, *domain.DeviceWebhookConfig) {})
+
+	account := types.NewADJID("628111111111", 0, 7)
+	edit := labelEdit("5", &waSyncAction.LabelEditAction{Name: proto.String("Follow up")})
+	dispatchTo := func(labels domain.IChatStorageRepository) func() error {
+		inst := wa.NewDeviceInstance("slot-a", whatsmeow.NewClient(&store.Device{ID: &account}, nil), labels)
+		return func() error {
+			wa.HandleDeviceEventForTest(context.Background(), inst, edit)
+			return nil
+		}
+	}
+
+	require.NoError(t, wa.FetchLabelAppStateForTest(dispatchTo(repo)))
+	require.ErrorIs(t, wa.FetchLabelAppStateForTest(dispatchTo(failingLabelStore{repo})), wa.ErrLabelStoreIncomplete)
+
+	fetchErr := errors.New("fetch failed")
+	require.ErrorIs(t, wa.FetchLabelAppStateForTest(func() error { return fetchErr }), fetchErr)
 }

@@ -10,6 +10,8 @@ var HandleDeviceEventForTest = handler
 
 var QuietLogForTest = quietLog
 
+var FetchLabelAppStateForTest = fetchLabelAppState
+
 func CaptureDeviceEventsForTest(t *testing.T, repo domain.IChatStorageRepository, receive func(map[string]any, string, *domain.DeviceWebhookConfig)) {
 	t.Helper()
 	oldLookup, oldSubmit := webhookStorageForTest, submitWebhookFn

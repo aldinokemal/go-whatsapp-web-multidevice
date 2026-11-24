@@ -391,6 +391,7 @@ func handleAppState(ctx context.Context, evt *events.AppState, chatStorageRepo d
 
 	if isLabelAppState(evt) {
 		if err := storeLabelAppState(evt, chatStorageRepo, client); err != nil {
+			labelStoreFailures.Add(1)
 			logrus.WithError(err).WithField("index", evt.Index[0]).Error("Failed to store label app state")
 		}
 		go func(e *events.AppState, c *whatsmeow.Client) {
