@@ -129,8 +129,10 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 		// Device-scoped: another device's stored name for this chat (for
 		// example a contact name only that account saved) is not this one's.
 		chatName := chatStorageRepo.GetChatNameWithPushNameByDevice(deviceID, jid, chatJID, "", displayName)
-		if jid.Server == types.GroupServer && chatName == "Group "+jid.User && strings.TrimSpace(displayName) != "" {
-			chatName = displayName
+		if jid.Server == types.GroupServer && (chatName == "Group "+jid.User || chatName == chatJID || chatName == jid.User) {
+			if candidate := strings.TrimSpace(displayName); candidate != "" && candidate != chatJID && candidate != jid.User {
+				chatName = candidate
+			}
 		}
 
 		// Extract ephemeral expiration from conversation

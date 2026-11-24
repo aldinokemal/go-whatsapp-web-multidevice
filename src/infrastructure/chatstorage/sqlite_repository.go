@@ -44,12 +44,12 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 			INSERT INTO chats (jid, device_id, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(jid, device_id) DO UPDATE SET
-				name = CASE WHEN ? AND chats.name IN ('', 'Group ' || ?) THEN excluded.name ELSE chats.name END,
+				name = CASE WHEN ? AND chats.name IN ('', 'Group ' || ?, chats.jid, ?) THEN excluded.name ELSE chats.name END,
 				last_message_time = excluded.last_message_time,
 				ephemeral_expiration = excluded.ephemeral_expiration,
 				updated_at = excluded.updated_at,
 				archived = excluded.archived
-		`, chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, now, chat.Archived, meaningful, groupID)
+		`, chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, now, chat.Archived, meaningful, groupID, groupID)
 		return err
 	}
 
@@ -90,7 +90,7 @@ func (r *SQLiteRepository) setGroupSubject(deviceID, groupJID, subject string, o
 		return false, fmt.Errorf("group subject requires device id, group JID, and nonempty subject")
 	}
 	result, err := r.db.Exec(`UPDATE chats SET name = ?, updated_at = ?
-		WHERE device_id = ? AND jid = ? AND (NOT ? OR name IN ('', 'Group ' || ?))`, subject, time.Now(), deviceID, groupJID, onlyPlaceholder, groupID)
+		WHERE device_id = ? AND jid = ? AND (NOT ? OR name IN ('', 'Group ' || ?, jid, ?))`, subject, time.Now(), deviceID, groupJID, onlyPlaceholder, groupID, groupID)
 	if err != nil {
 		return false, err
 	}

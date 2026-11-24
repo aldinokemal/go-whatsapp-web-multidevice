@@ -87,6 +87,36 @@ func TestGroupSubjectStoreChatAndRename(t *testing.T) {
 	}
 }
 
+func TestGroupSubjectHealsLegacyIDNames(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	const jid = "12345@g.us"
+	for _, tc := range []struct {
+		device, fallback string
+		useFill          bool
+	}{
+		{"a", jid, true}, {"b", "12345", true}, {"c", jid, false}, {"d", "12345", false},
+	} {
+		chat := &domainChatStorage.Chat{DeviceID: tc.device, JID: jid, Name: tc.fallback, LastMessageTime: time.Now()}
+		if err := repo.StoreChat(chat); err != nil {
+			t.Fatal(err)
+		}
+		if tc.useFill {
+			if err := repo.FillGroupSubject(tc.device, jid, "Real subject"); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			chat.Name = "Real subject"
+			if err := repo.StoreChat(chat); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := repo.GetChatByDevice(tc.device, jid)
+		if err != nil || got == nil || got.Name != "Real subject" {
+			t.Fatalf("heal %q: %+v, %v", tc.fallback, got, err)
+		}
+	}
+}
+
 func TestGroupSubjectInsertConflictDoesNotOverwrite(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 	const group = "12345@g.us"

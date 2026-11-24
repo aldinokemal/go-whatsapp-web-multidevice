@@ -407,3 +407,66 @@ func TestHistoryLookupAtCapacityAllowsLaterRetry(t *testing.T) {
 		t.Fatal("later write did not retry lookup")
 	}
 }
+
+type blockingGroupFill struct {
+	*renameBeforeInsertRepo
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *blockingGroupFill) FillGroupSubject(_, _, _ string) error {
+	close(r.started)
+	<-r.release
+	return nil
+}
+
+func TestForegroundGroupLookupCanCancelDuringFill(t *testing.T) {
+	client, base := groupNameTestDevice(t, "15550000058")
+	ctx, cancel := context.WithCancel(base)
+	defer cancel()
+	jid := types.NewJID("322", types.GroupServer)
+	key := groupNameCacheKey{groupNameCacheDeviceID(client), jid.String()}
+	defer groupNameCache.Delete(key)
+	oldFetch := fetchGroupInfoFn
+	network, reply := make(chan struct{}), make(chan struct{})
+	fetchGroupInfoFn = func(context.Context, *whatsmeow.Client, types.JID) (*types.GroupInfo, error) {
+		close(network)
+		<-reply
+		return &types.GroupInfo{GroupName: types.GroupName{Name: "Subject"}}, nil
+	}
+	defer func() { fetchGroupInfoFn = oldFetch }()
+	repo := &blockingGroupFill{renameBeforeInsertRepo: &renameBeforeInsertRepo{}, started: make(chan struct{}), release: make(chan struct{})}
+	defer close(repo.release)
+	result := make(chan string, 1)
+	go func() { result <- ResolveGroupSubject(ctx, jid) }()
+	<-network
+	if err := StoreChatWithGroupSubject(base, repo, &domainChatStorage.Chat{DeviceID: key.deviceID, JID: key.groupJID, Name: "Group 322"}); err != nil {
+		t.Fatal(err)
+	}
+	close(reply)
+	<-repo.started
+	cancel()
+	select {
+	case <-result:
+	case <-time.After(time.Second):
+		t.Fatal("foreground lookup waited for blocked SQLite fill")
+	}
+}
+
+func TestUnreadGroupCacheEntryExpires(t *testing.T) {
+	key := groupNameCacheKey{"account", "323@g.us"}
+	defer groupNameCache.Delete(key)
+	entry := groupNameCacheEntry{name: "Old", expiresAt: time.Now().Add(-time.Second)}
+	groupNameCache.Store(key, entry)
+	key.evictAtExpiry(entry)
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, ok := groupNameCache.Load(key); !ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expired unread result remains")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
