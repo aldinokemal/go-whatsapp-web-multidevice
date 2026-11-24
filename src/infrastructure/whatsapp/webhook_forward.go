@@ -1185,14 +1185,12 @@ func syncMessageToChatwoot(resolved *chatwoot.ResolvedConfig, info *chatwootCont
 	var msgID int
 	if err == nil {
 		msgID, err = post(conversationID)
-	} else if fromLink {
-		// The linked contact failed during selection. A 404 below gets one
-		// fresh contact resolution, outside the identifier lock.
-		linkRepo = nil
 	}
 	var statusErr *chatwoot.HTTPStatusError
 	if fromLink && errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
-		conversationID, _, err = findChatwootConversation(resolved, info, deviceID, linkRepo, reply)
+		// Resolve normally once after a stale selection or post. Looking up
+		// the same delivered link again can select the missing route.
+		conversationID, _, err = findChatwootConversation(resolved, info, deviceID, nil, nil)
 		if err == nil {
 			msgID, err = post(conversationID)
 		}

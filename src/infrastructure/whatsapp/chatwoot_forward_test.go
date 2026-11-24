@@ -985,11 +985,7 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 				require.Zero(t, toggles)
 			}
 			require.Equal(t, tc.wantCreate, creates)
-			expectedLookups := tc.wantLookup
-			if tc.rejectStatus == http.StatusNotFound {
-				expectedLookups *= 2
-			}
-			require.Equal(t, expectedLookups, repo.lookupCalls)
+			require.Equal(t, tc.wantLookup, repo.lookupCalls)
 			require.NotNil(t, repo.storedLink)
 			require.Equal(t, tc.wantConversation, repo.storedLink.ChatwootConversationID)
 
@@ -1018,7 +1014,7 @@ func TestSyncPayloadToChatwootRoutesOnlyThroughExactContactOrDeliveredReply(t *t
 				require.Equal(t, 3, searches)
 				require.Equal(t, 1, creates)
 				require.Equal(t, 1, conversationCreates)
-				require.Equal(t, expectedLookups, repo.lookupCalls)
+				require.Equal(t, tc.wantLookup, repo.lookupCalls)
 			}
 		})
 	}
