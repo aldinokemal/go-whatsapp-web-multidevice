@@ -43,11 +43,11 @@ func TestGroupSubjectStoreChatAndRename(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: "device-a", JID: group, Name: "Actual subject", LastMessageTime: when}); err != nil {
+	if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: "device-a", JID: group, Name: "Pat's book club", LastMessageTime: when}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := repo.GetChatByDevice("device-a", group)
-	if err != nil || got == nil || got.Name != "Actual subject" {
+	if err != nil || got == nil || got.Name != "Pat's book club" {
 		t.Fatalf("placeholder healing: %+v, %v", got, err)
 	}
 	// A stale snapshot must not replace the healed subject, even if it has a
@@ -59,11 +59,11 @@ func TestGroupSubjectStoreChatAndRename(t *testing.T) {
 		}
 	}
 	got, err = repo.GetChatByDevice("device-a", group)
-	if err != nil || got == nil || got.Name != "Actual subject" || !got.LastMessageTime.Equal(later) {
+	if err != nil || got == nil || got.Name != "Pat's book club" || !got.LastMessageTime.Equal(later) {
 		t.Fatalf("stale fallback changed group: %+v, %v", got, err)
 	}
 	beforeCreated, beforeUpdated := got.CreatedAt, got.UpdatedAt
-	if err := repo.UpdateGroupSubject("device-a", group, "Renamed subject"); err != nil {
+	if err := repo.UpdateGroupSubject("device-a", group, "Pat's reading group"); err != nil {
 		t.Fatal(err)
 	}
 	// A late response can heal only a placeholder.
@@ -71,7 +71,7 @@ func TestGroupSubjectStoreChatAndRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err = repo.GetChatByDevice("device-a", group)
-	if err != nil || got == nil || got.Name != "Renamed subject" || !got.CreatedAt.Equal(beforeCreated) || got.UpdatedAt.Before(beforeUpdated) || !got.LastMessageTime.Equal(later) || got.EphemeralExpiration != 42 || !got.Archived {
+	if err != nil || got == nil || got.Name != "Pat's reading group" || !got.CreatedAt.Equal(beforeCreated) || got.UpdatedAt.Before(beforeUpdated) || !got.LastMessageTime.Equal(later) || got.EphemeralExpiration != 42 || !got.Archived {
 		t.Fatalf("rename changed other fields: %+v, %v", got, err)
 	}
 	other, err := repo.GetChatByDevice("device-b", group)

@@ -49,8 +49,12 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 				updated_at = excluded.updated_at,
 				archived = excluded.archived
 		`
-		_, err := r.db.Exec(upsertGroupChat, chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, now, chat.Archived,
-			meaningful, placeholder)
+		stmt, err := r.db.Prepare(upsertGroupChat)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		_, err = stmt.Exec(chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, now, chat.Archived, meaningful, placeholder)
 		return err
 	}
 
@@ -91,8 +95,12 @@ func (r *SQLiteRepository) setGroupSubject(deviceID, groupJID, subject string, o
 	}
 	const updateGroupName = `UPDATE chats SET name = ?, updated_at = ?
 		WHERE device_id = ? AND jid = ? AND (NOT ? OR name IN ('', ?))`
-	placeholder := "Group " + groupID
-	_, err := r.db.Exec(updateGroupName, subject, time.Now(), deviceID, groupJID, onlyPlaceholder, placeholder)
+	stmt, err := r.db.Prepare(updateGroupName)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	_, err = stmt.Exec(subject, time.Now(), deviceID, groupJID, onlyPlaceholder, "Group "+groupID)
 	return err
 }
 
