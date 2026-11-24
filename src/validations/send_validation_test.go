@@ -2,14 +2,17 @@ package validations
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"mime/multipart"
 	"strconv"
 	"testing"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/dustin/go-humanize"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -1144,13 +1147,15 @@ func TestValidateSendImage_WithImageBytes(t *testing.T) {
 		err  any
 	}{
 		{
+			// The full 8-byte PNG signature net/http's sniffer matches on -
+			// a short prefix of it would not be enough to sniff as image/png.
 			name: "should success with image bytes",
 			args: args{request: domainSend.ImageRequest{
 				BaseRequest: domainSend.BaseRequest{
 					Phone: "1728937129312@s.whatsapp.net",
 				},
 				Caption:    "Hello this is testing",
-				ImageBytes: []byte{0x89, 0x50, 0x4e, 0x47},
+				ImageBytes: []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a},
 			}},
 			err: nil,
 		},
@@ -1164,6 +1169,28 @@ func TestValidateSendImage_WithImageBytes(t *testing.T) {
 				ImageBytes: []byte{},
 			}},
 			err: pkgError.ValidationError("either Image or ImageURL must be provided"),
+		},
+		{
+			name: "should error when image bytes are not a supported image",
+			args: args{request: domainSend.ImageRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Caption:    "Hello this is testing",
+				ImageBytes: []byte("#!/bin/sh\necho not an image\n"),
+			}},
+			err: pkgError.ValidationError("your inline image is not allowed. please use jpg/jpeg/png/webp"),
+		},
+		{
+			name: "should error when image bytes are over the size cap",
+			args: args{request: domainSend.ImageRequest{
+				BaseRequest: domainSend.BaseRequest{
+					Phone: "1728937129312@s.whatsapp.net",
+				},
+				Caption:    "Hello this is testing",
+				ImageBytes: make([]byte, config.WhatsappSettingMaxImageSize+1),
+			}},
+			err: pkgError.ValidationError(fmt.Sprintf("your inline image size is too big, maximum allowed %s", humanize.Bytes(uint64(config.WhatsappSettingMaxImageSize)))),
 		},
 	}
 

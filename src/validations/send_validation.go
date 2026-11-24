@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -150,6 +151,22 @@ func ValidateSendImage(ctx context.Context, request domainSend.ImageRequest) err
 		err := validation.Validate(*request.ImageURL, is.URL)
 		if err != nil {
 			return pkgError.ValidationError("ImageURL must be a valid URL")
+		}
+	}
+
+	if len(request.ImageBytes) > 0 {
+		if int64(len(request.ImageBytes)) > config.WhatsappSettingMaxImageSize {
+			maxSizeString := humanize.Bytes(uint64(config.WhatsappSettingMaxImageSize))
+			return pkgError.ValidationError(fmt.Sprintf("your inline image size is too big, maximum allowed %s", maxSizeString))
+		}
+
+		availableMimes := map[string]bool{
+			"image/jpeg": true,
+			"image/png":  true,
+			"image/webp": true,
+		}
+		if !availableMimes[http.DetectContentType(request.ImageBytes)] {
+			return pkgError.ValidationError("your inline image is not allowed. please use jpg/jpeg/png/webp")
 		}
 	}
 

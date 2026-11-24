@@ -66,6 +66,20 @@ func openImageForSend(imagePath string, hd bool) (image.Image, error) {
 	return imaging.Open(imagePath, imaging.AutoOrientation(hd))
 }
 
+// safeImageExtensionFor names the on-disk file for an inline MCP image. The
+// caller-supplied filename exists only to describe the format and never
+// reaches the filesystem path itself: only a fixed allowlisted extension is
+// trusted, so a traversal attempt such as "../../etc/passwd.png" can only
+// ever contribute the harmless ".png" suffix, never its directory segments.
+func safeImageExtensionFor(filename string) string {
+	allowed := map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".webp": true}
+	ext := strings.ToLower(filepath.Ext(filename))
+	if !allowed[ext] {
+		return ".png"
+	}
+	return ext
+}
+
 func saveProcessedImage(src image.Image, directory, imageName string, hd bool) (string, error) {
 	prefix := "new-"
 	var saveOptions []imaging.EncodeOption
@@ -441,11 +455,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 	} else if len(request.ImageBytes) > 0 {
 		// Already-decoded bytes from the MCP tool: no download, no multipart
 		// form, just write what the caller handed us.
-		filename := request.ImageFilename
-		if filename == "" {
-			filename = "image.png"
-		}
-		imageName = generateUUID + filename
+		imageName = generateUUID + safeImageExtensionFor(request.ImageFilename)
 		oriImagePath = fmt.Sprintf("%s/%s", config.PathSendItems, imageName)
 		err = os.WriteFile(oriImagePath, request.ImageBytes, 0644)
 		if err != nil {

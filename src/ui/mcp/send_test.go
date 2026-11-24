@@ -3,8 +3,10 @@ package mcp
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
@@ -155,6 +157,21 @@ func TestHandleSendDispatch(t *testing.T) {
 		h := InitMcpSend(svc, &stubResolver{})
 		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
 			"type": "image", "phone": "628", "image_base64": "not valid base64!!",
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		assert.True(t, res.IsError)
+		assert.Nil(t, svc.lastImage)
+	})
+
+	t.Run("image with oversized base64 is refused before decoding", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		// Long enough that DecodedLen alone exceeds config.WhatsappSettingMaxImageSize;
+		// content doesn't matter, the size check must fire before any decode is attempted.
+		huge := strings.Repeat("A", int(config.WhatsappSettingMaxImageSize/3*4)+4)
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "image", "phone": "628", "image_base64": huge,
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, res)
