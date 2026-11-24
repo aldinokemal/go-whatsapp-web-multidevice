@@ -292,3 +292,48 @@ func TestGroupSubjectEventUpdatesOnlyNamedDeviceAndBeatsInflightFetch(t *testing
 		t.Fatalf("subjectless event updated repository: %v", repo.updates)
 	}
 }
+
+func TestRenameBeforeFirstGroupInsertUsesAccountSubject(t *testing.T) {
+	group := types.NewJID("120363000000000078", types.GroupServer)
+	client, _ := groupNameTestDevice(t, "15550000055")
+	account := groupNameCacheDeviceID(client)
+	repo := &renameBeforeInsertRepo{groupSubjectRepo: &groupSubjectRepo{}}
+	wrapped := newDeviceChatStorage("outer-alias", newDeviceChatStorage("inner-companion", repo))
+	ctx := ContextWithDevice(context.Background(), NewDeviceInstance("outer-alias", client, wrapped))
+	t.Cleanup(func() { invalidateCachedGroupName(account, group.String()) })
+
+	// Resolution of an older history or message candidate preceded the rename.
+	chat := &domainChatStorage.Chat{DeviceID: account, JID: group.String(), Name: "Old subject"}
+	recordGroupSubject(account, chat.JID, "New subject", wrapped)
+	if err := StoreChatWithGroupSubject(ctx, wrapped, chat); err != nil {
+		t.Fatal(err)
+	}
+	if repo.stored != "New subject" || len(repo.updates) != 1 || repo.updates[0] != account+"|"+chat.JID+"|New subject" {
+		t.Fatalf("stored %q, updates %v", repo.stored, repo.updates)
+	}
+}
+
+type renameBeforeInsertRepo struct {
+	*groupSubjectRepo
+	stored string
+}
+
+func (r *renameBeforeInsertRepo) StoreChat(chat *domainChatStorage.Chat) error {
+	r.stored = chat.Name
+	return nil
+}
+
+func TestRepeatedGroupLookupSharesFailure(t *testing.T) {
+	group := types.NewJID("120363000000000079", types.GroupServer)
+	client, ctx := groupNameTestDevice(t, "15550000056")
+	calls := stubGroupInfo(t, nil)
+	t.Cleanup(func() { invalidateCachedGroupName(groupNameCacheDeviceID(client), group.String()) })
+	for i := 0; i < 2; i++ {
+		if got := ResolveGroupSubject(ctx, group); got != "" {
+			t.Fatalf("unexpected subject %q", got)
+		}
+	}
+	if calls[client.Store.ID.User] != 1 {
+		t.Fatalf("got %d requests for the same failed lookup", calls[client.Store.ID.User])
+	}
+}

@@ -67,6 +67,7 @@ func TestConversationChatNameWithoutResolver(t *testing.T) {
 type historyChatNameRepoSpy struct {
 	*historyMessageBatchRepoSpy
 	storedName string
+	filled     chan string
 }
 
 func (r *historyChatNameRepoSpy) GetChatNameWithPushNameByDevice(_ string, jid types.JID, _ string, _, _ string) string {
@@ -82,18 +83,29 @@ func (r *historyChatNameRepoSpy) GetChatNameWithPushNameByDevice(_ string, jid t
 	return jid.User
 }
 
+func (r *historyChatNameRepoSpy) FillGroupSubject(deviceID, jid, subject string) error {
+	r.filled <- deviceID + "|" + jid + "|" + subject
+	return nil
+}
+
 func TestHistorySyncPersistsGroupSubjectInChatName(t *testing.T) {
 	originalLog := log
 	log = waLog.Noop
 	t.Cleanup(func() { log = originalLog })
 	client, ctx := groupNameTestDevice(t, "15550000991")
 	originalFetch := fetchGroupInfoFn
-	fetches := 0
+	requests := make(chan types.JID, 1)
+	releaseFetch := make(chan struct{})
 	fetchGroupInfoFn = func(_ context.Context, gotClient *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
 		if gotClient != client {
-			t.Fatal("group info fetched from the wrong device")
+			t.Error("group info fetched from the wrong device")
 		}
-		fetches++
+		requests <- jid
+		select {
+		case <-releaseFetch:
+		case <-time.After(2 * time.Second):
+			t.Error("group lookup blocked history storage")
+		}
 		return &types.GroupInfo{JID: jid, GroupName: types.GroupName{Name: "Fetched subject"}}, nil
 	}
 	t.Cleanup(func() { fetchGroupInfoFn = originalFetch })
@@ -106,12 +118,13 @@ func TestHistorySyncPersistsGroupSubjectInChatName(t *testing.T) {
 		{"display name replaces placeholder", "120363000000009901", "History subject", "", "History subject", 0, waHistorySync.HistorySync_RECENT},
 		{"display name replaces saved placeholder", "120363000000009905", "History subject", "Group 120363000000009905", "History subject", 0, waHistorySync.HistorySync_ON_DEMAND},
 		{"stored name survives on demand", "120363000000009902", "History subject", "Saved subject", "Saved subject", 0, waHistorySync.HistorySync_ON_DEMAND},
-		{"missing display name fetches subject", "120363000000009903", "", "", "Fetched subject", 1, waHistorySync.HistorySync_RECENT},
+		{"missing display name fetches subject", "120363000000009903", "", "", "Group 120363000000009903", 1, waHistorySync.HistorySync_RECENT},
 		{"stored name needs no fetch", "120363000000009904", "", "Saved subject", "Saved subject", 0, waHistorySync.HistorySync_RECENT},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			jid := types.NewJID(tc.id, types.GroupServer)
-			repo := &historyChatNameRepoSpy{historyMessageBatchRepoSpy: &historyMessageBatchRepoSpy{}, storedName: tc.storedName}
+			repo := &historyChatNameRepoSpy{historyMessageBatchRepoSpy: &historyMessageBatchRepoSpy{}, storedName: tc.storedName, filled: make(chan string, 1)}
+			t.Cleanup(func() { invalidateCachedGroupName(groupNameCacheDeviceID(client), jid.String()) })
 			if tc.syncType == waHistorySync.HistorySync_ON_DEMAND {
 				repo.existingChat = &domainChatStorage.Chat{DeviceID: client.Store.ID.ToNonAD().String(), JID: jid.String(), Name: tc.storedName, LastMessageTime: time.Now().Add(time.Hour), Archived: true}
 			}
@@ -123,15 +136,36 @@ func TestHistorySyncPersistsGroupSubjectInChatName(t *testing.T) {
 					Message: &waE2E.Message{Conversation: proto.String("hello")}, MessageTimestamp: &stamp,
 				}}},
 			}}}
-			before := fetches
 			if err := processConversationMessages(ctx, data, repo, client); err != nil {
 				t.Fatal(err)
 			}
 			if repo.lastStoredChat == nil || repo.lastStoredChat.Name != tc.want {
 				t.Fatalf("persisted chat = %+v, want name %q", repo.lastStoredChat, tc.want)
 			}
-			if fetches-before != tc.fetches {
-				t.Fatalf("group info fetches = %d, want %d", fetches-before, tc.fetches)
+			if tc.fetches == 1 {
+				select {
+				case fetched := <-requests:
+					if fetched != jid {
+						t.Fatalf("requested %s, want %s", fetched, jid)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("missing lookup after storing placeholder")
+				}
+				close(releaseFetch)
+				select {
+				case filled := <-repo.filled:
+					if want := groupNameCacheDeviceID(client) + "|" + jid.String() + "|Fetched subject"; filled != want {
+						t.Fatalf("filled %q, want %q", filled, want)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("subject not filled after fetch")
+				}
+			} else {
+				select {
+				case fetched := <-requests:
+					t.Fatalf("unexpected lookup for %s", fetched)
+				default:
+				}
 			}
 			if tc.syncType == waHistorySync.HistorySync_ON_DEMAND && (!repo.lastStoredChat.Archived || !repo.lastStoredChat.LastMessageTime.Equal(repo.existingChat.LastMessageTime)) {
 				t.Fatalf("on-demand chat metadata changed: %+v", repo.lastStoredChat)

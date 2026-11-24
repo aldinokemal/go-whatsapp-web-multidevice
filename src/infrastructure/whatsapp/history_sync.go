@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -128,15 +129,8 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 		// Device-scoped: another device's stored name for this chat (for
 		// example a contact name only that account saved) is not this one's.
 		chatName := chatStorageRepo.GetChatNameWithPushNameByDevice(deviceID, jid, chatJID, "", displayName)
-		if jid.Server == types.GroupServer && chatName == "Group "+jid.User {
-			// The repository's group fallback ignores DisplayName. Prefer the
-			// synced subject, and only query group info when history has none.
-			// Never replace a meaningful name already saved for this device.
-			if displayName != "" {
-				chatName = displayName
-			} else if subject := ResolveGroupSubject(ctx, jid); subject != "" {
-				chatName = subject
-			}
+		if jid.Server == types.GroupServer && chatName == "Group "+jid.User && strings.TrimSpace(displayName) != "" {
+			chatName = displayName
 		}
 
 		// Extract ephemeral expiration from conversation
@@ -336,7 +330,7 @@ func processConversationMessages(ctx context.Context, data *waHistorySync.Histor
 
 			// Store or update the chat
 			if storeChat {
-				if err := chatStorageRepo.StoreChat(chat); err != nil {
+				if err := StoreChatWithGroupSubject(ctx, chatStorageRepo, chat); err != nil {
 					log.Warnf("Failed to store chat %s: %v", chatJID, err)
 					continue
 				}

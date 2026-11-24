@@ -56,115 +56,6 @@ const mutexShardCount = 64
 // This approach prevents memory leaks that would occur with a sync.Map that grows indefinitely.
 var contactMutexShards [mutexShardCount]sync.Mutex
 
-// groupNameCacheKey identifies a cached group name. A subject belongs to the
-// account that read it: another account may not be in the group at all, so a
-// name is never shared between devices.
-type groupNameCacheKey struct {
-	deviceID string
-	groupJID string
-}
-
-// groupNameCacheEntry holds cached group name with expiration time
-type groupNameCacheEntry struct {
-	name       string
-	expiresAt  time.Time
-	fetchToken *int
-}
-
-var (
-	// groupNameCache provides TTL-based caching for group names to reduce WhatsApp API calls
-	groupNameCache    sync.Map
-	groupNameCacheTTL = 5 * time.Minute
-
-	// fetchGroupInfoFn asks WhatsApp for a group's info as the given client. It
-	// is a seam so tests can answer per device without a live connection.
-	fetchGroupInfoFn = func(ctx context.Context, client *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
-		return client.GetGroupInfo(ctx, jid)
-	}
-)
-
-// groupNameCacheDeviceID returns the identity a client's group names are cached
-// under: its own account JID, the same identity chat storage files rows under.
-// A client that is not logged in has none and never uses the cache.
-func groupNameCacheDeviceID(client *whatsmeow.Client) string {
-	if client == nil || client.Store == nil || client.Store.ID == nil {
-		return ""
-	}
-	return client.Store.ID.ToNonAD().String()
-}
-
-// getCachedGroupName retrieves the name one device cached for a group, if not
-// expired. Returns empty string and false if not cached or expired.
-func getCachedGroupName(deviceID, groupJID string) (string, bool) {
-	if deviceID == "" {
-		return "", false
-	}
-	key := groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}
-	if entry, ok := groupNameCache.Load(key); ok {
-		cached := entry.(groupNameCacheEntry)
-		if time.Now().Before(cached.expiresAt) {
-			return cached.name, true
-		}
-		// Do not delete a newer subject written by a concurrent event.
-		groupNameCache.CompareAndDelete(key, cached)
-	}
-	return "", false
-}
-
-// setCachedGroupName stores a group name for one device with TTL.
-func setCachedGroupName(deviceID, groupJID, name string) {
-	if deviceID == "" {
-		return
-	}
-	groupNameCache.Store(groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}, groupNameCacheEntry{
-		name:      name,
-		expiresAt: time.Now().Add(groupNameCacheTTL),
-	})
-}
-
-// invalidateCachedGroupName drops the name one device cached for a group, so
-// the next lookup by that device reads the current subject.
-func invalidateCachedGroupName(deviceID, groupJID string) {
-	if deviceID == "" {
-		return
-	}
-	groupNameCache.Delete(groupNameCacheKey{deviceID: deviceID, groupJID: groupJID})
-}
-
-// beginGroupNameCacheFetch reserves a unique cache value before the network
-// read. Deleting or replacing that value prevents an older fetch from caching
-// a name after a subject-change event invalidated it.
-func beginGroupNameCacheFetch(deviceID, groupJID string) func(string) {
-	if deviceID == "" {
-		return func(string) {}
-	}
-	key := groupNameCacheKey{deviceID: deviceID, groupJID: groupJID}
-	pending := groupNameCacheEntry{fetchToken: new(int)}
-	// Reserve only if no newer event subject was written since the cache read.
-	for {
-		entry, loaded := groupNameCache.LoadOrStore(key, pending)
-		if !loaded {
-			break
-		}
-		current := entry.(groupNameCacheEntry)
-		if time.Now().Before(current.expiresAt) || current.fetchToken != nil {
-			return func(string) {}
-		}
-		if groupNameCache.CompareAndSwap(key, current, pending) {
-			break
-		}
-	}
-	return func(name string) {
-		if name == "" {
-			groupNameCache.CompareAndDelete(key, pending)
-			return
-		}
-		groupNameCache.CompareAndSwap(key, pending, groupNameCacheEntry{
-			name: name, expiresAt: time.Now().Add(groupNameCacheTTL),
-		})
-	}
-}
-
 // getContactMutex returns a mutex for the given phone number to serialize contact operations.
 // Uses FNV-1a hash to distribute phones across shards for balanced lock contention.
 func getContactMutex(phone string) *sync.Mutex {
@@ -1996,49 +1887,6 @@ func isEventWhitelisted(eventName string) bool {
 	return false
 }
 
-// ResolveGroupSubject resolves a real group subject for the client identified by
-// ctx. No placeholder is returned on missing identity or a failed lookup.
-func ResolveGroupSubject(ctx context.Context, jid types.JID) string {
-	if ctx == nil || jid.IsEmpty() || jid.Server != types.GroupServer {
-		return ""
-	}
-	// An unscoped context must not resolve through ClientFromContext's
-	// legacy process-global fallback. Require an explicit device identity.
-	instance, ok := DeviceFromContext(ctx)
-	if !ok || instance == nil {
-		return ""
-	}
-	client := instance.GetClient()
-	deviceID := groupNameCacheDeviceID(client)
-	if deviceID == "" {
-		return ""
-	}
-	groupJID := jid.ToNonAD().String()
-	if name, ok := getCachedGroupName(deviceID, groupJID); ok {
-		return name
-	}
-
-	// A webhook's original context may already be canceled. Preserve its
-	// device identity while giving the network lookup a bounded fresh deadline.
-	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer cancel()
-	cacheResult := beginGroupNameCacheFetch(deviceID, groupJID)
-	defer cacheResult("")
-	info, err := fetchGroupInfoFn(fetchCtx, client, jid)
-	if err != nil || info == nil || strings.TrimSpace(info.Name) == "" {
-		if err != nil {
-			logrus.Warnf("Failed to resolve group subject for %s: %v", groupJID, err)
-		}
-		return ""
-	}
-	cacheResult(info.Name)
-	// If a newer subject arrived while the fetch was in flight, prefer it.
-	if name, ok := getCachedGroupName(deviceID, groupJID); ok {
-		return name
-	}
-	return info.Name
-}
-
 // getGroupName keeps the Chatwoot path scoped to an explicit device context.
 func getGroupName(ctx context.Context, groupJID string) string {
 	if instance, ok := DeviceFromContext(ctx); !ok || instance == nil {
@@ -2048,5 +1896,5 @@ func getGroupName(ctx context.Context, groupJID string) string {
 	if err != nil {
 		return ""
 	}
-	return ResolveGroupSubject(ctx, jid)
+	return ResolveGroupSubject(context.WithoutCancel(ctx), jid)
 }

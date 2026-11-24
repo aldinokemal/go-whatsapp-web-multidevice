@@ -82,6 +82,17 @@ func (r *SQLiteRepository) UpdateGroupSubject(deviceID, groupJID, subject string
 	return err
 }
 
+// FillGroupSubject changes only a placeholder on this device. A completed lookup
+// must never undo a rename or a meaningful name already supplied by history.
+func (r *SQLiteRepository) FillGroupSubject(deviceID, groupJID, subject string) error {
+	if deviceID == "" || !strings.HasSuffix(groupJID, "@g.us") || strings.TrimSpace(subject) == "" {
+		return fmt.Errorf("group subject requires device id, group JID, and nonempty subject")
+	}
+	_, err := r.db.Exec(`UPDATE chats SET name = ?, updated_at = ? WHERE device_id = ? AND jid = ?
+		AND name IN ('', ?)`, subject, time.Now(), deviceID, groupJID, "Group "+strings.TrimSuffix(groupJID, "@g.us"))
+	return err
+}
+
 // GetChat retrieves a chat by JID
 func (r *SQLiteRepository) GetChat(jid string) (*domainChatStorage.Chat, error) {
 	query := `
@@ -2270,9 +2281,6 @@ func (r *SQLiteRepository) GetDeviceWebhookConfig(ctx context.Context, deviceID 
 func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string, senderUser string, pushName string) string {
 	// A participant's push name must never be used as the group's subject.
 	if jid.Server == types.GroupServer {
-		if existing, err := r.GetChat(chatJID); err == nil && existing != nil && existing.Name != "" {
-			return existing.Name
-		}
 		return fmt.Sprintf("Group %s", jid.User)
 	}
 	// First, check if chat already exists with a name
@@ -2289,10 +2297,6 @@ func (r *SQLiteRepository) GetChatNameWithPushName(jid types.JID, chatJID string
 	var name string
 
 	switch jid.Server {
-	case "g.us":
-		// This is a group chat
-		// For now, use a generic name - this can be enhanced later with group info
-		name = fmt.Sprintf("Group %s", jid.User)
 	case "newsletter":
 		// This is a newsletter/channel
 		name = fmt.Sprintf("Newsletter %s", jid.User)
@@ -2338,10 +2342,6 @@ func (r *SQLiteRepository) GetChatNameWithPushNameByDevice(deviceID string, jid 
 	var name string
 
 	switch jid.Server {
-	case "g.us":
-		// This is a group chat
-		// For now, use a generic name - this can be enhanced later with group info
-		name = fmt.Sprintf("Group %s", jid.User)
 	case "newsletter":
 		// This is a newsletter/channel
 		name = fmt.Sprintf("Newsletter %s", jid.User)
@@ -2401,11 +2401,6 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 
 	// Get appropriate chat name using pushname if available (device-scoped)
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChatJID, chatJID, chatNameSenderUser, chatNamePushName)
-	if normalizedChatJID.Server == types.GroupServer && chatName == "Group "+normalizedChatJID.User {
-		if subject := whatsapp.ResolveGroupSubject(ctx, normalizedChatJID); subject != "" {
-			chatName = subject
-		}
-	}
 
 	// Get existing chat to preserve ephemeral_expiration and archived status if needed (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
@@ -2421,7 +2416,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 				Name:            chatName,
 				LastMessageTime: evt.Info.Timestamp,
 			}
-			if err := r.StoreChat(chat); err != nil {
+			if err := whatsapp.StoreChatWithGroupSubject(ctx, r, chat); err != nil {
 				return fmt.Errorf("failed to store chat for edited message: %w", err)
 			}
 		}
@@ -2457,7 +2452,7 @@ func (r *SQLiteRepository) CreateMessage(ctx context.Context, evt *events.Messag
 	}
 
 	// Store or update the chat
-	if err := r.StoreChat(chat); err != nil {
+	if err := whatsapp.StoreChatWithGroupSubject(ctx, r, chat); err != nil {
 		return fmt.Errorf("failed to store chat: %w", err)
 	}
 
@@ -2902,11 +2897,6 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 	}
 
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedChat, chatJID, normalizedCreator.User, "")
-	if normalizedChat.Server == types.GroupServer && chatName == "Group "+normalizedChat.User {
-		if subject := whatsapp.ResolveGroupSubject(ctx, normalizedChat); subject != "" {
-			chatName = subject
-		}
-	}
 
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
 	if err != nil {
@@ -2923,7 +2913,7 @@ func (r *SQLiteRepository) CreateIncomingCallRecord(ctx context.Context, evt *ev
 		chat.EphemeralExpiration = existingChat.EphemeralExpiration
 		chat.Archived = existingChat.Archived
 	}
-	if err := r.StoreChat(chat); err != nil {
+	if err := whatsapp.StoreChatWithGroupSubject(ctx, r, chat); err != nil {
 		return fmt.Errorf("failed to store chat for call: %w", err)
 	}
 
@@ -3099,11 +3089,6 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 
 	// Get chat name (no pushname available for sent messages) - device scoped
 	chatName := r.GetChatNameWithPushNameByDevice(deviceID, normalizedJID, chatJID, normalizedJID.User, "")
-	if normalizedJID.Server == types.GroupServer && chatName == "Group "+normalizedJID.User {
-		if subject := whatsapp.ResolveGroupSubject(ctx, normalizedJID); subject != "" {
-			chatName = subject
-		}
-	}
 
 	// Get existing chat to preserve ephemeral_expiration and archived status (device-scoped)
 	existingChat, err := r.GetChatByDevice(deviceID, chatJID)
@@ -3124,7 +3109,7 @@ func (r *SQLiteRepository) StoreSentMessageWithContext(ctx context.Context, mess
 		chat.EphemeralExpiration = existingChat.EphemeralExpiration
 		chat.Archived = existingChat.Archived
 	}
-	if err := r.StoreChat(chat); err != nil {
+	if err := whatsapp.StoreChatWithGroupSubject(ctx, r, chat); err != nil {
 		return fmt.Errorf("failed to store chat: %w", err)
 	}
 

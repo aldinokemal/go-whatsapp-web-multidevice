@@ -66,6 +66,10 @@ func TestGroupSubjectStoreChatAndRename(t *testing.T) {
 	if err := repo.UpdateGroupSubject("device-a", group, "Renamed subject"); err != nil {
 		t.Fatal(err)
 	}
+	// A late response can heal only a placeholder.
+	if err := repo.FillGroupSubject("device-a", group, "Stale lookup"); err != nil {
+		t.Fatal(err)
+	}
 	got, err = repo.GetChatByDevice("device-a", group)
 	if err != nil || got == nil || got.Name != "Renamed subject" || !got.CreatedAt.Equal(beforeCreated) || got.UpdatedAt.Before(beforeUpdated) || !got.LastMessageTime.Equal(later) || got.EphemeralExpiration != 42 || !got.Archived {
 		t.Fatalf("rename changed other fields: %+v, %v", got, err)
@@ -112,6 +116,9 @@ func TestGroupMessagePushNameDoesNotReplaceSubject(t *testing.T) {
 	}
 	if err := repo.StoreChat(&domainChatStorage.Chat{DeviceID: device, JID: group.String(), Name: "Team subject"}); err != nil {
 		t.Fatal(err)
+	}
+	if got := repo.GetChatNameWithPushName(group, group.String(), sender.User, "Sender Name"); got != "Group 12345" {
+		t.Fatalf("unscoped getter returned a device's stored group name %q", got)
 	}
 	evt := &events.Message{Info: types.MessageInfo{
 		MessageSource: types.MessageSource{Chat: group, Sender: sender},
