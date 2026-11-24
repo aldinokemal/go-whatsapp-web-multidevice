@@ -63,8 +63,8 @@ func TestGroupSubjectStoreChatAndRename(t *testing.T) {
 		t.Fatalf("stale fallback changed group: %+v, %v", got, err)
 	}
 	beforeCreated, beforeUpdated := got.CreatedAt, got.UpdatedAt
-	if err := repo.UpdateGroupSubject("device-a", group, "Pat's reading group"); err != nil {
-		t.Fatal(err)
+	if applied, err := repo.UpdateGroupSubject("device-a", group, "Pat's reading group"); err != nil || !applied {
+		t.Fatalf("rename applied=%v: %v", applied, err)
 	}
 	// A late response can heal only a placeholder.
 	if err := repo.FillGroupSubject("device-a", group, "Stale lookup"); err != nil {
@@ -78,8 +78,8 @@ func TestGroupSubjectStoreChatAndRename(t *testing.T) {
 	if err != nil || other == nil || other.Name != "Group 12345" {
 		t.Fatalf("other device changed: %+v, %v", other, err)
 	}
-	if err := repo.UpdateGroupSubject("device-a", "missing@g.us", "No insert"); err != nil {
-		t.Fatal(err)
+	if applied, err := repo.UpdateGroupSubject("device-a", "missing@g.us", "No insert"); err != nil || applied {
+		t.Fatalf("missing row applied=%v: %v", applied, err)
 	}
 	missing, err := repo.GetChatByDevice("device-a", "missing@g.us")
 	if err != nil || missing != nil {

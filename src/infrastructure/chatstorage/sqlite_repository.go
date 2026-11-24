@@ -39,7 +39,7 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 		placeholder := "Group " + strings.TrimSuffix(chat.JID, "@g.us")
 		meaningful := strings.TrimSpace(chat.Name) != "" && chat.Name != placeholder &&
 			chat.Name != chat.JID && chat.Name != strings.TrimSuffix(chat.JID, "@g.us")
-		const upsertGroupChat = `
+		_, err := r.db.Exec(`
 			INSERT INTO chats (jid, device_id, name, last_message_time, ephemeral_expiration, created_at, updated_at, archived)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(jid, device_id) DO UPDATE SET
@@ -48,13 +48,7 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 				ephemeral_expiration = excluded.ephemeral_expiration,
 				updated_at = excluded.updated_at,
 				archived = excluded.archived
-		`
-		stmt, err := r.db.Prepare(upsertGroupChat)
-		if err != nil {
-			return err
-		}
-		defer stmt.Close()
-		_, err = stmt.Exec(chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, now, chat.Archived, meaningful, placeholder)
+		`, chat.JID, chat.DeviceID, chat.Name, chat.LastMessageTime, chat.EphemeralExpiration, now, now, chat.Archived, meaningful, placeholder)
 		return err
 	}
 
@@ -78,30 +72,29 @@ func (r *SQLiteRepository) StoreChat(chat *domainChatStorage.Chat) error {
 }
 
 // UpdateGroupSubject updates only the name and timestamp of an existing group row.
-func (r *SQLiteRepository) UpdateGroupSubject(deviceID, groupJID, subject string) error {
+func (r *SQLiteRepository) UpdateGroupSubject(deviceID, groupJID, subject string) (bool, error) {
 	return r.setGroupSubject(deviceID, groupJID, subject, false)
 }
 
 // FillGroupSubject changes only a placeholder on this device. A completed lookup
 // must never undo a rename or a meaningful name already supplied by history.
 func (r *SQLiteRepository) FillGroupSubject(deviceID, groupJID, subject string) error {
-	return r.setGroupSubject(deviceID, groupJID, subject, true)
+	_, err := r.setGroupSubject(deviceID, groupJID, subject, true)
+	return err
 }
 
-func (r *SQLiteRepository) setGroupSubject(deviceID, groupJID, subject string, onlyPlaceholder bool) error {
+func (r *SQLiteRepository) setGroupSubject(deviceID, groupJID, subject string, onlyPlaceholder bool) (bool, error) {
 	groupID, isGroup := strings.CutSuffix(groupJID, "@g.us")
 	if deviceID == "" || !isGroup || groupID == "" || strings.TrimSpace(subject) == "" {
-		return fmt.Errorf("group subject requires device id, group JID, and nonempty subject")
+		return false, fmt.Errorf("group subject requires device id, group JID, and nonempty subject")
 	}
-	const updateGroupName = `UPDATE chats SET name = ?, updated_at = ?
-		WHERE device_id = ? AND jid = ? AND (NOT ? OR name IN ('', ?))`
-	stmt, err := r.db.Prepare(updateGroupName)
+	result, err := r.db.Exec(`UPDATE chats SET name = ?, updated_at = ?
+		WHERE device_id = ? AND jid = ? AND (NOT ? OR name IN ('', ?))`, subject, time.Now(), deviceID, groupJID, onlyPlaceholder, "Group "+groupID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer stmt.Close()
-	_, err = stmt.Exec(subject, time.Now(), deviceID, groupJID, onlyPlaceholder, "Group "+groupID)
-	return err
+	rows, err := result.RowsAffected()
+	return rows > 0, err
 }
 
 // GetChat retrieves a chat by JID

@@ -210,9 +210,9 @@ type groupSubjectRepo struct {
 	err     error
 }
 
-func (r *groupSubjectRepo) UpdateGroupSubject(deviceID, groupJID, subject string) error {
+func (r *groupSubjectRepo) UpdateGroupSubject(deviceID, groupJID, subject string) (bool, error) {
 	r.updates = append(r.updates, deviceID+"|"+groupJID+"|"+subject)
-	return r.err
+	return r.err == nil, r.err
 }
 
 func TestResolveGroupSubjectDeviceIsolationAndFailure(t *testing.T) {
@@ -305,10 +305,15 @@ func TestRenameBeforeFirstGroupInsertUsesAccountSubject(t *testing.T) {
 	// Resolution of an older history or message candidate preceded the rename.
 	chat := &domainChatStorage.Chat{DeviceID: account, JID: group.String(), Name: "Old subject"}
 	recordGroupSubject(account, chat.JID, "New subject", wrapped)
+	key := groupNameCacheKey{account, chat.JID}
+	entry, _ := groupNameCache.Load(key)
+	expired := entry.(groupNameCacheEntry)
+	expired.expiresAt = time.Now().Add(-time.Hour)
+	groupNameCache.Store(key, expired)
 	if err := StoreChatWithGroupSubject(ctx, wrapped, chat); err != nil {
 		t.Fatal(err)
 	}
-	if repo.stored != "New subject" || len(repo.updates) != 1 || repo.updates[0] != account+"|"+chat.JID+"|New subject" {
+	if repo.stored != "New subject" || len(repo.updates) != 2 || repo.updates[0] != account+"|"+chat.JID+"|New subject" {
 		t.Fatalf("stored %q, updates %v", repo.stored, repo.updates)
 	}
 }
@@ -319,7 +324,9 @@ type renameBeforeInsertRepo struct {
 }
 
 func (r *renameBeforeInsertRepo) StoreChat(chat *domainChatStorage.Chat) error {
-	r.stored = chat.Name
+	if r.stored == "" {
+		r.stored = chat.Name
+	}
 	return nil
 }
 
@@ -335,5 +342,68 @@ func TestRepeatedGroupLookupSharesFailure(t *testing.T) {
 	}
 	if calls[client.Store.ID.User] != 1 {
 		t.Fatalf("got %d requests for the same failed lookup", calls[client.Store.ID.User])
+	}
+}
+
+func (r *renameBeforeInsertRepo) UpdateGroupSubject(deviceID, jid, name string) (bool, error) {
+	_, err := r.groupSubjectRepo.UpdateGroupSubject(deviceID, jid, name)
+	if err != nil || r.stored == "" {
+		return false, err
+	}
+	r.stored = name
+	return true, nil
+}
+
+func TestFailedGroupRenameRetriesLatestEvent(t *testing.T) {
+	key := groupNameCacheKey{"account", "567@g.us"}
+	defer groupNameCache.Delete(key)
+	repo := &renameBeforeInsertRepo{groupSubjectRepo: &groupSubjectRepo{err: errors.New("temporary write failure")}, stored: "Original"}
+	recordGroupSubject(key.deviceID, key.groupJID, "Intermediate", repo)
+	recordGroupSubject(key.deviceID, key.groupJID, "Latest", repo)
+	chat := &domainChatStorage.Chat{DeviceID: key.deviceID, JID: key.groupJID, Name: "Original"}
+	for _, want := range []string{"Original", "Latest", "Latest"} {
+		if err := StoreChatWithGroupSubject(context.Background(), repo, chat); err != nil {
+			t.Fatal(err)
+		}
+		if repo.stored != want {
+			t.Fatalf("stored %q, want %q", repo.stored, want)
+		}
+		repo.err = nil
+	}
+	if len(repo.updates) != 4 {
+		t.Fatalf("updates = %v", repo.updates)
+	}
+}
+
+func TestHistoryLookupAtCapacityAllowsLaterRetry(t *testing.T) {
+	client, ctx := groupNameTestDevice(t, "15550000057")
+	key := groupNameCacheKey{groupNameCacheDeviceID(client), "321@g.us"}
+	defer groupNameCache.Delete(key)
+	repo := &historyChatNameRepoSpy{historyMessageBatchRepoSpy: &historyMessageBatchRepoSpy{}, filled: make(chan string, 1)}
+	chat := &domainChatStorage.Chat{DeviceID: key.deviceID, JID: key.groupJID, Name: "Group 321"}
+	name := "Fetched"
+	stubGroupInfo(t, map[*whatsmeow.Client]*string{client: &name})
+	func() {
+		for i := 0; i < cap(historyLookupSlots); i++ {
+			historyLookupSlots <- struct{}{}
+			defer func() { <-historyLookupSlots }()
+		}
+		if err := StoreChatWithGroupSubject(ctx, repo, chat); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := groupNameCache.Load(key); ok {
+			t.Fatal("overload retained lookup reservation")
+		}
+	}()
+	if err := StoreChatWithGroupSubject(ctx, repo, chat); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-repo.filled:
+		if got != key.deviceID+"|"+key.groupJID+"|"+name {
+			t.Fatalf("unexpected fill %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("later write did not retry lookup")
 	}
 }

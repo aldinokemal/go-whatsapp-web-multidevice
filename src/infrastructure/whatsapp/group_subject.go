@@ -19,9 +19,10 @@ type groupNameCacheKey struct {
 }
 
 type groupNameCacheEntry struct {
-	name      string
-	expiresAt time.Time
-	pending   *groupSubjectLookup
+	name          string
+	expiresAt     time.Time
+	awaitingStore bool // authoritative rename not yet written to a chat row
+	pending       *groupSubjectLookup
 }
 
 type groupSubjectLookup struct {
@@ -34,6 +35,7 @@ var (
 	groupNameCache         sync.Map
 	groupSubjectLocks      [mutexShardCount]sync.Mutex
 	groupSubjectHashSeed   = maphash.MakeSeed()
+	historyLookupSlots     = make(chan struct{}, 3) // leave capacity for foreground requests
 	groupSubjectFetchSlots = make(chan struct{}, 4)
 	fetchGroupInfoFn       = func(ctx context.Context, client *whatsmeow.Client, jid types.JID) (*types.GroupInfo, error) {
 		return client.GetGroupInfo(ctx, jid)
@@ -57,7 +59,7 @@ func getCachedGroupName(deviceID, groupJID string) (string, bool) {
 	key := groupNameCacheKey{deviceID, groupJID}
 	if entry, ok := groupNameCache.Load(key); ok {
 		cached := entry.(groupNameCacheEntry)
-		if time.Now().Before(cached.expiresAt) {
+		if cached.awaitingStore || time.Now().Before(cached.expiresAt) {
 			return cached.name, true
 		}
 		if cached.pending == nil {
@@ -95,6 +97,10 @@ func StoreChatWithGroupSubject(ctx context.Context, repo domainChatStorage.IChat
 	if err := repo.StoreChat(chat); err != nil {
 		return err
 	}
+	if entry, ok := groupNameCache.Load(key); ok && entry.(groupNameCacheEntry).awaitingStore {
+		// StoreChat preserves an existing meaningful name. Only an event may replace it.
+		key.persistRename(repo, name)
+	}
 	groupUser := strings.TrimSuffix(chat.JID, "@g.us")
 	if cached || chat.Name != "Group "+groupUser {
 		return nil
@@ -109,21 +115,40 @@ func StoreChatWithGroupSubject(ctx context.Context, repo domainChatStorage.IChat
 	}
 	lookup, start := key.reserveLookup(repo)
 	if start {
-		go key.fetch(context.WithoutCancel(ctx), client, types.NewJID(groupUser, types.GroupServer), lookup)
+		select {
+		case historyLookupSlots <- struct{}{}:
+			go func() {
+				defer func() { <-historyLookupSlots }()
+				key.fetch(context.WithoutCancel(ctx), client, types.NewJID(groupUser, types.GroupServer), lookup)
+			}()
+		default:
+			// No waiter can join until this lock is released. Allow the next write to retry.
+			groupNameCache.Delete(key)
+		}
 	}
 	return nil
 }
 
 func recordGroupSubject(deviceID, groupJID, name string, repo domainChatStorage.IChatStorageRepository) {
-	mu := (groupNameCacheKey{deviceID, groupJID}).lock()
+	key := groupNameCacheKey{deviceID, groupJID}
+	mu := key.lock()
 	mu.Lock()
 	defer mu.Unlock()
-	setCachedGroupName(deviceID, groupJID, name)
-	if repo != nil {
-		if err := repo.UpdateGroupSubject(deviceID, groupJID, name); err != nil {
-			logrus.Warnf("Failed to update group subject for %s: %v", groupJID, err)
-		}
+	if repo == nil {
+		setCachedGroupName(deviceID, groupJID, name)
+		return
 	}
+	key.persistRename(repo, name)
+}
+
+// Caller holds the key lock. Keep only the latest event until its row exists
+// and the database acknowledges the update, even across ordinary cache expiry.
+func (key groupNameCacheKey) persistRename(repo domainChatStorage.IChatStorageRepository, name string) {
+	applied, err := repo.UpdateGroupSubject(key.deviceID, key.groupJID, name)
+	if err != nil {
+		logrus.Warnf("Failed to update group subject for %s: %v", key.groupJID, err)
+	}
+	groupNameCache.Store(key, groupNameCacheEntry{name: name, expiresAt: time.Now().Add(groupNameCacheTTL), awaitingStore: err != nil || !applied})
 }
 
 // reserveLookup is called under the key's lock, after checking for a cached name.
