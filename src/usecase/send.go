@@ -344,6 +344,10 @@ func (service serviceSend) mergeReplyContext(ctx context.Context, contextInfo *w
 		return contextInfo
 	}
 
+	if !whatsapp.ReplyChatAllowed(ctx, recipient.String(), message.ChatJID) {
+		return contextInfo
+	}
+
 	if contextInfo == nil {
 		contextInfo = &waE2E.ContextInfo{}
 	}
@@ -446,6 +450,7 @@ func (service serviceSend) SendText(ctx context.Context, request domainSend.Mess
 		return response, err
 	}
 
+	response.RecipientJID = dataWaRecipient.String()
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.Phone, ts.Timestamp.String())
 	return response, nil
@@ -637,6 +642,7 @@ func (service serviceSend) SendImage(ctx context.Context, request domainSend.Ima
 		return response, err
 	}
 
+	response.RecipientJID = dataWaRecipient.String()
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Message sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
@@ -732,6 +738,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		return response, err
 	}
 
+	response.RecipientJID = dataWaRecipient.String()
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Document sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
@@ -1214,6 +1221,7 @@ func (service serviceSend) SendVideo(ctx context.Context, request domainSend.Vid
 		return response, err
 	}
 
+	response.RecipientJID = dataWaRecipient.String()
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Video sent to %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil
@@ -1630,6 +1638,7 @@ func (service serviceSend) SendAudio(ctx context.Context, request domainSend.Aud
 		return response, err
 	}
 
+	response.RecipientJID = dataWaRecipient.String()
 	response.MessageID = ts.ID
 	response.Status = fmt.Sprintf("Send audio success %s (server timestamp: %s)", request.BaseRequest.Phone, ts.Timestamp.String())
 	return response, nil

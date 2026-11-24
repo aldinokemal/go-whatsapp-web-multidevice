@@ -1242,6 +1242,30 @@ func (r *SQLiteRepository) GetLatestUnreadChatwootMessageLinkByChat(deviceID, wa
 	return link, err
 }
 
+// GetLatestOutgoingChatwootMessageLinkByChat finds a delivered Chatwoot reply.
+func (r *SQLiteRepository) GetLatestOutgoingChatwootMessageLinkByChat(deviceID, waChatJID string, configID int64, accountID, inboxID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	// WAID: identifies messages mirrored or imported from WhatsApp, not
+	// Chatwoot-originated sends. The outbound webhook rejects those echoes.
+	query := `
+		SELECT device_id, wa_message_id, wa_chat_jid, chatwoot_message_id,
+			chatwoot_conversation_id, chatwoot_inbox_id,
+			chatwoot_contact_inbox_source_id, source_id, direction,
+			is_read, created_at, updated_at, chatwoot_config_id, chatwoot_account_id
+		FROM chatwoot_message_links
+		WHERE device_id = ? AND wa_chat_jid = ? AND direction = 'outgoing'
+			AND chatwoot_config_id = ? AND chatwoot_account_id = ? AND chatwoot_inbox_id = ?
+			AND chatwoot_message_id > 0 AND chatwoot_conversation_id > 0
+			AND source_id NOT GLOB 'WAID:*'
+		ORDER BY created_at DESC, wa_message_id DESC
+		LIMIT 1
+	`
+	link, err := r.scanChatwootMessageLink(r.db.QueryRow(query, deviceID, waChatJID, configID, accountID, inboxID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return link, err
+}
+
 func (r *SQLiteRepository) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
 	if event == nil || strings.TrimSpace(event.DeviceID) == "" || strings.TrimSpace(event.EventName) == "" || strings.TrimSpace(event.WhatsAppMessageID) == "" || strings.TrimSpace(event.PayloadJSON) == "" {
 		return fmt.Errorf("chatwoot forward event requires device id, event name, whatsapp message id, and payload")

@@ -256,6 +256,18 @@ func (r *deviceChatStorage) GetLatestUnreadChatwootMessageLinkByChat(deviceID, w
 	return r.base.GetLatestUnreadChatwootMessageLinkByChat(targetDeviceID, waChatJID)
 }
 
+func (r *deviceChatStorage) GetLatestOutgoingChatwootMessageLinkByChat(deviceID, waChatJID string, configID int64, accountID, inboxID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	return latestDeliveredChatwootReply(r.base, deviceID, waChatJID, configID, accountID, inboxID)
+}
+
+func latestDeliveredChatwootReply(repo domainChatStorage.IChatStorageRepository, deviceID, chatJID string, configID int64, accountID, inboxID int) (*domainChatStorage.ChatwootMessageLink, error) {
+	lookup, ok := repo.(domainChatStorage.DeliveredReplyLookup)
+	if !ok {
+		return nil, nil
+	}
+	return lookup.GetLatestOutgoingChatwootMessageLinkByChat(deviceID, chatJID, configID, accountID, inboxID)
+}
+
 func (r *deviceChatStorage) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
 	if event != nil && event.DeviceID == "" {
 		event.DeviceID = r.deviceID

@@ -459,6 +459,18 @@ func TestMergeReplyContextAddsQuoteFields(t *testing.T) {
 	}
 }
 
+func TestMergeReplyContextChecksActualChatwootRecipient(t *testing.T) {
+	const requested = "5500912345678@s.whatsapp.net"
+	recipient := types.NewJID("550012345678", types.DefaultUserServer)
+	ctx := whatsapp.WithChatwootQuote(t.Context(), recipient.String())
+	replyID := "previous"
+	row := &domainChatStorage.Message{ChatJID: requested}
+	service := serviceSend{chatStorageRepo: &replyMessageRepo{message: row}}
+	require.Nil(t, service.mergeReplyContext(ctx, nil, &replyID, recipient))
+	row.ChatJID = recipient.String()
+	require.Equal(t, replyID, service.mergeReplyContext(ctx, nil, &replyID, recipient).GetStanzaID())
+}
+
 func TestMergeReplyContextPrivateReplyCarriesGroupRemoteJID(t *testing.T) {
 	replyID := "3EB089B9D6ADD58153C561"
 	group := "120363025555555555@g.us"

@@ -108,6 +108,15 @@ func chatwootLinkChatJID(destination string) string {
 	return clean + config.WhatsappTypeUser
 }
 
+// A phone contact can be registered under a different spelling. Keep explicit
+// group and LID route keys, which read receipts and existing links also use.
+func deliveredChatwootLinkJID(requestedJID, recipientJID string) string {
+	if strings.HasSuffix(requestedJID, config.WhatsappTypeUser) {
+		return recipientJID
+	}
+	return requestedJID
+}
+
 // resolveSendDestination computes the WhatsApp send target from a Chatwoot
 // contact's stored destination (a JID or phone number). Group (@g.us) and
 // privacy-masked (@lid) JIDs are returned verbatim so the send layer's JID
@@ -593,7 +602,7 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 		return c.SendStatus(fiber.StatusOK)
 	}
 
-	linkChatJID := chatwootLinkChatJID(destination)
+	requestedChatJID := chatwootLinkChatJID(destination)
 
 	// Resolve the WhatsApp send target. Groups (@g.us) and privacy-masked (@lid)
 	// JIDs are preserved verbatim so the send layer's JID parsing and LID
@@ -610,11 +619,14 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 
 	// The message the agent replied to, quoted by the text and by every
 	// attachment; nil sends them without a quote.
-	replyMessageID := h.chatwootReplyMessageID(ctx, payload, route, storageDeviceID, linkChatJID)
+	replyMessageID, linkChat := h.chatwootReplyMessageID(payload, route, storageDeviceID)
+	if replyMessageID != nil {
+		ctx = whatsapp.WithChatwootQuote(ctx, linkChat)
+	}
 
 	// Handle attachments if present
 	if len(payload.Attachments) > 0 {
-		sentAny := false
+		var deliveredChatJID string
 		for i, attachment := range payload.Attachments {
 			// The caption belongs to the message as a whole, so it rides on the
 			// first attachment only — otherwise a multi-file reply repeats the
@@ -629,11 +641,11 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 				h.notifySendFailure(payload, route, fmt.Errorf("attachment %d failed: %w", attachment.ID, err))
 				continue
 			}
-			sentAny = true
-			h.storeChatwootOutboundLink(route, storageDeviceID, linkChatJID, payload, resp.MessageID)
+			deliveredChatJID = deliveredChatwootLinkJID(requestedChatJID, resp.RecipientJID)
+			h.storeChatwootOutboundLink(route, storageDeviceID, deliveredChatJID, payload, resp.MessageID)
 		}
-		if sentAny {
-			h.markLatestInboundAsRead(c, storageDeviceID, linkChatJID)
+		if deliveredChatJID != "" {
+			h.markLatestInboundAsRead(c, storageDeviceID, deliveredChatJID)
 		}
 		// Return early after sending attachments - caption was already included
 		return c.SendStatus(fiber.StatusOK)
@@ -658,28 +670,26 @@ func (h *ChatwootHandler) deliverChatwootReply(c fiber.Ctx, payload chatwoot.Web
 			h.notifySendFailure(payload, route, err)
 			return c.SendStatus(fiber.StatusOK)
 		}
-		logrus.Infof("Chatwoot Webhook: Sent text message to %s", sendDestination)
-		h.storeChatwootOutboundLink(route, storageDeviceID, linkChatJID, payload, resp.MessageID)
-		h.markLatestInboundAsRead(c, storageDeviceID, linkChatJID)
+		deliveredChatJID := deliveredChatwootLinkJID(requestedChatJID, resp.RecipientJID)
+		logrus.Infof("Chatwoot Webhook: Sent text message to %s", deliveredChatJID)
+		h.storeChatwootOutboundLink(route, storageDeviceID, deliveredChatJID, payload, resp.MessageID)
+		h.markLatestInboundAsRead(c, storageDeviceID, deliveredChatJID)
 	}
 
 	return c.SendStatus(fiber.StatusOK)
 }
 
-// chatwootReplyMessageID returns the WhatsApp message that an agent reply
-// quotes, or nil to send the reply without a quote.
-func (h *ChatwootHandler) chatwootReplyMessageID(ctx context.Context, payload chatwoot.WebhookPayload, route chatwootWebhookRoute, deviceID, chatJID string) *string {
+// chatwootReplyMessageID returns the candidate quote and, for numeric Chatwoot
+// references, the chat on its link. The send layer checks the actual recipient.
+func (h *ChatwootHandler) chatwootReplyMessageID(payload chatwoot.WebhookPayload, route chatwootWebhookRoute, deviceID string) (*string, string) {
 	if h.ChatStorageRepo == nil {
-		return nil
+		return nil, ""
 	}
 	// A message mirrored from WhatsApp carries its id as "WAID:<id>". Quote it
 	// only if it is stored for this device and belongs to the reply's chat.
 	if ref, _ := payload.ContentAttributes["in_reply_to_external_id"].(string); strings.HasPrefix(ref, "WAID:") {
 		waMessageID := strings.TrimPrefix(ref, "WAID:")
-		if !h.storedMessageInChat(ctx, deviceID, waMessageID, chatJID) {
-			return nil
-		}
-		return &waMessageID
+		return &waMessageID, ""
 	}
 
 	// An earlier agent reply has no source_id, only its Chatwoot id. Find the
@@ -688,7 +698,7 @@ func (h *ChatwootHandler) chatwootReplyMessageID(ctx context.Context, payload ch
 	number, _ := payload.ContentAttributes["in_reply_to"].(float64)
 	quotedID := int(number)
 	if number < 1 || number >= 1<<53 || float64(quotedID) != number {
-		return nil
+		return nil, ""
 	}
 	inboxID := route.InboxID
 	if inboxID == 0 {
@@ -705,38 +715,12 @@ func (h *ChatwootHandler) chatwootReplyMessageID(ctx context.Context, payload ch
 	})
 	if err != nil {
 		logrus.Warnf("Chatwoot Webhook: failed to look up quoted Chatwoot message %d: %v", quotedID, err)
-		return nil
+		return nil, ""
 	}
-	// The link and the stored row the quote is built from must both be in the
-	// reply's chat: another chat may hold a row with the same WhatsApp id.
-	if link == nil || !chatwootSameChat(ctx, link.WhatsAppChatJID, chatJID) ||
-		!h.storedMessageInChat(ctx, deviceID, link.WhatsAppMessageID, chatJID) {
-		return nil
+	if link == nil || link.WhatsAppChatJID == "" {
+		return nil, ""
 	}
-	return &link.WhatsAppMessageID
-}
-
-// storedMessageInChat reports whether the row the send path quotes from
-// (GetMessageByIDAndDevice, which does not filter by chat) is in chatJID.
-func (h *ChatwootHandler) storedMessageInChat(ctx context.Context, deviceID, id, chatJID string) bool {
-	message, err := h.ChatStorageRepo.GetMessageByIDAndDevice(deviceID, id)
-	if err != nil {
-		logrus.Warnf("Chatwoot Webhook: failed to read quoted message %s: %v", id, err)
-		return false
-	}
-	return message != nil && chatwootSameChat(ctx, message.ChatJID, chatJID)
-}
-
-// chatwootSameChat reports whether two JIDs name the same chat. An @lid side
-// is mapped to its phone JID by the sending device, as the send path does.
-func chatwootSameChat(ctx context.Context, a, b string) bool {
-	jidA, errA := utils.ParseJID(a)
-	jidB, errB := utils.ParseJID(b)
-	if errA != nil || errB != nil {
-		return false
-	}
-	client := whatsapp.ClientFromContext(ctx)
-	return utils.ResolveLIDToPhone(ctx, jidA, client).ToNonAD() == utils.ResolveLIDToPhone(ctx, jidB, client).ToNonAD()
+	return &link.WhatsAppMessageID, link.WhatsAppChatJID
 }
 
 func (h *ChatwootHandler) handleDeletedChatwootMessage(c fiber.Ctx, payload chatwoot.WebhookPayload, forced *chatwootWebhookRoute) error {

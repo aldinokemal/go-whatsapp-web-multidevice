@@ -9,6 +9,13 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+// DeliveredReplyLookup is an optional reverse route for repositories that
+// retain delivered agent replies. Other repositories use normal contact routing.
+type DeliveredReplyLookup interface {
+	// GetLatestOutgoingChatwootMessageLinkByChat finds a delivered agent reply in the exact scope.
+	GetLatestOutgoingChatwootMessageLinkByChat(deviceID, waChatJID string, configID int64, accountID, inboxID int) (*ChatwootMessageLink, error)
+}
+
 type IChatStorageRepository interface {
 	// Chat operations
 	CreateMessage(ctx context.Context, evt *events.Message) error

@@ -29,6 +29,9 @@ var authHeaderCases = map[string]func(t *testing.T, c *Client){
 	"UpdateContactName": func(t *testing.T, c *Client) {
 		_ = c.UpdateContactName(7, "Name")
 	},
+	"ContactForConversation": func(t *testing.T, c *Client) {
+		_, _ = c.ContactForConversation(5)
+	},
 	"listContactConversations": func(t *testing.T, c *Client) {
 		_, _ = c.listContactConversations(7)
 	},
