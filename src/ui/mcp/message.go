@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"os"
 	"path/filepath"
 
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/transcribe"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -21,13 +24,30 @@ import (
 // that cannot is told the media exists rather than handed a multi-megabyte base64 blob.
 const maxInlineImageBytes = 5 * 1024 * 1024
 
+// maxTranscribeAudioBytes matches OpenAI's own transcription API file size
+// limit: a larger voice note would be refused by the provider anyway, so
+// download_media falls back to the untranscribed response instead of paying
+// for a call that can only fail.
+const maxTranscribeAudioBytes = 25 * 1024 * 1024
+
+// audioTranscriber is transcribe.Transcriber's shape, so a test can stub it
+// without a real network client.
+type audioTranscriber interface {
+	Transcribe(ctx context.Context, audio []byte, filename string) (string, error)
+}
+
 type MessageHandler struct {
 	messageService domainMessage.IMessageUsecase
 	resolver       deviceResolver
+	transcriber    audioTranscriber
 }
 
 func InitMcpMessage(messageService domainMessage.IMessageUsecase, resolver deviceResolver) *MessageHandler {
-	return &MessageHandler{messageService: messageService, resolver: resolver}
+	return &MessageHandler{
+		messageService: messageService,
+		resolver:       resolver,
+		transcriber:    transcribe.Transcriber{APIKey: config.TranscribeOpenAIAPIKey},
+	}
 }
 
 func (h *MessageHandler) AddMessageTools(mcpServer *server.MCPServer) {
@@ -135,6 +155,28 @@ func (h *MessageHandler) handleMessage(ctx context.Context, request mcpg.CallToo
 				result := mcpg.NewToolResultImage(fallback, base64.StdEncoding.EncodeToString(imgBytes), mimeType)
 				result.StructuredContent = resp
 				return result, nil
+			}
+		}
+		// A voice note ("ptt") or audio file is the same problem as an image: an
+		// MCP client has no ears, so the one thing it can be handed instead is
+		// the words themselves. Unlike an image there is nothing to inline as
+		// bytes - the transcript IS the useful payload - so this returns text,
+		// never base64 audio.
+		if (resp.MediaType == "ptt" || resp.MediaType == "audio") && resp.FileSize > 0 && resp.FileSize <= maxTranscribeAudioBytes {
+			if audioBytes, readErr := os.ReadFile(resp.FilePath); readErr == nil {
+				text, trErr := h.transcriber.Transcribe(ctx, audioBytes, resp.Filename)
+				switch {
+				case trErr == nil:
+					result := mcpg.NewToolResultText(fmt.Sprintf("%s\n\nTranscript: %s", fallback, text))
+					result.StructuredContent = resp
+					return result, nil
+				case errors.Is(trErr, transcribe.ErrNotConfigured):
+					// Fall through to the plain fallback below: nobody has set
+					// TranscribeOpenAIAPIKey, which is a configuration choice,
+					// not a failure.
+				default:
+					return mcpg.NewToolResultStructured(resp, fmt.Sprintf("%s (transcription failed: %v)", fallback, trErr)), nil
+				}
 			}
 		}
 		return mcpg.NewToolResultStructured(resp, fallback), nil
