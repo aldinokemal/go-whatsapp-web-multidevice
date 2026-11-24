@@ -693,6 +693,11 @@ func initApp() {
 		logrus.Errorln(err)
 	}
 
+	// Tickets live only in memory, so a restart orphans anything the previous
+	// process had uploaded - nothing left to ever expire it otherwise.
+	if err := upload.ClearDirectory(config.PathUploads); err != nil {
+		logrus.Warnf("clearing stale uploads: %v", err)
+	}
 	uploadStore = upload.NewStore(config.PathUploads)
 	go func() {
 		ticker := time.NewTicker(time.Minute)

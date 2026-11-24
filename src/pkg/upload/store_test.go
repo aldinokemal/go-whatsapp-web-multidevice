@@ -120,11 +120,68 @@ func TestFetchRefusesAnExpiredTicket(t *testing.T) {
 	id, err := s.Create("device-1", 10*time.Millisecond, 1<<20)
 	require.NoError(t, err)
 	require.NoError(t, s.Upload(id, onePixelPNG))
+	path, _, err := s.Fetch(id)
+	require.NoError(t, err)
 
 	time.Sleep(30 * time.Millisecond)
 
 	_, _, err = s.Fetch(id)
 	assert.ErrorIs(t, err, ErrExpired)
+
+	// The regression this guards: Fetch used to delete only the map entry,
+	// leaving the file on disk with nothing left to ever find and remove it
+	// (Sweep only looks at tickets still in the map) - a permanently
+	// orphaned file, not merely a late one.
+	_, statErr := os.Stat(path)
+	assert.True(t, os.IsNotExist(statErr), "an expired ticket's file must not outlive the ticket that owned it")
+}
+
+func TestUploadOnAnExpiredAlreadyUploadedTicketCleansUpTheFile(t *testing.T) {
+	s := newTestStore(t)
+	id, err := s.Create("device-1", 10*time.Millisecond, 1<<20)
+	require.NoError(t, err)
+	require.NoError(t, s.Upload(id, onePixelPNG))
+	path, _, err := s.Fetch(id)
+	require.NoError(t, err)
+
+	time.Sleep(30 * time.Millisecond)
+
+	// A second PUT after expiry hits Upload's own expiry check before its
+	// "already uploaded" check; that path must clean up the file too.
+	err = s.Upload(id, onePixelPNG)
+	assert.ErrorIs(t, err, ErrExpired)
+
+	_, statErr := os.Stat(path)
+	assert.True(t, os.IsNotExist(statErr))
+}
+
+func TestCreateRefusesBeyondTheOutstandingTicketCeiling(t *testing.T) {
+	s := newTestStore(t)
+	for i := 0; i < maxOutstandingTickets; i++ {
+		_, err := s.Create("device-1", time.Minute, 1<<20)
+		require.NoError(t, err)
+	}
+
+	_, err := s.Create("device-1", time.Minute, 1<<20)
+	assert.ErrorIs(t, err, ErrTooManyTickets)
+}
+
+func TestClearDirectoryRemovesLeftoverFilesButNotSubdirectories(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.png"), onePixelPNG, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b.jpg"), onePixelPNG, 0o644))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "a-subdir"), 0o755))
+
+	require.NoError(t, ClearDirectory(dir))
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "a-subdir", entries[0].Name())
+}
+
+func TestClearDirectoryOnAMissingDirectoryIsNotAnError(t *testing.T) {
+	assert.NoError(t, ClearDirectory(filepath.Join(t.TempDir(), "never-created")))
 }
 
 func TestSweepRemovesExpiredTicketsAndTheirFiles(t *testing.T) {

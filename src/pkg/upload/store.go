@@ -24,7 +24,15 @@ var (
 	ErrAlreadyUploaded = errors.New("upload ticket already used")
 	ErrTooLarge        = errors.New("upload exceeds the size limit")
 	ErrUnsupportedType = errors.New("unsupported content type")
+	ErrTooManyTickets  = errors.New("too many outstanding upload tickets")
 )
+
+// maxOutstandingTickets bounds total exposure (memory for the tickets
+// themselves, disk for whatever they hold) to a fixed ceiling regardless of
+// how fast a caller mints them; each still expires and is swept well within
+// a minute or two either way. Generous for real use (one agent, one image
+// at a time), low enough that spamming create_upload cannot run away.
+const maxOutstandingTickets = 1000
 
 // AllowedMimes is the content-type allowlist every upload is sniffed
 // against, matching the image types whatsapp_send already accepts.
@@ -55,6 +63,30 @@ func NewStore(dir string) *Store {
 	return &Store{tickets: make(map[string]*ticket), dir: dir}
 }
 
+// ClearDirectory deletes every file directly under dir. Tickets live only
+// in memory, so a restart orphans whatever the previous process had
+// uploaded with no ticket left to ever expire it; call this once, before
+// constructing the Store that will own dir, so a crash-restart loop cannot
+// accumulate files forever.
+func ClearDirectory(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue // this directory only ever holds upload files, but never recurse into a surprise one
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 // Create mints a new ticket id, valid for ttl, accepting at most maxBytes.
 func (s *Store) Create(deviceID string, ttl time.Duration, maxBytes int64) (string, error) {
 	idBytes := make([]byte, 20) // 160 bits: unguessable is the only credential here
@@ -65,6 +97,9 @@ func (s *Store) Create(deviceID string, ttl time.Duration, maxBytes int64) (stri
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.tickets) >= maxOutstandingTickets {
+		return "", ErrTooManyTickets
+	}
 	s.tickets[id] = &ticket{
 		deviceID:  deviceID,
 		expiresAt: time.Now().Add(ttl),
@@ -84,7 +119,7 @@ func (s *Store) Upload(id string, body []byte) error {
 		return ErrNotFound
 	}
 	if time.Now().After(t.expiresAt) {
-		delete(s.tickets, id)
+		s.expireLocked(id, t)
 		s.mu.Unlock()
 		return ErrExpired
 	}
@@ -108,6 +143,7 @@ func (s *Store) Upload(id string, body []byte) error {
 	s.mu.Unlock()
 
 	if err := os.WriteFile(path, body, 0o644); err != nil {
+		os.Remove(path) // a partial file from a failed write (e.g. disk full)
 		s.mu.Lock()
 		t.uploaded = false // release the claim; the caller may retry
 		s.mu.Unlock()
@@ -132,7 +168,7 @@ func (s *Store) Fetch(id string) (path, mimeType string, err error) {
 		return "", "", ErrNotFound
 	}
 	if time.Now().After(t.expiresAt) {
-		delete(s.tickets, id)
+		s.expireLocked(id, t)
 		return "", "", ErrExpired
 	}
 	if !t.uploaded {
@@ -149,12 +185,23 @@ func (s *Store) Sweep() {
 	now := time.Now()
 	for id, t := range s.tickets {
 		if now.After(t.expiresAt) {
-			if t.filePath != "" {
-				os.Remove(t.filePath)
-			}
-			delete(s.tickets, id)
+			s.expireLocked(id, t)
 		}
 	}
+}
+
+// expireLocked removes id's ticket and the file it owned, if any. Callers
+// must hold s.mu. Every path that can drop a ticket from the map because it
+// has expired (Upload, Fetch, Sweep) goes through this, so an uploaded file
+// is never left behind once its ticket is gone - the earlier shape deleted
+// the map entry in Fetch/Upload without touching the file, which made Sweep
+// (the only thing that ever removed a file) unable to find it again: a
+// permanently orphaned file, not merely a late one.
+func (s *Store) expireLocked(id string, t *ticket) {
+	if t.filePath != "" {
+		os.Remove(t.filePath)
+	}
+	delete(s.tickets, id)
 }
 
 func extensionFor(mimeType string) string {

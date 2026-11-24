@@ -39,9 +39,15 @@ var (
 	PathQrCode    = "statics/qrcode"
 	PathSendItems = "statics/senditems"
 	PathMedia     = "statics/media"
-	PathUploads   = "statics/uploads" // WTF: pre-signed-style MCP media uploads (pkg/upload)
-	PathStorages  = "storages"
-	PathUICache   = "storages/ui"
+	// PathUploads is deliberately NOT under statics/: that whole tree is
+	// served as plain public static files in single-user mode (cmd/rest.go's
+	// static.New("./statics")), which would let a file be fetched by its raw
+	// path - no expiry, no single-use, none of pkg/upload's own rules -
+	// bypassing the ticket system this exists to be. storages/ is never
+	// statically served in either mode.
+	PathUploads  = "storages/uploads"
+	PathStorages = "storages"
+	PathUICache  = "storages/ui"
 
 	DBURI     = "file:storages/whatsapp.db"
 	DBKeysURI = ""
