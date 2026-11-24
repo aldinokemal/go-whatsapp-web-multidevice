@@ -2,14 +2,24 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"mime"
+	"os"
+	"path/filepath"
 
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
+
+// maxInlineImageBytes bounds what download_media will base64-inline into a tool result. Above
+// this, the structured response (file_path/file_url) is returned alone - an MCP client that can
+// reach the owner-scoped /files/ URL some other way (e.g. a browser session) still has it; one
+// that cannot is told the media exists rather than handed a multi-megabyte base64 blob.
+const maxInlineImageBytes = 5 * 1024 * 1024
 
 type MessageHandler struct {
 	messageService domainMessage.IMessageUsecase
@@ -109,7 +119,25 @@ func (h *MessageHandler) handleMessage(ctx context.Context, request mcpg.CallToo
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
-		return mcpg.NewToolResultStructured(resp, fmt.Sprintf("Media saved to %s (%s)", resp.FilePath, resp.MediaType)), nil
+		fallback := fmt.Sprintf("Media saved to %s (%s)", resp.FilePath, resp.MediaType)
+		// An image is handed back inline (base64, same pattern login_qr already uses for its QR
+		// code), not just as a fetchable file_url: that URL sits behind this same owner-scoped
+		// auth (files.Mount's own doc comment), which an MCP client has no way to attach when it
+		// tries to fetch the link itself - the one real path into the bytes is this same
+		// authenticated call, so it has to carry them. Capped and type-checked so a large video or
+		// an unrecognised type still falls back to the structured response alone.
+		if resp.MediaType == "image" && resp.FileSize > 0 && resp.FileSize <= maxInlineImageBytes {
+			if imgBytes, readErr := os.ReadFile(resp.FilePath); readErr == nil {
+				mimeType := mime.TypeByExtension(filepath.Ext(resp.Filename))
+				if mimeType == "" {
+					mimeType = "application/octet-stream"
+				}
+				result := mcpg.NewToolResultImage(fallback, base64.StdEncoding.EncodeToString(imgBytes), mimeType)
+				result.StructuredContent = resp
+				return result, nil
+			}
+		}
+		return mcpg.NewToolResultStructured(resp, fallback), nil
 	default:
 		return mcpg.NewToolResultError(fmt.Sprintf("unknown message action: %s", action)), nil
 	}
