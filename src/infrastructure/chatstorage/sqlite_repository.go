@@ -89,7 +89,9 @@ func (r *SQLiteRepository) setGroupSubject(deviceID, groupJID, subject string, o
 	if deviceID == "" || !isGroup || groupID == "" || strings.TrimSpace(subject) == "" {
 		return false, fmt.Errorf("group subject requires device id, group JID, and nonempty subject")
 	}
-	result, err := r.db.Exec(`UPDATE chats SET name = ?, updated_at = ?
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := r.db.ExecContext(ctx, `UPDATE chats SET name = ?, updated_at = ?
 		WHERE device_id = ? AND jid = ? AND (NOT ? OR name IN ('', 'Group ' || ?, jid, ?))`, subject, time.Now(), deviceID, groupJID, onlyPlaceholder, groupID, groupID)
 	if err != nil {
 		return false, err
