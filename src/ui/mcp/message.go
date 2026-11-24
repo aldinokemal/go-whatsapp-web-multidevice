@@ -40,9 +40,20 @@ var audioMimeTypes = map[string]string{
 	".wav":  "audio/wav",
 }
 
-func audioMimeTypeFor(filename string) string {
+// audioMimeTypeFor takes the media's own mediaType ("ptt" or "audio") alongside the
+// downloaded filename: a real voice note has been seen to download with a generated name
+// carrying no extension at all (WhatsApp's own AudioMessage.Mimetype can be empty, and
+// pkg/utils's own ExtractMedia has nothing else to derive one from for a non-document
+// message), so the extension lookup alone is not reliable. A voice note is always
+// Opus-in-Ogg regardless of what any particular sender's client reported, so that is a
+// safe fallback specifically for "ptt" when no extension is available; a generic "audio"
+// message isn't guaranteed to be any one codec, so it stays the unknown fallback.
+func audioMimeTypeFor(mediaType, filename string) string {
 	if mt, ok := audioMimeTypes[strings.ToLower(filepath.Ext(filename))]; ok {
 		return mt
+	}
+	if mediaType == "ptt" {
+		return "audio/ogg"
 	}
 	return "application/octet-stream"
 }
@@ -176,7 +187,7 @@ func (h *MessageHandler) handleMessage(ctx context.Context, request mcpg.CallToo
 					"%s\n\nThe audio is attached inline. Nothing transcribed it - if you have a way to turn speech into text (a local Whisper install, another tool), use it on these bytes; otherwise ask the sender to type the gist, or save the file and listen to it yourself.",
 					fallback,
 				)
-				result := mcpg.NewToolResultAudio(note, base64.StdEncoding.EncodeToString(audioBytes), audioMimeTypeFor(resp.Filename))
+				result := mcpg.NewToolResultAudio(note, base64.StdEncoding.EncodeToString(audioBytes), audioMimeTypeFor(resp.MediaType, resp.Filename))
 				result.StructuredContent = resp
 				return result, nil
 			}
