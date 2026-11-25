@@ -143,14 +143,14 @@ const groupSchema = `{
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
     "group_id": {"type": "string", "description": "Group JID or numeric ID (all actions except create/join_with_link/info_from_link)"},
     "title": {"type": "string", "description": "create: group subject"},
-    "participants": {"type": "array", "items": {"type": "string"}, "description": "create / add_participants / remove_participants / promote / demote / manage_join_requests: phone numbers without suffix"},
-    "invite_link": {"type": "string", "description": "join_with_link/info_from_link: WhatsApp invite link or code"},
+    "participants": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "description": "create / add_participants / remove_participants / promote / demote / manage_join_requests: phone numbers without suffix"},
+    "invite_link": {"type": "string", "minLength": 1, "description": "join_with_link/info_from_link: WhatsApp invite link or code"},
     "reset": {"type": "boolean", "description": "invite_link: revoke and regenerate the link (default false)"},
     "name": {"type": "string", "maxLength": 25, "description": "set_name: new group name (max 25 characters)"},
     "topic": {"type": "string", "description": "set_topic: new topic/description; empty string removes it"},
     "announce": {"type": "boolean", "description": "set_settings: true = only admins can send"},
     "locked": {"type": "boolean", "description": "set_settings: true = only admins can edit group info"},
-    "photo_url": {"type": "string", "description": "set_photo: URL of a JPEG, PNG or WebP image ending in .jpg/.jpeg/.png/.webp (fetched server-side); cropped to a square and resized"},
+    "photo_url": {"type": "string", "minLength": 1, "description": "set_photo: URL of a JPEG, PNG or WebP image ending in .jpg/.jpeg/.png/.webp (fetched server-side); cropped to a square and resized"},
     "request_action": {"type": "string", "enum": ["approve","reject"], "description": "manage_join_requests: what to do with the listed requesters"}
   },
   "allOf": [
