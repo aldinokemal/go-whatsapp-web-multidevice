@@ -27,6 +27,7 @@ type stubSendService struct {
 	lastPoll     *domainSend.PollRequest
 	lastLink     *domainSend.LinkRequest
 	lastForward  *domainSend.ForwardRequest
+	lastInteract *domainSend.InteractiveRequest
 	scheduled    bool
 	err          error
 }
@@ -85,6 +86,12 @@ func (s *stubSendService) SendForward(_ context.Context, r domainSend.ForwardReq
 	s.lastForward = &r
 	return s.resp()
 }
+func (s *stubSendService) SendInteractive(_ context.Context, r domainSend.InteractiveRequest) (domainSend.GenericResponse, error) {
+	s.lastInteract = &r
+	res, err := s.resp()
+	res.Status = "accepted; recipient rendering is unverified"
+	return res, err
+}
 
 // resultText returns the text content a tool result reports to the client.
 func resultText(t *testing.T, res *mcpg.CallToolResult) string {
@@ -113,7 +120,7 @@ func TestHandleSendDispatch(t *testing.T) {
 		require.NotNil(t, res)
 		assert.False(t, res.IsError)
 		require.NotNil(t, svc.lastText)
-		assert.Equal(t, "628", svc.lastText.Phone)
+		assert.Equal(t, "628@s.whatsapp.net", svc.lastText.Phone)
 		assert.Equal(t, "hi", svc.lastText.Message)
 		assert.Equal(t, "R1", *svc.lastText.ReplyMessageID)
 		assert.Equal(t, []string{"629"}, svc.lastText.Mentions)
@@ -231,7 +238,7 @@ func TestHandleSendDispatch(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, svc.lastPoll)
 		assert.Equal(t, 2, svc.lastPoll.MaxAnswer)
-		assert.Equal(t, "628", svc.lastPoll.Phone)
+		assert.Equal(t, "628@s.whatsapp.net", svc.lastPoll.Phone)
 		assert.True(t, svc.lastPoll.IsForwarded)
 	})
 
@@ -255,6 +262,86 @@ func TestHandleSendDispatch(t *testing.T) {
 		require.NotNil(t, svc.lastForward)
 		require.NotNil(t, svc.lastForward.Duration)
 		assert.Equal(t, 86400, *svc.lastForward.Duration)
+	})
+
+	t.Run("phone is sanitized like REST", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		for phone, want := range map[string]string{
+			"120363025246125486":      "120363025246125486@g.us",
+			"status@broadcast":        "status@broadcast",
+			"628@s.whatsapp.net":      "628@s.whatsapp.net",
+			"120363025246125486@g.us": "120363025246125486@g.us",
+		} {
+			_, err := h.handleSend(deviceCtx(), callReq(map[string]any{"type": "text", "phone": phone, "message": "hi"}))
+			require.NoError(t, err)
+			assert.Equal(t, want, svc.lastText.Phone, phone)
+		}
+		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{"type": "forward", "phone": "120363025246125486", "message_id": "M1"}))
+		require.NoError(t, err)
+		assert.Equal(t, "120363025246125486@g.us", svc.lastForward.Phone)
+	})
+
+	t.Run("interactive buttons", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "interactive", "phone": "628", "body": "Confirm?", "footer": "f",
+			"buttons": []any{map[string]any{"name": "quick_reply", "params": map[string]any{"display_text": "Yes", "id": "yes"}}},
+		}))
+		require.NoError(t, err)
+		require.False(t, res.IsError)
+		require.NotNil(t, svc.lastInteract)
+		assert.Equal(t, "628@s.whatsapp.net", svc.lastInteract.Phone)
+		assert.Equal(t, "Confirm?", svc.lastInteract.Body)
+		assert.Equal(t, "f", svc.lastInteract.Footer)
+		require.Len(t, svc.lastInteract.Buttons, 1)
+		assert.Equal(t, "quick_reply", svc.lastInteract.Buttons[0].Name)
+		assert.JSONEq(t, `{"display_text":"Yes","id":"yes"}`, string(svc.lastInteract.Buttons[0].Params))
+		assert.Equal(t, "accepted; recipient rendering is unverified (message ID MSG1)", resultText(t, res))
+	})
+
+	t.Run("interactive cards", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		card := func(title string) map[string]any {
+			return map[string]any{"title": title, "body": "b", "image_base64": "aGk=",
+				"buttons": []any{map[string]any{"name": "quick_reply", "params": map[string]any{"display_text": title, "id": title}}}}
+		}
+		_, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "interactive", "phone": "628", "body": "Pick", "cards": []any{card("A"), card("B")},
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, svc.lastInteract)
+		require.Len(t, svc.lastInteract.Cards, 2)
+		assert.Equal(t, "A", svc.lastInteract.Cards[0].Title)
+		assert.Equal(t, "aGk=", svc.lastInteract.Cards[0].ImageBase64)
+		assert.JSONEq(t, `{"display_text":"B","id":"B"}`, string(svc.lastInteract.Cards[1].Buttons[0].Params))
+	})
+
+	t.Run("interactive usecase error becomes tool error", func(t *testing.T) {
+		svc := &stubSendService{err: errors.New("boom")}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "interactive", "phone": "628", "body": "x",
+			"buttons": []any{map[string]any{"name": "quick_reply", "params": map[string]any{"display_text": "Yes", "id": "yes"}}},
+		}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Equal(t, "boom", resultText(t, res))
+	})
+
+	t.Run("interactive cannot be scheduled", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "interactive", "phone": "628", "body": "x",
+			"buttons":      []any{map[string]any{"name": "quick_reply", "params": map[string]any{"display_text": "Yes", "id": "yes"}}},
+			"scheduled_at": "2026-09-22T10:00:00Z", "timezone": "UTC",
+		}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Nil(t, svc.lastInteract)
 	})
 
 	t.Run("scheduled send reports schedule_id", func(t *testing.T) {

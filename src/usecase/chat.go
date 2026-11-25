@@ -494,7 +494,12 @@ func (service serviceChat) RequestChatHistory(ctx context.Context, request domai
 	// Resolve the anchor before touching the network: a chat with no stored
 	// messages has nothing for the phone to anchor an on-demand sync on, so
 	// fail fast on that instead of requiring a live connection first.
-	oldest, err := service.chatStorageRepo.GetOldestMessageByDevice(deviceID, request.ChatJID)
+	// Stored rows use the full JID, so normalize a bare or +-prefixed number offline.
+	lookupJID := request.ChatJID
+	if parsed, parseErr := utils.ParseJID(request.ChatJID); parseErr == nil {
+		lookupJID = parsed.String()
+	}
+	oldest, err := service.chatStorageRepo.GetOldestMessageByDevice(deviceID, lookupJID)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to look up oldest stored message")
 		return response, err

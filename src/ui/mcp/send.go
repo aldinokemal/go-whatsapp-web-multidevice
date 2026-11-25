@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -21,7 +22,7 @@ func InitMcpSend(sendService domainSend.ISendUsecase, resolver deviceResolver) *
 
 func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_send",
-		mcpg.WithDescription("Send a WhatsApp message. The `type` field selects what to send: text, image, video, audio, document, sticker, location, contact, poll, link, or forward an existing message."),
+		mcpg.WithDescription("Send a WhatsApp message. The `type` field selects what to send: text, image, video, audio, document, sticker, location, contact, poll, link, interactive (experimental native-flow buttons or image carousel, immediate only), or forward an existing message."),
 		mcpg.WithTitleAnnotation("Send WhatsApp Message"),
 		mcpg.WithReadOnlyHintAnnotation(false),
 		mcpg.WithDestructiveHintAnnotation(false),
@@ -48,6 +49,8 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 	if err != nil {
 		return mcpg.NewToolResultError(err.Error()), nil
 	}
+	// Same as REST: a bare number gets @s.whatsapp.net, a bare ID over 15 digits gets @g.us.
+	utils.SanitizePhone(&phone)
 
 	base := domainSend.BaseRequest{
 		ScheduleOptions: scheduleOptions(request),
@@ -151,6 +154,20 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			}
 		}
 		res, err = s.sendService.SendForward(ctx, forwardReq)
+	case "interactive":
+		if base.IsScheduled() {
+			return mcpg.NewToolResultError("interactive messages are sent immediately and cannot be scheduled"), nil
+		}
+		var interactiveReq domainSend.InteractiveRequest
+		if err := request.BindArguments(&interactiveReq); err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		interactiveReq.Phone = phone
+		res, err = s.sendService.SendInteractive(ctx, interactiveReq)
+		if err == nil {
+			// Keep the usecase's "recipient rendering is unverified" status instead of a plain success line.
+			return mcpg.NewToolResultText(fmt.Sprintf("%s (message ID %s)", res.Status, res.MessageID)), nil
+		}
 	default:
 		return mcpg.NewToolResultError(fmt.Sprintf("unknown send type: %s", msgType)), nil
 	}

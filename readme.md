@@ -48,7 +48,7 @@ authentication, device management, webhooks, examples, and the API reference.
 The documentation tracks `main`. Check the
 release notes and `GET /app/info` when using a pinned binary or container tag.
 
-- [Experimental interactive messages](./docs/interactive-messages.md) covers native-flow buttons, location requests, and image carousels. `POST /send/interactive` is immediate-only and REST-only; recipient compatibility varies.
+- [Experimental interactive messages](./docs/interactive-messages.md) covers native-flow buttons, location requests, and image carousels. `POST /send/interactive` (and MCP `whatsapp_send` `type: interactive`) is immediate-only; recipient compatibility varies.
 - [Webhook payloads](./docs/webhook-payload.md) describes event schemas and signing.
 - [Chatwoot](./docs/chatwoot.md), [MCP OAuth](./docs/mcp-oauth.md), [Neon](./docs/neon.md), and [media storage](./docs/media-storage.md) provide integration and operations guides.
 - [OpenAPI](./docs/openapi.yaml) defines the machine-readable REST contract, including `/send/interactive`.
@@ -446,16 +446,16 @@ operation:
 
 | Tool               | `type` / `action` values                                                                                                                                     |
 |--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`                                                    |
+| `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`, `interactive`                                     |
 | `whatsapp_schedule` | `list`, `get`, `pause`, `resume`, `cancel`                                                                                                                    |
 | `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `download_media`                                                           |
-| `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`                                                                                                      |
+| `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`, `pin`, `set_disappearing`, `request_history`                                                        |
 | `whatsapp_group`   | `create`, `join_with_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
 | `whatsapp_newsletter` | `follow`, `unfollow`, `info`, `directory`, `messages`, `message_updates`, `live_updates_subscribe`, `live_updates_unsubscribe`, `live_updates_list`        |
 
 `whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
-`occurrence_limit` to schedule the message instead of sending it now; manage the result with `whatsapp_schedule`.
+`occurrence_limit` to schedule the message instead of sending it now (except `interactive`); manage the result with `whatsapp_schedule`.
 
 #### Device selection
 

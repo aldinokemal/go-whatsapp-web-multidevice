@@ -24,11 +24,11 @@ func InitMcpChat(chatService domainChat.IChatUsecase, userService domainUser.IUs
 
 func (h *ChatHandler) AddChatTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_chat",
-		mcpg.WithDescription("Query WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), or archive/unarchive a chat."),
-		mcpg.WithTitleAnnotation("Chat Queries"),
+		mcpg.WithDescription("Query and manage WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), archive/unarchive, pin/unpin, set_disappearing (disappearing-message timer), or request_history (ask the phone to sync older messages of a chat)."),
+		mcpg.WithTitleAnnotation("Chat Management"),
 		mcpg.WithReadOnlyHintAnnotation(false),
-		mcpg.WithDestructiveHintAnnotation(false),
-		mcpg.WithIdempotentHintAnnotation(true),
+		mcpg.WithDestructiveHintAnnotation(true),
+		mcpg.WithIdempotentHintAnnotation(false),
 		mcpg.WithRawInputSchema(json.RawMessage(chatSchema)),
 	)
 	// NewTool defaults InputSchema.Type to "object"; clear it so only
@@ -108,6 +108,34 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
 		return mcpg.NewToolResultStructured(resp, resp.Message), nil
+	case "pin":
+		resp, err := h.chatService.PinChat(ctx, domainChat.PinChatRequest{
+			ChatJID: request.GetString("chat_jid", ""),
+			Pinned:  request.GetBool("pinned", false),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, resp.Message), nil
+	case "set_disappearing":
+		resp, err := h.chatService.SetDisappearingTimer(ctx, domainChat.SetDisappearingTimerRequest{
+			ChatJID: request.GetString("chat_jid", ""),
+			// The schema restricts timer_seconds to 0/86400/604800/7776000, so the conversion cannot overflow.
+			TimerSeconds: uint32(request.GetInt("timer_seconds", 0)),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, resp.Message), nil
+	case "request_history":
+		resp, err := h.chatService.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+			ChatJID: request.GetString("chat_jid", ""),
+			Count:   request.GetInt("count", 0),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, "History sync requested successfully"), nil
 	default:
 		return mcpg.NewToolResultError(fmt.Sprintf("unknown chat action: %s", action)), nil
 	}
