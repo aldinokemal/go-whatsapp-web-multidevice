@@ -207,6 +207,15 @@ func (h *Handler) OnEvent(ctx context.Context, inst *whatsapp.DeviceInstance, ev
 		return
 	}
 	if id := h.ServiceDeviceID(ctx); id == "" || inst.ID() != id {
+		// The phrase matched - reason == "" above proves it - but the live
+		// ServiceDeviceID lookup disagrees with which device actually
+		// received it. Both are internal device ids, never a phone number
+		// or message text, so logging them is safe and is the one piece of
+		// information that can actually explain this particular silence:
+		// a correctly-typed phrase that still produces nothing, with no
+		// near-miss and no outcome logged either, because Handle() is never
+		// reached at all.
+		logrus.Infof("[WTF] sign-in: a matching phrase arrived on device %q but the configured service device is %q", inst.ID(), id)
 		return
 	}
 	h.init()

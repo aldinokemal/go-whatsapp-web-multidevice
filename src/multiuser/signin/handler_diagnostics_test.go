@@ -98,6 +98,28 @@ func TestOnEventLogsANearMissOnAnyLinkedDevice(t *testing.T) {
 	assert.True(t, anyContains(logLines(hook), "reason=phrase_mismatch"))
 }
 
+// A matching phrase that still produces nothing, with no near-miss logged
+// (reason == "" proves the phrase itself was fine), can only mean Handle()
+// was never reached at all - the one remaining silent branch #20 and #21
+// both missed, because it only exists once the phrase has already matched.
+func TestOnEventLogsAMatchingPhraseOnTheWrongDevice(t *testing.T) {
+	h, _, _ := newHandler(t, true)
+	h.ServiceDeviceID = func(context.Context) string { return "d_service" }
+	hook := captureLogs(t)
+
+	userPhone := whatsapp.NewDeviceInstance("d_users_own_phone", nil, nil)
+	from := types.NewJID("27825550199", types.DefaultUserServer)
+	h.OnEvent(context.Background(), userPhone, msg(from, "Sign me in to WTF"))
+	require.Eventually(t, func() bool { return len(hook.AllEntries()) > 0 }, time.Second, time.Millisecond)
+
+	lines := logLines(hook)
+	assert.True(t, anyContains(lines, "d_users_own_phone"), "lines: %v", lines)
+	assert.True(t, anyContains(lines, "d_service"), "lines: %v", lines)
+	for _, l := range lines {
+		assert.NotContains(t, l, "Sign me in to WTF")
+	}
+}
+
 func TestOnEventStaysQuietForOrdinaryChatter(t *testing.T) {
 	h, _, _ := newHandler(t, true)
 	h.ServiceDeviceID = func(context.Context) string { return svc.ID() }
