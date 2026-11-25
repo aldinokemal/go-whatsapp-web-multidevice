@@ -119,7 +119,16 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 	instance := NewDeviceInstance(instanceID, client, deviceRepo)
 
 	client.AddEventHandler(func(rawEvt any) {
-		handler(ctx, instance, rawEvt)
+		// deviceManager (set just below, via InitializeDeviceManager) may later
+		// replace this startup-keyed instance with a canonical-id one -
+		// loadFromRegistry's one-time boot reconciliation does exactly that.
+		// Resolve fresh on every event so this closure never drives a stale,
+		// now-unregistered instance for the rest of the process's life.
+		current := instance
+		if deviceManager != nil {
+			current = deviceManager.CurrentInstanceFor(instance)
+		}
+		handler(ctx, current, rawEvt)
 	})
 
 	// Register device instance in the manager for multi-device awareness

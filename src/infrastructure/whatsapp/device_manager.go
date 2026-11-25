@@ -71,6 +71,40 @@ func (m *DeviceManager) GetDevice(id string) (*DeviceInstance, bool) {
 	return instance, ok
 }
 
+// CurrentInstanceFor resolves the device instance actually registered right now
+// for the same companion session as inst, in case the manager has since
+// replaced it with a different *DeviceInstance object. This is the same gap
+// keepSlotLogout's own comment documents for the remote-logout callback:
+// InitWaCLI (and EnsureClient's reconnect path) register their event-handler
+// closure once, at client creation, over whichever instance existed then -
+// keyed by the client's own AD JID string. loadFromRegistry's one-time boot
+// reconciliation can later move that same live client onto a brand-new
+// instance keyed by the registry's canonical device id instead, and nothing
+// ever told the already-registered closure - so every event for that device
+// reported the stale AD-JID-shaped id forever, never the canonical one every
+// other part of the system (settings, admin tools, ServiceDeviceID) uses.
+// Falls back to inst itself when nothing has moved, or when the manager has
+// no record of it at all (e.g. a single-device deployment with no registry).
+func (m *DeviceManager) CurrentInstanceFor(inst *DeviceInstance) *DeviceInstance {
+	if m == nil || inst == nil {
+		return inst
+	}
+	if current, ok := m.GetDevice(inst.ID()); ok && current == inst {
+		return inst
+	}
+	if ad := inst.ADJID(); ad != "" {
+		if current, ok := m.getDeviceByJID(ad); ok {
+			return current
+		}
+	}
+	if jid := inst.JID(); jid != "" {
+		if current, ok := m.getDeviceByJID(jid); ok {
+			return current
+		}
+	}
+	return inst
+}
+
 func (m *DeviceManager) getDeviceByJID(jid string) (*DeviceInstance, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -865,7 +899,10 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		if inst.GetClient() != client {
 			return
 		}
-		handler(context.Background(), inst, rawEvt)
+		// A later boot reconciliation (loadFromRegistry) can move this same
+		// live client onto a different, canonical-id-keyed instance; resolve
+		// fresh on every event so this closure never drives the stale one.
+		handler(context.Background(), m.CurrentInstanceFor(inst), rawEvt)
 	})
 
 	inst.SetOnLoggedOut(func(deviceID string) {
