@@ -446,7 +446,7 @@ operation:
 
 | Tool               | `type` / `action` values                                                                                                                                     |
 |--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`, `interactive`                                     |
+| `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`, `interactive`, `chat_presence`, `presence`        |
 | `whatsapp_schedule` | `list`, `get`, `pause`, `resume`, `cancel`                                                                                                                    |
 | `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `download_media`                                                           |
 | `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`, `pin`, `set_disappearing`, `request_history`                                                        |
@@ -455,7 +455,7 @@ operation:
 | `whatsapp_newsletter` | `follow`, `unfollow`, `info`, `directory`, `messages`, `message_updates`, `live_updates_subscribe`, `live_updates_unsubscribe`, `live_updates_list`        |
 
 `whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
-`occurrence_limit` to schedule the message instead of sending it now (except `interactive`); manage the result with `whatsapp_schedule`.
+`occurrence_limit` to schedule the message instead of sending it now (except `interactive`, `chat_presence`, and `presence`); manage the result with `whatsapp_schedule`.
 
 #### Device selection
 

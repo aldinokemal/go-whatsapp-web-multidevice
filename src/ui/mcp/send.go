@@ -22,7 +22,7 @@ func InitMcpSend(sendService domainSend.ISendUsecase, resolver deviceResolver) *
 
 func (s *SendHandler) AddSendTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_send",
-		mcpg.WithDescription("Send a WhatsApp message. The `type` field selects what to send: text, image, video, audio, document, sticker, location, contact, poll, link, interactive (experimental native-flow buttons or image carousel, immediate only), or forward an existing message."),
+		mcpg.WithDescription("Send a WhatsApp message. The `type` field selects what to send: text, image, video, audio, document, sticker, location, contact, poll, link, interactive (experimental native-flow buttons or image carousel, immediate only), forward an existing message, chat_presence (start/stop the typing indicator in a chat), or presence (set this account online/offline; no phone)."),
 		mcpg.WithTitleAnnotation("Send WhatsApp Message"),
 		mcpg.WithReadOnlyHintAnnotation(false),
 		mcpg.WithDestructiveHintAnnotation(false),
@@ -45,6 +45,17 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 	if err != nil {
 		return mcpg.NewToolResultError(err.Error()), nil
 	}
+	// Account-wide presence has no recipient, so it is handled before phone is required.
+	if msgType == "presence" {
+		if scheduleOptions(request).IsScheduled() {
+			return mcpg.NewToolResultError("presence is sent immediately and cannot be scheduled"), nil
+		}
+		res, err := s.sendService.SendPresence(ctx, domainSend.PresenceRequest{Type: request.GetString("presence", "")})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultText(res.Status), nil
+	}
 	phone, err := request.RequireString("phone")
 	if err != nil {
 		return mcpg.NewToolResultError(err.Error()), nil
@@ -52,16 +63,23 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 	// Same as REST: a bare number gets @s.whatsapp.net, a bare ID over 15 digits gets @g.us.
 	utils.SanitizePhone(&phone)
 
+	// duration is optional; an explicit 0 turns expiry off, so absent must stay nil.
+	var duration *int
+	if _, ok := request.GetArguments()["duration"]; ok {
+		d := request.GetInt("duration", 0)
+		duration = &d
+	}
 	base := domainSend.BaseRequest{
 		ScheduleOptions: scheduleOptions(request),
 		Phone:           phone,
+		Duration:        duration,
 		IsForwarded:     request.GetBool("is_forwarded", false),
 	}
+	replyID := request.GetString("reply_message_id", "")
 
 	var res domainSend.GenericResponse
 	switch msgType {
 	case "text":
-		replyID := request.GetString("reply_message_id", "")
 		res, err = s.sendService.SendText(ctx, domainSend.MessageRequest{
 			BaseRequest:    base,
 			Message:        request.GetString("message", ""),
@@ -72,48 +90,53 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 	case "image":
 		imageURL := request.GetString("image_url", "")
 		res, err = s.sendService.SendImage(ctx, domainSend.ImageRequest{
-			BaseRequest:  base,
-			ImageURL:     &imageURL,
-			Caption:      request.GetString("caption", ""),
-			Mentions:     request.GetStringSlice("mentions", nil),
-			ViewOnce:     request.GetBool("view_once", false),
-			Compress:     request.GetBool("compress", true),
-			HD:           request.GetBool("hd", false),
-			AllowReshare: request.GetBool("allow_reshare", false),
+			BaseRequest:    base,
+			ReplyMessageID: &replyID,
+			ImageURL:       &imageURL,
+			Caption:        request.GetString("caption", ""),
+			Mentions:       request.GetStringSlice("mentions", nil),
+			ViewOnce:       request.GetBool("view_once", false),
+			Compress:       request.GetBool("compress", true),
+			HD:             request.GetBool("hd", false),
+			AllowReshare:   request.GetBool("allow_reshare", false),
 		})
 	case "video":
 		videoURL := request.GetString("video_url", "")
 		res, err = s.sendService.SendVideo(ctx, domainSend.VideoRequest{
-			BaseRequest:  base,
-			VideoURL:     &videoURL,
-			Caption:      request.GetString("caption", ""),
-			Mentions:     request.GetStringSlice("mentions", nil),
-			ViewOnce:     request.GetBool("view_once", false),
-			GifPlayback:  request.GetBool("gif_playback", false),
-			Compress:     request.GetBool("compress", false),
-			HD:           request.GetBool("hd", false),
-			AllowReshare: request.GetBool("allow_reshare", false),
+			BaseRequest:    base,
+			ReplyMessageID: &replyID,
+			VideoURL:       &videoURL,
+			Caption:        request.GetString("caption", ""),
+			Mentions:       request.GetStringSlice("mentions", nil),
+			ViewOnce:       request.GetBool("view_once", false),
+			GifPlayback:    request.GetBool("gif_playback", false),
+			Compress:       request.GetBool("compress", false),
+			HD:             request.GetBool("hd", false),
+			AllowReshare:   request.GetBool("allow_reshare", false),
 		})
 	case "audio":
 		audioURL := request.GetString("audio_url", "")
 		res, err = s.sendService.SendAudio(ctx, domainSend.AudioRequest{
-			BaseRequest: base,
-			AudioURL:    &audioURL,
-			PTT:         request.GetBool("ptt", false),
+			BaseRequest:    base,
+			ReplyMessageID: &replyID,
+			AudioURL:       &audioURL,
+			PTT:            request.GetBool("ptt", false),
 		})
 	case "document":
 		fileURL := request.GetString("file_url", "")
 		res, err = s.sendService.SendFile(ctx, domainSend.FileRequest{
-			BaseRequest: base,
-			FileURL:     &fileURL,
-			Caption:     request.GetString("caption", ""),
-			Mentions:    request.GetStringSlice("mentions", nil),
+			BaseRequest:    base,
+			ReplyMessageID: &replyID,
+			FileURL:        &fileURL,
+			Caption:        request.GetString("caption", ""),
+			Mentions:       request.GetStringSlice("mentions", nil),
 		})
 	case "sticker":
 		stickerURL := request.GetString("sticker_url", "")
 		res, err = s.sendService.SendSticker(ctx, domainSend.StickerRequest{
-			BaseRequest: base,
-			StickerURL:  &stickerURL,
+			BaseRequest:    base,
+			ReplyMessageID: &replyID,
+			StickerURL:     &stickerURL,
 		})
 	case "location":
 		res, err = s.sendService.SendLocation(ctx, domainSend.LocationRequest{
@@ -145,13 +168,8 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 			ScheduleOptions: scheduleOptions(request),
 			MessageID:       request.GetString("message_id", ""),
 			Phone:           phone,
+			Duration:        duration,
 			ForceReupload:   request.GetBool("force_reupload", false),
-		}
-		if args := request.GetArguments(); args != nil {
-			if _, ok := args["duration"]; ok {
-				duration := request.GetInt("duration", 0)
-				forwardReq.Duration = &duration
-			}
 		}
 		res, err = s.sendService.SendForward(ctx, forwardReq)
 	case "interactive":
@@ -167,6 +185,16 @@ func (s *SendHandler) handleSend(ctx context.Context, request mcpg.CallToolReque
 		if err == nil {
 			// Keep the usecase's "recipient rendering is unverified" status instead of a plain success line.
 			return mcpg.NewToolResultText(fmt.Sprintf("%s (message ID %s)", res.Status, res.MessageID)), nil
+		}
+	case "chat_presence":
+		// BaseRequest carries the schedule options so the scheduling decorator can reject them.
+		res, err = s.sendService.SendChatPresence(ctx, domainSend.ChatPresenceRequest{
+			BaseRequest: base,
+			Phone:       phone,
+			Action:      request.GetString("action", ""),
+		})
+		if err == nil {
+			return mcpg.NewToolResultText(res.Status), nil
 		}
 	default:
 		return mcpg.NewToolResultError(fmt.Sprintf("unknown send type: %s", msgType)), nil

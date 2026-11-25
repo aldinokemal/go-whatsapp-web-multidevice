@@ -75,6 +75,15 @@ func TestSchemas(t *testing.T) {
 		{"send interactive params not object", sendSchema, `{"type":"interactive","phone":"628","body":"b","buttons":[{"name":"quick_reply","params":"x"}]}`, true},
 		{"send interactive card unknown button", sendSchema, `{"type":"interactive","phone":"628","body":"b","cards":[{"body":"a","buttons":[{"name":"fax","params":{}}]},{"body":"b","buttons":[{"name":"quick_reply","params":{}}]}]}`, true},
 		{"send interactive card send_location", sendSchema, `{"type":"interactive","phone":"628","body":"b","cards":[{"body":"a","buttons":[{"name":"send_location","params":{}}]},{"body":"b","buttons":[{"name":"quick_reply","params":{}}]}]}`, true},
+		{"send presence ok without phone", sendSchema, `{"type":"presence","presence":"available"}`, false},
+		{"send presence missing value", sendSchema, `{"type":"presence"}`, true},
+		{"send presence bad value", sendSchema, `{"type":"presence","presence":"busy"}`, true},
+		{"send chat_presence ok", sendSchema, `{"type":"chat_presence","phone":"628","action":"start"}`, false},
+		{"send chat_presence missing action", sendSchema, `{"type":"chat_presence","phone":"628"}`, true},
+		{"send chat_presence bad action", sendSchema, `{"type":"chat_presence","phone":"628","action":"record"}`, true},
+		{"send chat_presence missing phone", sendSchema, `{"type":"chat_presence","action":"start"}`, true},
+		{"send text duration allowed", sendSchema, `{"type":"text","phone":"628","message":"hi","duration":86400}`, false},
+		{"send image reply ok", sendSchema, `{"type":"image","phone":"628","image_url":"http://x/a.png","reply_message_id":"R1"}`, false},
 		{"send interactive one card", sendSchema, `{"type":"interactive","phone":"628","body":"b","cards":[{"body":"a","buttons":[{"name":"quick_reply","params":{}}]}]}`, true},
 
 		// ---- whatsapp_schedule ----

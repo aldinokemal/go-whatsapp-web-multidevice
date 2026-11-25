@@ -28,6 +28,8 @@ type stubSendService struct {
 	lastLink     *domainSend.LinkRequest
 	lastForward  *domainSend.ForwardRequest
 	lastInteract *domainSend.InteractiveRequest
+	lastPresence *domainSend.PresenceRequest
+	lastChatPres *domainSend.ChatPresenceRequest
 	scheduled    bool
 	err          error
 }
@@ -92,6 +94,18 @@ func (s *stubSendService) SendInteractive(_ context.Context, r domainSend.Intera
 	res.Status = "accepted; recipient rendering is unverified"
 	return res, err
 }
+func (s *stubSendService) SendPresence(_ context.Context, r domainSend.PresenceRequest) (domainSend.GenericResponse, error) {
+	s.lastPresence = &r
+	res, err := s.resp()
+	res.Status = "Send presence success " + r.Type
+	return res, err
+}
+func (s *stubSendService) SendChatPresence(_ context.Context, r domainSend.ChatPresenceRequest) (domainSend.GenericResponse, error) {
+	s.lastChatPres = &r
+	res, err := s.resp()
+	res.Status = "Send chat presence " + r.Action + " typing success " + r.Phone
+	return res, err
+}
 
 // resultText returns the text content a tool result reports to the client.
 func resultText(t *testing.T, res *mcpg.CallToolResult) string {
@@ -125,6 +139,103 @@ func TestHandleSendDispatch(t *testing.T) {
 		assert.Equal(t, "R1", *svc.lastText.ReplyMessageID)
 		assert.Equal(t, []string{"629"}, svc.lastText.Mentions)
 		assert.True(t, svc.lastText.IsForwarded)
+		assert.Nil(t, svc.lastText.Duration) // absent duration must not become an explicit 0
+	})
+
+	t.Run("reply_message_id and duration reach every type that supports them", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		for _, args := range []map[string]any{
+			{"type": "text", "message": "hi"},
+			{"type": "image", "image_url": "http://x/a.png"},
+			{"type": "video", "video_url": "http://x/a.mp4"},
+			{"type": "audio", "audio_url": "http://x/a.ogg"},
+			{"type": "document", "file_url": "http://x/a.pdf"},
+			{"type": "sticker", "sticker_url": "http://x/a.png"},
+			{"type": "location", "latitude": "-6.2", "longitude": "106.8"},
+			{"type": "contact", "contact_name": "A", "contact_phone": "629"},
+			{"type": "poll", "question": "q", "options": []any{"a", "b"}},
+			{"type": "link", "link": "http://x", "caption": "c"},
+		} {
+			args["phone"] = "628"
+			args["reply_message_id"] = "R1"
+			args["duration"] = float64(0)
+			res, err := h.handleSend(deviceCtx(), callReq(args))
+			require.NoError(t, err)
+			require.False(t, res.IsError, args["type"])
+		}
+		for name, got := range map[string]*string{
+			"text": svc.lastText.ReplyMessageID, "image": svc.lastImage.ReplyMessageID,
+			"video": svc.lastVideo.ReplyMessageID, "audio": svc.lastAudio.ReplyMessageID,
+			"document": svc.lastFile.ReplyMessageID, "sticker": svc.lastSticker.ReplyMessageID,
+		} {
+			require.NotNil(t, got, name)
+			assert.Equal(t, "R1", *got, name)
+		}
+		for name, got := range map[string]*int{
+			"text": svc.lastText.Duration, "image": svc.lastImage.Duration, "video": svc.lastVideo.Duration,
+			"audio": svc.lastAudio.Duration, "document": svc.lastFile.Duration, "sticker": svc.lastSticker.Duration,
+			"location": svc.lastLocation.Duration, "contact": svc.lastContact.Duration,
+			"poll": svc.lastPoll.Duration, "link": svc.lastLink.Duration,
+		} {
+			require.NotNil(t, got, name) // explicit 0 turns expiry off, so it must survive as a pointer
+			assert.Equal(t, 0, *got, name)
+		}
+	})
+
+	t.Run("presence needs no phone", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{"type": "presence", "presence": "unavailable"}))
+		require.NoError(t, err)
+		require.False(t, res.IsError)
+		require.NotNil(t, svc.lastPresence)
+		assert.Equal(t, "unavailable", svc.lastPresence.Type)
+		assert.Equal(t, "Send presence success unavailable", resultText(t, res))
+	})
+
+	t.Run("presence cannot be scheduled", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "presence", "presence": "available", "scheduled_at": "2026-09-22T10:00:00Z", "timezone": "UTC",
+		}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Nil(t, svc.lastPresence)
+	})
+
+	t.Run("presence usecase error becomes tool error", func(t *testing.T) {
+		h := InitMcpSend(&stubSendService{err: errors.New("boom")}, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{"type": "presence", "presence": "available"}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Equal(t, "boom", resultText(t, res))
+	})
+
+	t.Run("chat_presence", func(t *testing.T) {
+		svc := &stubSendService{}
+		h := InitMcpSend(svc, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{
+			"type": "chat_presence", "phone": "628", "action": "start",
+			"scheduled_at": "2026-09-22T10:00:00Z", "timezone": "UTC",
+		}))
+		require.NoError(t, err)
+		require.False(t, res.IsError)
+		require.NotNil(t, svc.lastChatPres)
+		assert.Equal(t, "628@s.whatsapp.net", svc.lastChatPres.Phone)
+		assert.Equal(t, "start", svc.lastChatPres.Action)
+		// The scheduling decorator rejects chat presence by reading these options.
+		assert.True(t, svc.lastChatPres.IsScheduled())
+		assert.Equal(t, "Send chat presence start typing success 628@s.whatsapp.net", resultText(t, res))
+	})
+
+	t.Run("chat_presence usecase error becomes tool error", func(t *testing.T) {
+		h := InitMcpSend(&stubSendService{err: errors.New("boom")}, &stubResolver{})
+		res, err := h.handleSend(deviceCtx(), callReq(map[string]any{"type": "chat_presence", "phone": "628", "action": "stop"}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Equal(t, "boom", resultText(t, res))
 	})
 
 	t.Run("image", func(t *testing.T) {

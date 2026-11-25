@@ -6,14 +6,14 @@ package mcp
 
 const sendSchema = `{
   "type": "object",
-  "required": ["type", "phone"],
+  "required": ["type"],
   "properties": {
-    "type": {"type": "string", "enum": ["text","image","video","audio","document","sticker","location","contact","poll","link","forward","interactive"], "description": "Kind of message to send"},
-    "phone": {"type": "string", "description": "Destination phone number or group JID"},
+    "type": {"type": "string", "enum": ["text","image","video","audio","document","sticker","location","contact","poll","link","forward","interactive","chat_presence","presence"], "description": "Kind of message to send"},
+    "phone": {"type": "string", "description": "Destination phone number or group JID (required for every type except presence)"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default (X-Device-Id header)"},
     "is_forwarded": {"type": "boolean", "description": "Mark the message as forwarded (default false); ignored for interactive"},
     "message": {"type": "string", "description": "type=text: the text body"},
-    "reply_message_id": {"type": "string", "description": "type=text: message ID to reply to"},
+    "reply_message_id": {"type": "string", "description": "text/image/video/audio/document/sticker: message ID to reply to"},
     "mentions": {"type": "array", "items": {"type": "string"}, "description": "text/image/video/document: ghost mentions; \"@everyone\" mentions all group participants"},
     "image_url": {"type": "string", "description": "type=image: URL of the image (fetched server-side)"},
     "caption": {"type": "string", "description": "image/video/document/link: caption text"},
@@ -36,13 +36,15 @@ const sendSchema = `{
     "max_answer": {"type": "integer", "minimum": 1, "description": "type=poll: max selectable options, at most the number of options (default 1)"},
     "link": {"type": "string", "description": "type=link: the URL to send"},
     "message_id": {"type": "string", "description": "type=forward: source message ID from chat storage"},
-    "duration": {"type": "integer", "enum": [0, 86400, 604800, 7776000], "description": "type=forward: disappearing duration seconds (0, 86400, 604800, 7776000)"},
+    "duration": {"type": "integer", "enum": [0, 86400, 604800, 7776000], "description": "Disappearing timer seconds for the sent message (0, 86400, 604800, 7776000); all types except interactive, chat_presence and presence"},
+    "action": {"type": "string", "enum": ["start", "stop"], "description": "type=chat_presence: start or stop the typing indicator in the chat with phone"},
+    "presence": {"type": "string", "enum": ["available", "unavailable"], "description": "type=presence: set this account online (available) or offline (unavailable)"},
     "force_reupload": {"type": "boolean", "description": "type=forward: re-upload media instead of reusing references (default false)"},
     "body": {"type": "string", "description": "type=interactive: message body text (max 4096 bytes)"},
     "footer": {"type": "string", "description": "type=interactive: optional footer text (max 256 bytes)"},
     "buttons": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "object", "required": ["name", "params"], "properties": {"name": {"type": "string", "enum": ["quick_reply","cta_url","cta_copy","cta_call","single_select","send_location"]}, "params": {"type": "object"}}}, "description": "type=interactive: native-flow buttons; use this or cards, not both. params per name: quick_reply {display_text,id}, cta_url {display_text,url}, cta_copy {display_text,copy_code}, cta_call {display_text,phone_number}, single_select {title,sections:[{title,rows:[{id,title}]}]}, send_location {} (must be the only button)"},
     "cards": {"type": "array", "minItems": 2, "maxItems": 10, "items": {"type": "object", "required": ["body", "buttons"], "properties": {"title": {"type": "string"}, "body": {"type": "string"}, "footer": {"type": "string"}, "image_base64": {"type": "string", "description": "raw base64 JPEG/PNG, no data-URL prefix"}, "buttons": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "object", "required": ["name", "params"], "properties": {"name": {"type": "string", "enum": ["quick_reply","cta_url","cta_copy","cta_call","single_select"]}, "params": {"type": "object"}}}}}}, "description": "type=interactive: image carousel of 2-10 cards, each with 1-10 buttons shaped like top-level buttons (send_location is not allowed in cards); use this or buttons, not both"},
-    "scheduled_at": {"type": "string", "description": "Schedule instead of sending now: RFC3339 time of the first send (must be in the future); not supported for interactive"},
+    "scheduled_at": {"type": "string", "description": "Schedule instead of sending now: RFC3339 time of the first send (must be in the future); not supported for interactive, chat_presence or presence"},
     "timezone": {"type": "string", "description": "IANA timezone (e.g. Asia/Jakarta); required when scheduled_at is set"},
     "recurrence": {"type": "string", "enum": ["once","daily","weekly","monthly"], "description": "Repeat pattern for a scheduled send (default once)"},
     "weekdays": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "uniqueItems": true, "description": "recurrence=weekly (required): days to send, 0=Sunday through 6=Saturday"},
@@ -62,7 +64,9 @@ const sendSchema = `{
     {"if": {"properties": {"type": {"const": "poll"}}},     "then": {"required": ["question", "options"]}},
     {"if": {"properties": {"type": {"const": "link"}}},     "then": {"required": ["link", "caption"]}},
     {"if": {"properties": {"type": {"const": "forward"}}},  "then": {"required": ["message_id"]}},
-    {"if": {"properties": {"type": {"const": "interactive"}}}, "then": {"required": ["body"], "oneOf": [{"required": ["buttons"]}, {"required": ["cards"]}]}}
+    {"if": {"properties": {"type": {"const": "interactive"}}}, "then": {"required": ["body"], "oneOf": [{"required": ["buttons"]}, {"required": ["cards"]}]}},
+    {"if": {"properties": {"type": {"const": "chat_presence"}}}, "then": {"required": ["action"]}},
+    {"if": {"properties": {"type": {"const": "presence"}}}, "then": {"required": ["presence"]}, "else": {"required": ["phone"]}}
   ]
 }`
 
