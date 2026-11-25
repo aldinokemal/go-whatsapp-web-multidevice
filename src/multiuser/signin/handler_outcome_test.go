@@ -92,6 +92,33 @@ func TestHandleLogsDeclined(t *testing.T) {
 	assert.True(t, anyContains(logLines(hook), "outcome=declined"))
 }
 
+// The last two defensive branches: should never fire in production (OnEvent
+// never calls Handle with a nil instance or ServiceDeviceID unset, and never
+// dispatches a message that doesn't already match), but a direct call - the
+// shape a real desync bug between the two would take - must not go silent.
+func TestOnEventLogsMisconfiguredWhenNoServiceDeviceIDResolver(t *testing.T) {
+	h, _, _ := newHandler(t, true)
+	h.ServiceDeviceID = nil
+	hook := captureLogs(t)
+	h.OnEvent(context.Background(), svc, msg(pn("27825550199"), "Sign me in to WTF"))
+	assert.True(t, anyContains(logLines(hook), "outcome=misconfigured"))
+}
+
+func TestHandleLogsUnexpectedWhenCalledWithANonMatchingMessage(t *testing.T) {
+	h, _, _ := newHandler(t, true)
+	hook := captureLogs(t)
+	h.Handle(context.Background(), svc, msg(pn("27825550199"), "hello there"))
+	assert.True(t, anyContains(logLines(hook), "outcome=handle_guard_unexpected"))
+}
+
+func TestHandleLogsStoreUnconfigured(t *testing.T) {
+	h, _, _ := newHandler(t, true)
+	h.Store = nil
+	hook := captureLogs(t)
+	h.Handle(context.Background(), svc, msg(pn("27825550199"), "Sign me in to WTF"))
+	assert.True(t, anyContains(logLines(hook), "outcome=store_unconfigured"))
+}
+
 // None of the above may ever carry the phone number or the message text.
 func TestHandleOutcomeLogsNeverCarryPrivateData(t *testing.T) {
 	h, _, st := newHandler(t, false)

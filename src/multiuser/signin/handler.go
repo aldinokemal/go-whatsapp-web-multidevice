@@ -196,7 +196,14 @@ func (h *Handler) OnEvent(ctx context.Context, inst *whatsapp.DeviceInstance, ev
 		}
 	}()
 	m, ok := evt.(*events.Message)
-	if !ok || m == nil || inst == nil || h.ServiceDeviceID == nil {
+	if !ok || m == nil {
+		return // not a message event at all - fires constantly for every other event type on every device, so never logged
+	}
+	if inst == nil || h.ServiceDeviceID == nil {
+		// Should never happen in production: handler() in event_handler.go
+		// never calls EventHook with a nil instance, and NewRuntime always
+		// wires ServiceDeviceID. If this fires, the hook is wired wrong.
+		logrus.Warn("[WTF] sign-in: outcome=misconfigured (no device instance or no ServiceDeviceID resolver)")
 		return
 	}
 	// Cheap checks first: every message on every linked phone passes here.
@@ -241,7 +248,18 @@ func (h *Handler) Handle(ctx context.Context, inst *whatsapp.DeviceInstance, evt
 			logrus.Errorf("[WTF] sign-in: recovered from panic\n%s", debug.Stack())
 		}
 	}()
-	if evt == nil || h.Store == nil || h.ignorable(evt) != "" || !h.isSignInRequest(evt.Message) {
+	if evt == nil {
+		return // a nil pointer, never produced by OnEvent's own dispatch
+	}
+	if h.Store == nil {
+		logrus.Warn("[WTF] sign-in: outcome=store_unconfigured")
+		return
+	}
+	if reason := h.ignorable(evt); reason != "" || !h.isSignInRequest(evt.Message) {
+		// Should never happen in production: OnEvent only ever dispatches to
+		// Handle after proving this exact message already matches. If this
+		// fires, OnEvent and Handle have gone out of sync with each other.
+		logrus.Warnf("[WTF] sign-in: outcome=handle_guard_unexpected (ignorable=%q)", reason)
 		return
 	}
 	h.init()
