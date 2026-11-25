@@ -8,6 +8,7 @@ import (
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mau.fi/whatsmeow/types"
 )
 
 // stubUserToolService records the last call; it also implements the optional
@@ -18,6 +19,7 @@ type stubUserToolService struct {
 	phone    string
 	avatar   domainUser.AvatarRequest
 	pushName string
+	ret      any // response the last call returned
 	err      error
 }
 
@@ -25,24 +27,34 @@ func (s *stubUserToolService) record(name, phone string) { s.called, s.phone = n
 
 func (s *stubUserToolService) Info(_ context.Context, r domainUser.InfoRequest) (domainUser.InfoResponse, error) {
 	s.record("info", r.Phone)
-	return domainUser.InfoResponse{ResolvedPhone: "628123"}, s.err
+	r2 := domainUser.InfoResponse{ResolvedPhone: "628123"}
+	s.ret = r2
+	return r2, s.err
 }
 func (s *stubUserToolService) IsOnWhatsApp(_ context.Context, r domainUser.CheckRequest) (domainUser.CheckResponse, error) {
 	s.record("check", r.Phone)
-	return domainUser.CheckResponse{IsOnWhatsApp: true}, s.err
+	r2 := domainUser.CheckResponse{IsOnWhatsApp: true}
+	s.ret = r2
+	return r2, s.err
 }
 func (s *stubUserToolService) BusinessProfile(_ context.Context, r domainUser.BusinessProfileRequest) (domainUser.BusinessProfileResponse, error) {
 	s.record("business_profile", r.Phone)
-	return domainUser.BusinessProfileResponse{JID: r.Phone}, s.err
+	r2 := domainUser.BusinessProfileResponse{JID: r.Phone, Email: "biz@example.com"}
+	s.ret = r2
+	return r2, s.err
 }
 func (s *stubUserToolService) Avatar(_ context.Context, r domainUser.AvatarRequest) (domainUser.AvatarResponse, error) {
 	s.record("avatar", r.Phone)
 	s.avatar = r
-	return domainUser.AvatarResponse{URL: "https://pps.whatsapp.net/x"}, s.err
+	r2 := domainUser.AvatarResponse{URL: "https://pps.whatsapp.net/x"}
+	s.ret = r2
+	return r2, s.err
 }
 func (s *stubUserToolService) SubscribePresence(_ context.Context, r domainUser.SubscribePresenceRequest) (domainUser.SubscribePresenceResponse, error) {
 	s.record("subscribe_presence", r.Phone)
-	return domainUser.SubscribePresenceResponse{Subscribed: true, JID: r.Phone}, s.err
+	r2 := domainUser.SubscribePresenceResponse{Subscribed: true, JID: r.Phone}
+	s.ret = r2
+	return r2, s.err
 }
 func (s *stubUserToolService) ChangePushName(_ context.Context, r domainUser.ChangePushNameRequest) error {
 	s.record("set_push_name", "")
@@ -51,19 +63,27 @@ func (s *stubUserToolService) ChangePushName(_ context.Context, r domainUser.Cha
 }
 func (s *stubUserToolService) MyPrivacySetting(context.Context) (domainUser.MyPrivacySettingResponse, error) {
 	s.record("my_privacy", "")
-	return domainUser.MyPrivacySettingResponse{LastSeen: "contacts"}, s.err
+	r := domainUser.MyPrivacySettingResponse{LastSeen: "contacts"}
+	s.ret = r
+	return r, s.err
 }
 func (s *stubUserToolService) MyListGroups(context.Context) (domainUser.MyListGroupsResponse, error) {
 	s.record("my_groups", "")
-	return domainUser.MyListGroupsResponse{}, s.err
+	r := domainUser.MyListGroupsResponse{Data: []types.GroupInfo{{JID: types.NewJID("123", types.GroupServer)}}}
+	s.ret = r
+	return r, s.err
 }
 func (s *stubUserToolService) MyListNewsletter(context.Context) (domainUser.MyListNewsletterResponse, error) {
 	s.record("my_newsletters", "")
-	return domainUser.MyListNewsletterResponse{}, s.err
+	r := domainUser.MyListNewsletterResponse{Data: []types.NewsletterMetadata{{ID: types.NewJID("1", types.NewsletterServer)}}}
+	s.ret = r
+	return r, s.err
 }
 func (s *stubUserToolService) MyListContactsDetailed(context.Context) (domainUser.MyListContactsDetailedResponse, error) {
 	s.record("my_contacts_detailed", "")
-	return domainUser.MyListContactsDetailedResponse{Data: []domainUser.MyListContactsDetailedData{{JID: "628999@s.whatsapp.net", FullName: "Bob"}}}, s.err
+	r := domainUser.MyListContactsDetailedResponse{Data: []domainUser.MyListContactsDetailedData{{JID: "628999@s.whatsapp.net", FullName: "Bob"}}}
+	s.ret = r
+	return r, s.err
 }
 
 func TestHandleUserDispatch(t *testing.T) {
@@ -75,7 +95,8 @@ func TestHandleUserDispatch(t *testing.T) {
 			assert.False(t, res.IsError, action)
 			assert.Equal(t, action, svc.called)
 			assert.Equal(t, "628123@s.whatsapp.net", svc.phone, action)
-			assert.NotNil(t, res.StructuredContent, action)
+			require.NotNil(t, svc.ret, action)
+			assert.Equal(t, svc.ret, res.StructuredContent, action)
 		}
 	})
 
@@ -95,7 +116,8 @@ func TestHandleUserDispatch(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, res.IsError, action)
 			assert.Equal(t, action, svc.called)
-			assert.NotNil(t, res.StructuredContent, action)
+			require.NotNil(t, svc.ret, action)
+			assert.Equal(t, svc.ret, res.StructuredContent, action)
 		}
 	})
 

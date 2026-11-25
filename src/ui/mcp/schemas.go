@@ -208,7 +208,7 @@ const userSchema = `{
   "type": "object",
   "required": ["action"],
   "properties": {
-    "action": {"type": "string", "enum": ["info","check","business_profile","avatar","subscribe_presence","set_push_name","my_privacy","my_groups","my_newsletters","my_contacts_detailed"], "description": "User/account query. check = is the number on WhatsApp; subscribe_presence = receive this user's online/offline presence events; set_push_name changes this account's display name; my_* read this account's own data"},
+    "action": {"type": "string", "enum": ["info","check","business_profile","avatar","subscribe_presence","set_push_name","my_privacy","my_groups","my_newsletters","my_contacts_detailed"], "description": "User/account query. check = is the number on WhatsApp; subscribe_presence = receive this user's online/offline presence events (delivered only when the server runs with WHATSAPP_PRESENCE_ON_CONNECT=available); set_push_name changes this account's display name; my_* read this account's own data"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
     "phone": {"type": "string", "description": "info/check/business_profile/avatar/subscribe_presence: phone number or JID of the user (avatar also accepts a group JID)"},
     "is_preview": {"type": "boolean", "description": "avatar: return the low-resolution preview (default false)"},
