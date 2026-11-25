@@ -1,8 +1,8 @@
 # Experimental interactive messages
 
 `POST /send/interactive` uses existing Basic Auth and `X-Device-Id` device
-selection. This is an immediate-only REST endpoint, not a scheduled-send or MCP
-operation. It uses Whatsmeow protobuf messages and binary business nodes, not
+selection. It is immediate-only and cannot be scheduled. MCP clients send the
+same fields through `whatsapp_send` with `type: "interactive"`. It uses Whatsmeow protobuf messages and binary business nodes, not
 XML in visible message text. No bot/AI marker is added.
 
 ## Buttons

@@ -1312,7 +1312,8 @@ const maxPhoneNumberLength = 15 // Maximum digits in a phone number
 
 func SanitizePhone(phone *string) {
 	if phone != nil && len(*phone) > 0 && !strings.Contains(*phone, "@") {
-		if len(*phone) <= maxPhoneNumberLength {
+		// A leading + is not a digit; counting it would turn a 15-digit +number into a group.
+		if len(strings.TrimPrefix(*phone, "+")) <= maxPhoneNumberLength {
 			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeUser)
 		} else {
 			*phone = fmt.Sprintf("%s%s", *phone, config.WhatsappTypeGroup)

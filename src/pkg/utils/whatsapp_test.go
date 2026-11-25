@@ -1444,3 +1444,20 @@ func TestExtractContextInfoOtherMessageTypes(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizePhone(t *testing.T) {
+	for in, want := range map[string]string{
+		"628123456789012":         "628123456789012@s.whatsapp.net",  // 15 digits: still a user
+		"+628123456789012":        "+628123456789012@s.whatsapp.net", // + is not counted toward the cutoff
+		"1203630252461254":        "1203630252461254@g.us",           // over 15 digits: group
+		"120363025246125486@g.us": "120363025246125486@g.us",
+		"status@broadcast":        "status@broadcast",
+		"":                        "",
+	} {
+		got := in
+		SanitizePhone(&got)
+		if got != want {
+			t.Errorf("SanitizePhone(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

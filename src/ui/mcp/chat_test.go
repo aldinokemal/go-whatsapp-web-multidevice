@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
@@ -17,6 +18,10 @@ type stubChatService struct {
 	listed   *domainChat.ListChatsRequest
 	fetched  *domainChat.GetChatMessagesRequest
 	archived *domainChat.ArchiveChatRequest
+	pinned   *domainChat.PinChatRequest
+	timer    *domainChat.SetDisappearingTimerRequest
+	history  *domainChat.RequestChatHistoryRequest
+	err      error
 	listResp domainChat.ListChatsResponse
 	msgResp  domainChat.GetChatMessagesResponse
 }
@@ -32,6 +37,18 @@ func (s *stubChatService) GetChatMessages(_ context.Context, r domainChat.GetCha
 func (s *stubChatService) ArchiveChat(_ context.Context, r domainChat.ArchiveChatRequest) (domainChat.ArchiveChatResponse, error) {
 	s.archived = &r
 	return domainChat.ArchiveChatResponse{}, nil
+}
+func (s *stubChatService) PinChat(_ context.Context, r domainChat.PinChatRequest) (domainChat.PinChatResponse, error) {
+	s.pinned = &r
+	return domainChat.PinChatResponse{Message: "pinned"}, s.err
+}
+func (s *stubChatService) SetDisappearingTimer(_ context.Context, r domainChat.SetDisappearingTimerRequest) (domainChat.SetDisappearingTimerResponse, error) {
+	s.timer = &r
+	return domainChat.SetDisappearingTimerResponse{Message: "timer set"}, s.err
+}
+func (s *stubChatService) RequestChatHistory(_ context.Context, r domainChat.RequestChatHistoryRequest) (domainChat.RequestChatHistoryResponse, error) {
+	s.history = &r
+	return domainChat.RequestChatHistoryResponse{ChatJID: r.ChatJID, AnchorMessageID: "OLD1"}, s.err
 }
 
 type stubUserService struct {
@@ -133,5 +150,94 @@ func TestHandleChatDispatch(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, cs.archived)
 		assert.True(t, cs.archived.Archived)
+	})
+
+	t.Run("pin", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		res, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+			"action": "pin", "chat_jid": "628@s.whatsapp.net", "pinned": true,
+		}))
+		require.NoError(t, err)
+		assert.False(t, res.IsError)
+		require.NotNil(t, cs.pinned)
+		assert.Equal(t, "628@s.whatsapp.net", cs.pinned.ChatJID)
+		assert.True(t, cs.pinned.Pinned)
+	})
+
+	t.Run("set_disappearing", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		res, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+			"action": "set_disappearing", "chat_jid": "628@s.whatsapp.net", "timer_seconds": float64(604800),
+		}))
+		require.NoError(t, err)
+		assert.False(t, res.IsError)
+		require.NotNil(t, cs.timer)
+		assert.Equal(t, uint32(604800), cs.timer.TimerSeconds)
+	})
+
+	t.Run("set_disappearing zero disables", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		_, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+			"action": "set_disappearing", "chat_jid": "628@s.whatsapp.net", "timer_seconds": float64(0),
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, cs.timer)
+		assert.Equal(t, uint32(0), cs.timer.TimerSeconds)
+	})
+
+	t.Run("new actions surface usecase errors", func(t *testing.T) {
+		for _, args := range []map[string]any{
+			{"action": "pin", "pinned": true},
+			{"action": "set_disappearing", "timer_seconds": float64(86400)},
+			{"action": "request_history"},
+		} {
+			args["chat_jid"] = "628@s.whatsapp.net"
+			h := InitMcpChat(&stubChatService{err: errors.New("boom")}, &stubUserService{}, &stubResolver{})
+			res, err := h.handleChat(deviceCtx(), callReq(args))
+			require.NoError(t, err)
+			assert.True(t, res.IsError, args["action"])
+			assert.Equal(t, "boom", resultText(t, res))
+		}
+	})
+
+	t.Run("request_history", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		res, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+			"action": "request_history", "chat_jid": "628@s.whatsapp.net", "count": float64(100),
+		}))
+		require.NoError(t, err)
+		assert.False(t, res.IsError)
+		require.NotNil(t, cs.history)
+		assert.Equal(t, 100, cs.history.Count)
+		assert.Contains(t, resultText(t, res), "History sync requested")
+		assert.NotNil(t, res.StructuredContent)
+	})
+
+	t.Run("set_disappearing rejects a timer that would wrap to 0", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		res, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+			"action": "set_disappearing", "chat_jid": "628@s.whatsapp.net", "timer_seconds": float64(4294967296),
+		}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Nil(t, cs.timer)
+	})
+
+	t.Run("chat_jid is sanitized like REST send", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		_, err := h.handleChat(deviceCtx(), callReq(map[string]any{"action": "request_history", "chat_jid": "120363025246125486"}))
+		require.NoError(t, err)
+		require.NotNil(t, cs.history)
+		assert.Equal(t, "120363025246125486@g.us", cs.history.ChatJID)
+		_, err = h.handleChat(deviceCtx(), callReq(map[string]any{"action": "pin", "chat_jid": "628123", "pinned": true}))
+		require.NoError(t, err)
+		require.NotNil(t, cs.pinned)
+		assert.Equal(t, "628123@s.whatsapp.net", cs.pinned.ChatJID)
 	})
 }

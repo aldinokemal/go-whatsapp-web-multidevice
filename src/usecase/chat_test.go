@@ -583,6 +583,22 @@ func TestRequestChatHistoryRequiresClient(t *testing.T) {
 	}
 }
 
+// TestRequestChatHistoryNormalizesLookupJID pins that a bare or +-prefixed
+// number is looked up under the full JID that stored rows use.
+func TestRequestChatHistoryNormalizesLookupJID(t *testing.T) {
+	accountJID := types.NewJID("628999999999", types.DefaultUserServer)
+	client := &whatsmeow.Client{Store: &store.Device{ID: &accountJID}}
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance(accountJID.String(), client, nil))
+
+	for _, chatJID := range []string{"628123456789", "+628123456789", "628123456789@s.whatsapp.net"} {
+		repo := &chatUsecaseRepoStub{}
+		_, _ = NewChatService(repo).RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{ChatJID: chatJID, Count: 50})
+		if repo.oldestMessageChatJID != "628123456789@s.whatsapp.net" {
+			t.Fatalf("chat_jid %q looked up as %q, want 628123456789@s.whatsapp.net", chatJID, repo.oldestMessageChatJID)
+		}
+	}
+}
+
 // TestRequestChatHistoryNoStoredMessages pins the anchor-resolution rule: the
 // phone needs an oldest known message ID/timestamp to know where to start
 // looking for older history, so a chat with nothing stored yet must fail

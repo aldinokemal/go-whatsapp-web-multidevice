@@ -6,14 +6,14 @@ package mcp
 
 const sendSchema = `{
   "type": "object",
-  "required": ["type", "phone"],
+  "required": ["type"],
   "properties": {
-    "type": {"type": "string", "enum": ["text","image","video","audio","document","sticker","location","contact","poll","link","forward"], "description": "Kind of message to send"},
-    "phone": {"type": "string", "description": "Destination phone number or group JID"},
+    "type": {"type": "string", "enum": ["text","image","video","audio","document","sticker","location","contact","poll","link","forward","interactive","chat_presence","presence"], "description": "Kind of message to send"},
+    "phone": {"type": "string", "description": "Destination phone number or group JID (required for every type except presence)"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default (X-Device-Id header)"},
-    "is_forwarded": {"type": "boolean", "description": "Mark the message as forwarded (default false)"},
+    "is_forwarded": {"type": "boolean", "description": "Mark the message as forwarded (default false); ignored for interactive"},
     "message": {"type": "string", "description": "type=text: the text body"},
-    "reply_message_id": {"type": "string", "description": "type=text: message ID to reply to"},
+    "reply_message_id": {"type": "string", "description": "text/image/video/audio/document/sticker: message ID to reply to"},
     "mentions": {"type": "array", "items": {"type": "string"}, "description": "text/image/video/document: ghost mentions; \"@everyone\" mentions all group participants"},
     "image_url": {"type": "string", "description": "type=image: URL of the image (fetched server-side)"},
     "caption": {"type": "string", "description": "image/video/document/link: caption text"},
@@ -36,9 +36,15 @@ const sendSchema = `{
     "max_answer": {"type": "integer", "minimum": 1, "description": "type=poll: max selectable options, at most the number of options (default 1)"},
     "link": {"type": "string", "description": "type=link: the URL to send"},
     "message_id": {"type": "string", "description": "type=forward: source message ID from chat storage"},
-    "duration": {"type": "integer", "enum": [0, 86400, 604800, 7776000], "description": "type=forward: disappearing duration seconds (0, 86400, 604800, 7776000)"},
+    "duration": {"type": "integer", "enum": [0, 86400, 604800, 7776000], "description": "Disappearing timer seconds for the sent message (0, 86400, 604800, 7776000); all types except interactive, chat_presence and presence"},
+    "action": {"type": "string", "enum": ["start", "stop"], "description": "type=chat_presence: start or stop the typing indicator in the chat with phone"},
+    "presence": {"type": "string", "enum": ["available", "unavailable"], "description": "type=presence: set this account online (available) or offline (unavailable)"},
     "force_reupload": {"type": "boolean", "description": "type=forward: re-upload media instead of reusing references (default false)"},
-    "scheduled_at": {"type": "string", "description": "Schedule instead of sending now: RFC3339 time of the first send (must be in the future)"},
+    "body": {"type": "string", "description": "type=interactive: message body text (max 4096 bytes)"},
+    "footer": {"type": "string", "description": "type=interactive: optional footer text (max 256 bytes)"},
+    "buttons": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "object", "required": ["name", "params"], "properties": {"name": {"type": "string", "enum": ["quick_reply","cta_url","cta_copy","cta_call","single_select","send_location"]}, "params": {"type": "object"}}}, "description": "type=interactive: native-flow buttons; use this or cards, not both. params per name: quick_reply {display_text,id}, cta_url {display_text,url}, cta_copy {display_text,copy_code}, cta_call {display_text,phone_number}, single_select {title,sections:[{title,rows:[{id,title}]}]}, send_location {} (must be the only button)"},
+    "cards": {"type": "array", "minItems": 2, "maxItems": 10, "items": {"type": "object", "required": ["body", "buttons"], "properties": {"title": {"type": "string"}, "body": {"type": "string"}, "footer": {"type": "string"}, "image_base64": {"type": "string", "description": "raw base64 JPEG/PNG, no data-URL prefix"}, "buttons": {"type": "array", "minItems": 1, "maxItems": 10, "items": {"type": "object", "required": ["name", "params"], "properties": {"name": {"type": "string", "enum": ["quick_reply","cta_url","cta_copy","cta_call","single_select"]}, "params": {"type": "object"}}}}}}, "description": "type=interactive: image carousel of 2-10 cards, each with 1-10 buttons shaped like top-level buttons (send_location is not allowed in cards); use this or buttons, not both"},
+    "scheduled_at": {"type": "string", "description": "Schedule instead of sending now: RFC3339 time of the first send (must be in the future); not supported for interactive, chat_presence or presence"},
     "timezone": {"type": "string", "description": "IANA timezone (e.g. Asia/Jakarta); required when scheduled_at is set"},
     "recurrence": {"type": "string", "enum": ["once","daily","weekly","monthly"], "description": "Repeat pattern for a scheduled send (default once)"},
     "weekdays": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "uniqueItems": true, "description": "recurrence=weekly (required): days to send, 0=Sunday through 6=Saturday"},
@@ -57,7 +63,10 @@ const sendSchema = `{
     {"if": {"properties": {"type": {"const": "contact"}}},  "then": {"required": ["contact_name", "contact_phone"]}},
     {"if": {"properties": {"type": {"const": "poll"}}},     "then": {"required": ["question", "options"]}},
     {"if": {"properties": {"type": {"const": "link"}}},     "then": {"required": ["link", "caption"]}},
-    {"if": {"properties": {"type": {"const": "forward"}}},  "then": {"required": ["message_id"]}}
+    {"if": {"properties": {"type": {"const": "forward"}}},  "then": {"required": ["message_id"]}},
+    {"if": {"properties": {"type": {"const": "interactive"}}}, "then": {"required": ["body"], "oneOf": [{"required": ["buttons"]}, {"required": ["cards"]}]}},
+    {"if": {"properties": {"type": {"const": "chat_presence"}}}, "then": {"required": ["action"]}},
+    {"if": {"properties": {"type": {"const": "presence"}}}, "then": {"required": ["presence"]}, "else": {"required": ["phone"]}}
   ]
 }`
 
@@ -101,9 +110,9 @@ const chatSchema = `{
   "type": "object",
   "required": ["action"],
   "properties": {
-    "action": {"type": "string", "enum": ["list_chats","list_contacts","get_messages","archive"], "description": "Chat/contact query or archive toggle"},
+    "action": {"type": "string", "enum": ["list_chats","list_contacts","get_messages","archive","pin","set_disappearing","request_history"], "description": "Chat/contact query or chat setting. request_history asks the phone for older messages, anchored at the oldest stored message; they arrive asynchronously via history sync"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
-    "chat_jid": {"type": "string", "description": "get_messages/archive: chat JID (e.g. 628@s.whatsapp.net or group@g.us)"},
+    "chat_jid": {"type": "string", "description": "get_messages/archive/pin/set_disappearing/request_history: chat JID (e.g. 628@s.whatsapp.net or group@g.us)"},
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "list_chats (default 25) / get_messages (default 50): max rows, 1 to 100"},
     "offset": {"type": "integer", "minimum": 0, "description": "list_chats/get_messages: rows to skip (default 0)"},
     "search": {"type": "string", "description": "list_chats: filter by chat name; get_messages: full-text search"},
@@ -112,11 +121,17 @@ const chatSchema = `{
     "end_time": {"type": "string", "description": "get_messages: only messages before this RFC3339 timestamp"},
     "media_only": {"type": "boolean", "description": "get_messages: only media messages"},
     "is_from_me": {"type": "boolean", "description": "get_messages: filter by sender (true = sent by me)"},
-    "archived": {"type": "boolean", "description": "archive: true to archive, false to unarchive"}
+    "archived": {"type": "boolean", "description": "archive: true to archive, false to unarchive"},
+    "pinned": {"type": "boolean", "description": "pin: true to pin, false to unpin"},
+    "timer_seconds": {"type": "integer", "enum": [0, 86400, 604800, 7776000], "description": "set_disappearing: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)"},
+    "count": {"type": "integer", "minimum": 1, "maximum": 500, "description": "request_history: how many older messages to request (default 50)"}
   },
   "allOf": [
     {"if": {"properties": {"action": {"const": "get_messages"}}}, "then": {"required": ["chat_jid"]}},
-    {"if": {"properties": {"action": {"const": "archive"}}},      "then": {"required": ["chat_jid", "archived"]}}
+    {"if": {"properties": {"action": {"const": "archive"}}},      "then": {"required": ["chat_jid", "archived"]}},
+    {"if": {"properties": {"action": {"const": "pin"}}},          "then": {"required": ["chat_jid", "pinned"]}},
+    {"if": {"properties": {"action": {"const": "set_disappearing"}}}, "then": {"required": ["chat_jid", "timer_seconds"]}},
+    {"if": {"properties": {"action": {"const": "request_history"}}},  "then": {"required": ["chat_jid"]}}
   ]
 }`
 

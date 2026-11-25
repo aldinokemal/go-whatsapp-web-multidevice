@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainUser "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/user"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	mcpg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -24,11 +26,11 @@ func InitMcpChat(chatService domainChat.IChatUsecase, userService domainUser.IUs
 
 func (h *ChatHandler) AddChatTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_chat",
-		mcpg.WithDescription("Query WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), or archive/unarchive a chat."),
-		mcpg.WithTitleAnnotation("Chat Queries"),
+		mcpg.WithDescription("Query and manage WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), archive/unarchive, pin/unpin, set_disappearing (disappearing-message timer), or request_history (ask the phone to sync older messages of a chat)."),
+		mcpg.WithTitleAnnotation("Chat Management"),
 		mcpg.WithReadOnlyHintAnnotation(false),
-		mcpg.WithDestructiveHintAnnotation(false),
-		mcpg.WithIdempotentHintAnnotation(true),
+		mcpg.WithDestructiveHintAnnotation(true),
+		mcpg.WithIdempotentHintAnnotation(false),
 		mcpg.WithRawInputSchema(json.RawMessage(chatSchema)),
 	)
 	// NewTool defaults InputSchema.Type to "object"; clear it so only
@@ -47,6 +49,9 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 	if err != nil {
 		return mcpg.NewToolResultError(err.Error()), nil
 	}
+	// Same as whatsapp_message/whatsapp_group: a bare number gets @s.whatsapp.net, a bare ID over 15 digits gets @g.us.
+	chatJID := request.GetString("chat_jid", "")
+	utils.SanitizePhone(&chatJID)
 
 	switch action {
 	case "list_chats":
@@ -68,7 +73,6 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		}
 		return mcpg.NewToolResultStructuredOnly(resp), nil
 	case "get_messages":
-		chatJID := request.GetString("chat_jid", "")
 		var startTimePtr, endTimePtr *string
 		if v := strings.TrimSpace(request.GetString("start_time", "")); v != "" {
 			startTimePtr = &v
@@ -100,7 +104,7 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		return mcpg.NewToolResultStructuredOnly(resp), nil
 	case "archive":
 		req := domainChat.ArchiveChatRequest{
-			ChatJID:  request.GetString("chat_jid", ""),
+			ChatJID:  chatJID,
 			Archived: request.GetBool("archived", false),
 		}
 		resp, err := h.chatService.ArchiveChat(ctx, req)
@@ -108,6 +112,38 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 			return mcpg.NewToolResultError(err.Error()), nil
 		}
 		return mcpg.NewToolResultStructured(resp, resp.Message), nil
+	case "pin":
+		resp, err := h.chatService.PinChat(ctx, domainChat.PinChatRequest{
+			ChatJID: chatJID,
+			Pinned:  request.GetBool("pinned", false),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, resp.Message), nil
+	case "set_disappearing":
+		// Check the range before converting: 4294967296 would wrap to 0 and silently disable the timer.
+		timer := request.GetInt("timer_seconds", 0)
+		if timer < 0 || int64(timer) > math.MaxUint32 {
+			return mcpg.NewToolResultError("timer_seconds must be one of: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)"), nil
+		}
+		resp, err := h.chatService.SetDisappearingTimer(ctx, domainChat.SetDisappearingTimerRequest{
+			ChatJID:      chatJID,
+			TimerSeconds: uint32(timer),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, resp.Message), nil
+	case "request_history":
+		resp, err := h.chatService.RequestChatHistory(ctx, domainChat.RequestChatHistoryRequest{
+			ChatJID: chatJID,
+			Count:   request.GetInt("count", 0),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, "History sync requested successfully"), nil
 	default:
 		return mcpg.NewToolResultError(fmt.Sprintf("unknown chat action: %s", action)), nil
 	}
