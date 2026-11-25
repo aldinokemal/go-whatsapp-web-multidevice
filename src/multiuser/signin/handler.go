@@ -255,17 +255,21 @@ func (h *Handler) Handle(ctx context.Context, inst *whatsapp.DeviceInstance, evt
 	if pn.Server != types.DefaultUserServer || pn.User == "" {
 		// A LID with no phone mapping. Never create an account under a LID.
 		if !h.allow("lid:"+sender.User, now) {
+			h.logOutcome("lid_unresolved_rate_limited")
 			return
 		}
 		h.reply(ctx, inst, info.Chat, "Sorry, we couldn't read your number from this chat. Please update WhatsApp and try again.")
+		h.logOutcome("lid_unresolved")
 		return
 	}
 	phone, err := store.NormalizePhone(pn.User)
 	if err != nil {
+		h.logOutcome("invalid_phone")
 		return
 	}
 	if !h.allow(phone, now) {
-		return // silent: never amplify
+		h.logOutcome("rate_limited") // silent to the sender: never amplify
+		return
 	}
 
 	user, err := h.Store.UserByPhone(ctx, phone)
@@ -294,6 +298,7 @@ func (h *Handler) Handle(ctx context.Context, inst *whatsapp.DeviceInstance, evt
 	}
 	if user.Status != store.StatusActive {
 		h.reply(ctx, inst, info.Chat, fmt.Sprintf("This %s account is disabled.", h.ProductName))
+		h.logOutcome("disabled")
 		return
 	}
 
@@ -305,6 +310,17 @@ func (h *Handler) Handle(ctx context.Context, inst *whatsapp.DeviceInstance, evt
 	_ = h.Store.Audit(ctx, store.AuditEvent{UserID: user.ID, Action: "signin_link_sent"})
 	link := h.PublicURL + "/signin/verify?t=" + url.QueryEscape(raw)
 	h.reply(ctx, inst, info.Chat, fmt.Sprintf("Here's your %s sign-in link. It works once, for 15 minutes:\n\n%s\n\nIf you didn't ask for this, ignore this message.", h.ProductName, link))
+	h.logOutcome("sign_in_link_sent")
+}
+
+// logOutcome names what Handle() (or notYet) actually did with a recognised
+// sign-in request - which reply went out, or which silent limit caught it -
+// never the phone number or any text. Handle's own first guard (not a
+// recognised request at all) is OnEvent's logNearMiss instead; this covers
+// everything a reply is guaranteed for once that much is true, success
+// included, so a real report can be matched to an outcome without guessing.
+func (h *Handler) logOutcome(outcome string) {
+	logrus.Infof("[WTF] sign-in: outcome=%s", outcome)
 }
 
 func (h *Handler) createUser(ctx context.Context, phone string) (*store.User, error) {
@@ -324,6 +340,7 @@ func (h *Handler) notYet(ctx context.Context, inst *whatsapp.DeviceInstance, cha
 	closed := fmt.Sprintf("%s isn't open for sign-ups yet. We'll let you know when it is.", h.ProductName)
 	if h.Waitlist == nil {
 		h.reply(ctx, inst, chat, closed)
+		h.logOutcome("closed_no_waitlist")
 		return
 	}
 	joined, position, err := h.Waitlist.JoinWaitlist(ctx, phone)
@@ -332,14 +349,17 @@ func (h *Handler) notYet(ctx context.Context, inst *whatsapp.DeviceInstance, cha
 		return // never promise a place we did not record
 	}
 	if !h.waitlistLimiter().Allow(phone, now) {
-		return // silent: never amplify
+		h.logOutcome("waitlist_rate_limited") // silent to the sender: never amplify
+		return
 	}
 	if !joined {
 		h.reply(ctx, inst, chat, closed)
+		h.logOutcome("declined")
 		return
 	}
 	_ = h.Store.Audit(ctx, store.AuditEvent{Action: "waitlist_joined"})
 	h.reply(ctx, inst, chat, fmt.Sprintf("You're on the %s waitlist (number %d). We'll message you here when there's room.", h.ProductName, position))
+	h.logOutcome("waitlisted")
 }
 
 // allow charges one reply to key and to the global budget. Both must pass.
