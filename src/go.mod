@@ -9,7 +9,7 @@ require (
 	github.com/dustin/go-humanize v1.1.0
 	github.com/fasthttp/websocket v1.5.12
 	github.com/go-ozzo/ozzo-validation/v4 v4.5.0
-	github.com/gofiber/contrib/v3/websocket v1.2.16
+	github.com/gofiber/contrib/v3/websocket v1.3.0
 	github.com/gofiber/fiber/v3 v3.7.0
 	github.com/gofiber/utils/v2 v2.6.5
 	github.com/google/uuid v1.6.0
@@ -24,7 +24,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/valyala/fasthttp v1.80.0
 	go.mau.fi/libsignal v0.2.3
-	go.mau.fi/whatsmeow v0.0.0-20261116172437-19d61352436f
+	go.mau.fi/whatsmeow v0.0.0-20261124172153-494ae5d707ac
 	golang.org/x/image v0.48.0
 	golang.org/x/net v0.63.0
 	google.golang.org/protobuf v1.36.12
@@ -37,10 +37,10 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/beeper/argo-go v1.1.2 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
-	github.com/elliotchance/orderedmap/v3 v3.1.1 // indirect
+	github.com/elliotchance/orderedmap/v3 v3.2.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/gofiber/schema v1.10.0 // indirect
+	github.com/gofiber/schema v1.10.2 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.20.5 // indirect
@@ -49,7 +49,7 @@ require (
 	github.com/molecule-man/go-brrr v1.3.1 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
-	github.com/petermattis/goid v0.0.0-20261120131106-3f141f74aebc // indirect
+	github.com/petermattis/goid v0.0.0-20261124144452-466dc414edf5 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rs/zerolog v1.35.1 // indirect
