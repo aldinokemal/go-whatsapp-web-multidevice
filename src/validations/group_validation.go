@@ -6,6 +6,7 @@ import (
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
+	"github.com/go-ozzo/ozzo-validation/v4/is"
 	"go.mau.fi/whatsmeow"
 )
 
@@ -117,6 +118,7 @@ func ValidateSetGroupPhoto(ctx context.Context, request domainGroup.SetGroupPhot
 		validation.Field(&request.GroupID, validation.Required),
 		// Photo can be nil to remove the photo, so it's not required
 		// If photo is provided, we could add file type validation here if needed
+		validation.Field(&request.PhotoURL, is.URL),
 	)
 
 	if err != nil {

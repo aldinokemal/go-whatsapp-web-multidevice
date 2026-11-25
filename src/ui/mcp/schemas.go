@@ -139,27 +139,29 @@ const groupSchema = `{
   "type": "object",
   "required": ["action"],
   "properties": {
-    "action": {"type": "string", "enum": ["create","join_with_link","leave","info","participants","add_participants","remove_participants","promote","demote","invite_link","set_name","set_topic","set_settings","join_requests","manage_join_requests"], "description": "Group operation"},
+    "action": {"type": "string", "enum": ["create","join_with_link","info_from_link","leave","info","participants","add_participants","remove_participants","promote","demote","invite_link","set_name","set_topic","set_settings","set_photo","remove_photo","join_requests","manage_join_requests"], "description": "Group operation. info_from_link previews a group from its invite link without joining"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
-    "group_id": {"type": "string", "description": "Group JID or numeric ID (all actions except create/join_with_link)"},
+    "group_id": {"type": "string", "description": "Group JID or numeric ID (all actions except create/join_with_link/info_from_link)"},
     "title": {"type": "string", "description": "create: group subject"},
-    "participants": {"type": "array", "items": {"type": "string"}, "description": "create (optional) / add_participants / remove_participants / promote / demote / manage_join_requests: phone numbers without suffix"},
-    "invite_link": {"type": "string", "description": "join_with_link: WhatsApp invite link"},
+    "participants": {"type": "array", "items": {"type": "string"}, "description": "create / add_participants / remove_participants / promote / demote / manage_join_requests: phone numbers without suffix"},
+    "invite_link": {"type": "string", "description": "join_with_link/info_from_link: WhatsApp invite link or code"},
     "reset": {"type": "boolean", "description": "invite_link: revoke and regenerate the link (default false)"},
     "name": {"type": "string", "maxLength": 25, "description": "set_name: new group name (max 25 characters)"},
-    "topic": {"type": "string", "description": "set_topic: new topic/description"},
+    "topic": {"type": "string", "description": "set_topic: new topic/description; empty string removes it"},
     "announce": {"type": "boolean", "description": "set_settings: true = only admins can send"},
     "locked": {"type": "boolean", "description": "set_settings: true = only admins can edit group info"},
+    "photo_url": {"type": "string", "description": "set_photo: URL of a JPEG, PNG or WebP image ending in .jpg/.jpeg/.png/.webp (fetched server-side); cropped to a square and resized"},
     "request_action": {"type": "string", "enum": ["approve","reject"], "description": "manage_join_requests: what to do with the listed requesters"}
   },
   "allOf": [
-    {"if": {"properties": {"action": {"const": "create"}}},         "then": {"required": ["title"]}},
-    {"if": {"properties": {"action": {"const": "join_with_link"}}}, "then": {"required": ["invite_link"]}},
-    {"if": {"properties": {"action": {"enum": ["leave","info","participants","invite_link","join_requests"]}}}, "then": {"required": ["group_id"]}},
+    {"if": {"properties": {"action": {"const": "create"}}},         "then": {"required": ["title", "participants"]}},
+    {"if": {"properties": {"action": {"enum": ["join_with_link","info_from_link"]}}}, "then": {"required": ["invite_link"]}},
+    {"if": {"properties": {"action": {"enum": ["leave","info","participants","invite_link","join_requests","remove_photo"]}}}, "then": {"required": ["group_id"]}},
     {"if": {"properties": {"action": {"enum": ["add_participants","remove_participants","promote","demote"]}}}, "then": {"required": ["group_id", "participants"]}},
     {"if": {"properties": {"action": {"const": "set_name"}}},  "then": {"required": ["group_id", "name"]}},
     {"if": {"properties": {"action": {"const": "set_topic"}}}, "then": {"required": ["group_id", "topic"]}},
     {"if": {"properties": {"action": {"const": "set_settings"}}}, "then": {"required": ["group_id"], "anyOf": [{"required": ["announce"]}, {"required": ["locked"]}]}},
+    {"if": {"properties": {"action": {"const": "set_photo"}}}, "then": {"required": ["group_id", "photo_url"]}},
     {"if": {"properties": {"action": {"const": "manage_join_requests"}}}, "then": {"required": ["group_id", "participants", "request_action"]}}
   ]
 }`

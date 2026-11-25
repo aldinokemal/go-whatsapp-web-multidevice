@@ -73,6 +73,9 @@ type GroupRequestParticipantsRequest struct {
 type SetGroupPhotoRequest struct {
 	GroupID string                `json:"group_id" form:"group_id"`
 	Photo   *multipart.FileHeader `json:"photo" form:"photo"`
+	// PhotoURL is set by MCP only; REST does not bind it, so a REST call with
+	// no file still removes the photo.
+	PhotoURL string `json:"-" form:"-"`
 }
 
 type SetGroupPhotoResponse struct {

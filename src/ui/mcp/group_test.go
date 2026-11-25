@@ -26,6 +26,8 @@ type stubGroupService struct {
 	lockedReq    *domainGroup.SetGroupLockedRequest
 	joinReqsReq  *domainGroup.GetGroupRequestParticipantsRequest
 	managedJoins *domainGroup.GroupRequestParticipantsRequest
+	linkInfoReq  *domainGroup.GetGroupInfoFromLinkRequest
+	photoReq     *domainGroup.SetGroupPhotoRequest
 	infoResp     domainGroup.GroupInfoResponse
 	partsResp    domainGroup.GetGroupParticipantsResponse
 	joinReqsResp []domainGroup.GetGroupRequestParticipantsResponse
@@ -84,6 +86,18 @@ func (s *stubGroupService) ManageGroupRequestParticipants(_ context.Context, r d
 	return nil, nil
 }
 
+func (s *stubGroupService) GetGroupInfoFromLink(_ context.Context, r domainGroup.GetGroupInfoFromLinkRequest) (domainGroup.GetGroupInfoFromLinkResponse, error) {
+	s.linkInfoReq = &r
+	return domainGroup.GetGroupInfoFromLinkResponse{GroupID: "123@g.us", Name: "Preview Group"}, nil
+}
+func (s *stubGroupService) SetGroupPhoto(_ context.Context, r domainGroup.SetGroupPhotoRequest) (string, error) {
+	s.photoReq = &r
+	if r.PhotoURL == "" {
+		return "remove", nil
+	}
+	return "pic-1", nil
+}
+
 func TestHandleGroupDispatch(t *testing.T) {
 	newHandler := func() (*stubGroupService, *GroupHandler) {
 		svc := &stubGroupService{}
@@ -108,6 +122,56 @@ func TestHandleGroupDispatch(t *testing.T) {
 		}))
 		require.NoError(t, err)
 		require.NotNil(t, svc.joined)
+	})
+
+	t.Run("info_from_link", func(t *testing.T) {
+		svc, h := newHandler()
+		res, err := h.handleGroup(deviceCtx(), callReq(map[string]any{
+			"action": "info_from_link", "invite_link": " https://chat.whatsapp.com/x ",
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, svc.linkInfoReq)
+		assert.Equal(t, "https://chat.whatsapp.com/x", svc.linkInfoReq.Link)
+		require.False(t, res.IsError)
+		text, ok := mcpg.AsTextContent(res.Content[0])
+		require.True(t, ok)
+		assert.Contains(t, text.Text, "Preview Group")
+	})
+
+	t.Run("set_photo passes the URL", func(t *testing.T) {
+		svc, h := newHandler()
+		res, err := h.handleGroup(deviceCtx(), callReq(map[string]any{
+			"action": "set_photo", "group_id": "123@g.us", "photo_url": " https://x/p.jpg ",
+		}))
+		require.NoError(t, err)
+		require.False(t, res.IsError)
+		require.NotNil(t, svc.photoReq)
+		assert.Equal(t, "123@g.us", svc.photoReq.GroupID)
+		assert.Equal(t, "https://x/p.jpg", svc.photoReq.PhotoURL)
+		assert.Nil(t, svc.photoReq.Photo)
+		assert.Equal(t, domainGroup.SetGroupPhotoResponse{PictureID: "pic-1", Message: "Updated group photo"}, res.StructuredContent)
+	})
+
+	t.Run("set_photo with blank URL does not remove the photo", func(t *testing.T) {
+		svc, h := newHandler()
+		res, err := h.handleGroup(deviceCtx(), callReq(map[string]any{
+			"action": "set_photo", "group_id": "123@g.us", "photo_url": "  ",
+		}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Nil(t, svc.photoReq)
+	})
+
+	t.Run("remove_photo ignores photo_url", func(t *testing.T) {
+		svc, h := newHandler()
+		res, err := h.handleGroup(deviceCtx(), callReq(map[string]any{
+			"action": "remove_photo", "group_id": "123@g.us", "photo_url": "https://x/p.jpg",
+		}))
+		require.NoError(t, err)
+		require.False(t, res.IsError)
+		require.NotNil(t, svc.photoReq)
+		assert.Empty(t, svc.photoReq.PhotoURL)
+		assert.Equal(t, domainGroup.SetGroupPhotoResponse{PictureID: "remove", Message: "Removed group photo"}, res.StructuredContent)
 	})
 
 	t.Run("leave", func(t *testing.T) {

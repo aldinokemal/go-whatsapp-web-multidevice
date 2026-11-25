@@ -407,6 +407,14 @@ func TestValidateSetGroupPhoto(t *testing.T) {
 			}},
 			err: pkgError.ValidationError("group_id: cannot be blank."),
 		},
+		{
+			name: "should error with invalid photo url",
+			args: args{request: domainGroup.SetGroupPhotoRequest{
+				GroupID:  "123456789@g.us",
+				PhotoURL: "not a url",
+			}},
+			err: pkgError.ValidationError("PhotoURL: must be a valid URL."),
+		},
 	}
 
 	for _, tt := range tests {

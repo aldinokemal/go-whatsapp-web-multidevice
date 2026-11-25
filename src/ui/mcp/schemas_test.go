@@ -153,6 +153,13 @@ func TestSchemas(t *testing.T) {
 		// ---- whatsapp_group ----
 		{"group create ok", groupSchema, `{"action":"create","title":"T","participants":["628"]}`, false},
 		{"group create missing title", groupSchema, `{"action":"create"}`, true},
+		{"group create missing participants", groupSchema, `{"action":"create","title":"T"}`, true},
+		{"group info_from_link ok", groupSchema, `{"action":"info_from_link","invite_link":"https://chat.whatsapp.com/x"}`, false},
+		{"group info_from_link missing link", groupSchema, `{"action":"info_from_link"}`, true},
+		{"group set_photo ok", groupSchema, `{"action":"set_photo","group_id":"123@g.us","photo_url":"https://x/p.jpg"}`, false},
+		{"group set_photo missing url", groupSchema, `{"action":"set_photo","group_id":"123@g.us"}`, true},
+		{"group remove_photo ok", groupSchema, `{"action":"remove_photo","group_id":"123@g.us"}`, false},
+		{"group remove_photo missing id", groupSchema, `{"action":"remove_photo"}`, true},
 		{"group join ok", groupSchema, `{"action":"join_with_link","invite_link":"http://chat.whatsapp.com/x"}`, false},
 		{"group join missing link", groupSchema, `{"action":"join_with_link"}`, true},
 		{"group leave ok", groupSchema, `{"action":"leave","group_id":"123@g.us"}`, false},
