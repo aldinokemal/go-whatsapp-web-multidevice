@@ -43,9 +43,9 @@ Download:
 
 ## Documentation
 
-Read the detailed [GOWA documentation](https://github.com/aldinokemal/gowa-docs) for setup,
+Read the detailed [GOWA documentation](https://gowa-docs.mintlify.site/) for setup,
 authentication, device management, webhooks, examples, and the API reference.
-The documentation tracks merged `main`, including changes after v9.7.0. Check the
+The documentation tracks `main`. Check the
 release notes and `GET /app/info` when using a pinned binary or container tag.
 
 - [Experimental interactive messages](./docs/interactive-messages.md) covers native-flow buttons, location requests, and image carousels. `POST /send/interactive` is immediate-only and REST-only; recipient compatibility varies.
@@ -60,50 +60,16 @@ release notes and `GET /app/info` when using a pinned binary or container tag.
 
 ## Breaking Changes
 
-- `v6`
-  - REST mode requires `<binary> rest` instead of `<binary>`.
-    - Example: `./whatsapp rest` instead of `./whatsapp`.
-  - MCP mode required `<binary> mcp`.
-    - Example: `./whatsapp mcp`.
-- `v7`
-  - Starting with version 7.x, binaries are built with GoReleaser and can be downloaded from the
-    [latest release](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest).
-- `v8`
-  - **Multi-device support**: You can now connect and manage multiple WhatsApp accounts simultaneously in a single
-    server instance.
-  - **New Device Management API**: New endpoints under `/devices` manage multiple devices.
-  - **Device scoping required**: All device-scoped REST API calls now require either:
-    - `X-Device-Id` header, or
-    - `device_id` query parameter.
-    - If only one device is registered, it is used as the default.
-  - **WebSocket device selection**: Connect to `/ws?device_id=<id>` for the device middleware. The current WebSocket hub broadcasts dashboard events to all authenticated subscribers. This parameter does not isolate events between accounts; use per-device webhooks for application integrations.
-  - **Remote UI support**: CORS allows the `Authorization` and `X-Device-Id` headers, so a standalone web UI
-    (for example, [gowa-ui](https://github.com/aldinokemal/gowa-ui)) hosted on another origin can call the API directly.
-    `GET /app/info` exposes the version and media size limits. Because browsers cannot set headers on WebSocket
-    connections, pass `/ws?device_id=<id>&authorization=<base64(user:pass)>` when Basic Auth is enabled
-    (use TLS—the credential is visible in the URL).
-  - **Webhook payload changes**: All webhook payloads now include a top-level `device_id` field identifying which
-    device received the event:
-
-    ```json
-    {
-      "event": "message",
-      "device_id": "628123456789@s.whatsapp.net",
-      "payload": { ... }
-    }
-    ```
-
-- `v9`
-  - **MCP and API are unified under `rest`**: MCP is no longer a separate mode or process. Run
-    `./whatsapp rest` to serve both the REST API and MCP; MCP is available at `/mcp` (no standalone `mcp`
-    subcommand). See [MCP Server (Model Context Protocol)](#mcp-server-model-context-protocol) for migration
-    details.
-  - **UI moved to a separate repository**: The web dashboard is no longer bundled in this repo. It now lives at
-    [aldinokemal/gowa-ui](https://github.com/aldinokemal/gowa-ui) and ships as a single self-contained
-    `gowa-ui.html`. The server downloads the latest dashboard release at startup, verifies its SHA-256 digest,
-    caches it under `storages/ui/`, and serves it at `/`.
-    See [Web dashboard (gowa-ui)](#web-dashboard-gowa-ui) for the `APP_UI_*` settings, supply-chain pinning,
-    and air-gapped deployment.
+| Version | Area | Change |
+| --- | --- | --- |
+| v6 | CLI | Use `./whatsapp rest` for REST. This version used `./whatsapp mcp` for standalone MCP. |
+| v7 | Binaries | GoReleaser builds are available from the [GitHub releases](https://github.com/aldinokemal/go-whatsapp-web-multidevice/releases/latest). |
+| v8 | Multi-device API | Manage WhatsApp accounts under `/devices`. For device-scoped REST calls, use the `X-Device-Id` header or the `device_id` query parameter. A single registered device is selected by default. |
+| v8 | WebSocket | Connect to `/ws?device_id=<id>`. When Basic Auth is enabled, append `&authorization=<base64(user:pass)>` over TLS because the credential is visible in the URL. Dashboard events are broadcast to all authenticated subscribers. Use per-device webhooks for integrations that require account isolation. |
+| v8 | Remote UI | CORS allows the `Authorization` and `X-Device-Id` headers, so a standalone UI such as [gowa-ui](https://github.com/aldinokemal/gowa-ui) can call the API from another origin. `GET /app/info` exposes the version and media limits. |
+| v8 | Webhooks | Payloads include a top-level `device_id` identifying the device that received the event. |
+| v9 | MCP | Run `./whatsapp rest` for both REST and MCP. MCP is available at `/mcp`. See the [MCP migration guide](#mcp-server-model-context-protocol). |
+| v9 | Web dashboard | The server downloads the latest [gowa-ui](https://github.com/aldinokemal/gowa-ui) release at startup, verifies its SHA-256 digest, caches `gowa-ui.html` under `storages/ui/`, and serves it at `/`. See [Web dashboard](#web-dashboard-gowa-ui) for `APP_UI_*` settings, pinning, and offline deployment. |
 
 ## Features
 
