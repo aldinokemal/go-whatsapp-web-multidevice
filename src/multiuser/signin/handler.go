@@ -200,7 +200,10 @@ func (h *Handler) OnEvent(ctx context.Context, inst *whatsapp.DeviceInstance, ev
 		return
 	}
 	// Cheap checks first: every message on every linked phone passes here.
-	if h.ignorable(m) || !h.isSignInRequest(m.Message) {
+	reason := h.ignorable(m)
+	matches := reason == "" && h.isSignInRequest(m.Message)
+	if reason != "" || !matches {
+		h.logNearMiss(messageText(m.Message), reason)
 		return
 	}
 	if id := h.ServiceDeviceID(ctx); id == "" || inst.ID() != id {
@@ -229,7 +232,7 @@ func (h *Handler) Handle(ctx context.Context, inst *whatsapp.DeviceInstance, evt
 			logrus.Errorf("[WTF] sign-in: recovered from panic\n%s", debug.Stack())
 		}
 	}()
-	if evt == nil || h.Store == nil || h.ignorable(evt) || !h.isSignInRequest(evt.Message) {
+	if evt == nil || h.Store == nil || h.ignorable(evt) != "" || !h.isSignInRequest(evt.Message) {
 		return
 	}
 	h.init()
@@ -344,30 +347,102 @@ func (h *Handler) allow(key string, now time.Time) bool {
 	return h.perSender().Allow(key, now) && h.global().Allow(globalKey, now)
 }
 
-// ignorable drops everything that is not a fresh one-to-one message from
-// another person: our own messages, groups, status and broadcast lists,
-// newsletters, bots, edits and backlog.
-func (h *Handler) ignorable(evt *events.Message) bool {
+// ignorable reports why evt is not a fresh one-to-one message from another
+// person - our own messages, groups, status and broadcast lists,
+// newsletters, bots, edits and backlog - or "" when it might be one. The
+// reason names which check matched and nothing else, so logNearMiss
+// can report it without ever touching the message or its sender.
+func (h *Handler) ignorable(evt *events.Message) string {
 	info := evt.Info
-	if info.IsFromMe || info.IsGroup || info.Chat.IsEmpty() || info.IsIncomingBroadcast() {
-		return true
+	switch {
+	case info.IsFromMe:
+		return "from_me"
+	case info.IsGroup:
+		return "group"
+	case info.Chat.IsEmpty():
+		return "empty_chat"
+	case info.IsIncomingBroadcast():
+		return "broadcast"
 	}
 	switch info.Chat.Server {
 	case types.GroupServer, types.BroadcastServer, types.NewsletterServer:
-		return true
+		return "chat_server"
 	}
 	switch info.Sender.Server {
 	case types.DefaultUserServer, types.HiddenUserServer:
 	default:
-		return true
+		return "sender_server"
 	}
-	if info.Sender.IsBot() || info.Edit != "" {
-		return true
+	if info.Sender.IsBot() {
+		return "bot_sender"
+	}
+	if info.Edit != "" {
+		return "edit"
 	}
 	if !info.Timestamp.IsZero() && h.now().Sub(info.Timestamp) > maxMessageAge {
-		return true
+		return "too_old"
 	}
-	return false
+	return ""
+}
+
+// logNearMiss is a diagnostic trace for a feature that is otherwise
+// completely silent by design (an unrecognised request from a stranger must
+// never be amplified back to them). It costs nothing for ordinary chatter: it
+// is pure text comparison, the same cost class as isSignInRequest's own
+// normalizeText that already runs for every message, with no store or
+// settings lookup - TestOnEventSkipsChatterWithoutTouchingTheStore pins that
+// ordinary traffic must never call ServiceDeviceID, so this cannot scope
+// itself to the service device the way the real match does.
+//
+// It only fires when the text itself already resembles an attempt - contains
+// both "sign" and this product's name as whole words - so it stays quiet for
+// real conversation while still catching the two shapes a report like "I
+// sent the phrase and got nothing back" needs distinguished: the phrase was
+// close but not exact (reason defaults to "phrase_mismatch"), or it was
+// exact but something else about the message disqualified it (the ignorable
+// reason). It never logs the message text, the phrase comparison, or any
+// phone number.
+func (h *Handler) logNearMiss(text, reason string) {
+	if reason == "from_me" || !looksLikeASignInAttempt(text, h.ProductName) {
+		return
+	}
+	if reason == "" {
+		reason = "phrase_mismatch"
+	}
+	logrus.Infof("[WTF] sign-in: a near-miss sign-in attempt did not trigger (reason=%s)", reason)
+}
+
+// looksLikeASignInAttempt is deliberately looser than isSignInRequest: it
+// only decides whether a near miss is worth a diagnostic log line, never
+// whether to treat it as a real sign-in request.
+func looksLikeASignInAttempt(text, product string) bool {
+	product = strings.ToLower(strings.TrimSpace(product))
+	if text == "" || product == "" {
+		return false
+	}
+	hasSign, hasProduct := false, false
+	for _, w := range strings.Fields(normalizeText(text)) {
+		switch w {
+		case "sign":
+			hasSign = true
+		case product:
+			hasProduct = true
+		}
+	}
+	return hasSign && hasProduct
+}
+
+// messageText extracts the plain text isSignInRequest and looksLikeASignInAttempt
+// both compare against: a Conversation, or an ExtendedTextMessage's text.
+func messageText(m *waE2E.Message) string {
+	if m == nil {
+		return ""
+	}
+	text := m.GetConversation()
+	if text == "" {
+		text = m.GetExtendedTextMessage().GetText()
+	}
+	return text
 }
 
 // isSignInRequest matches the prefilled wa.me text, "Sign me in to <product>",
@@ -375,13 +450,10 @@ func (h *Handler) ignorable(evt *events.Message) bool {
 // service number does not reply to ordinary chatter.
 func (h *Handler) isSignInRequest(m *waE2E.Message) bool {
 	product := strings.TrimSpace(h.ProductName)
-	if m == nil || product == "" {
+	if product == "" {
 		return false
 	}
-	text := m.GetConversation()
-	if text == "" {
-		text = m.GetExtendedTextMessage().GetText()
-	}
+	text := messageText(m)
 	if text == "" || len(text) > maxTextLen {
 		return false
 	}
