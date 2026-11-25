@@ -126,7 +126,7 @@ func InitWaCLI(ctx context.Context, storeContainer, keysStoreContainer *sqlstore
 		// now-unregistered instance for the rest of the process's life.
 		current := instance
 		if deviceManager != nil {
-			current = deviceManager.CurrentInstanceFor(instance)
+			current = deviceManager.CurrentInstanceFor(instance, client)
 		}
 		handler(ctx, current, rawEvt)
 	})

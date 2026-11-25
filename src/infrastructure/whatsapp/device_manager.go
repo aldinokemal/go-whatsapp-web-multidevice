@@ -83,9 +83,18 @@ func (m *DeviceManager) GetDevice(id string) (*DeviceInstance, bool) {
 // ever told the already-registered closure - so every event for that device
 // reported the stale AD-JID-shaped id forever, never the canonical one every
 // other part of the system (settings, admin tools, ServiceDeviceID) uses.
-// Falls back to inst itself when nothing has moved, or when the manager has
-// no record of it at all (e.g. a single-device deployment with no registry).
-func (m *DeviceManager) CurrentInstanceFor(inst *DeviceInstance) *DeviceInstance {
+//
+// client is the live connection the caller actually received this event on
+// (the one inst was registered with). A resolved candidate is trusted only
+// when it currently holds that exact connection: two distinct companion
+// sessions can legitimately share a phone number (issue #760, the sibling
+// slots the bare-number fallback below exists for in getDeviceByJID), so
+// matching by JID alone - without confirming it is still the SAME client -
+// could hand one slot's events to a different slot's instance. Falls back to
+// inst itself when nothing resolves to that connection, or when the manager
+// has no record of it at all (e.g. a single-device deployment with no
+// registry).
+func (m *DeviceManager) CurrentInstanceFor(inst *DeviceInstance, client *whatsmeow.Client) *DeviceInstance {
 	if m == nil || inst == nil {
 		return inst
 	}
@@ -93,12 +102,12 @@ func (m *DeviceManager) CurrentInstanceFor(inst *DeviceInstance) *DeviceInstance
 		return inst
 	}
 	if ad := inst.ADJID(); ad != "" {
-		if current, ok := m.getDeviceByJID(ad); ok {
+		if current, ok := m.getDeviceByJID(ad); ok && current.GetClient() == client {
 			return current
 		}
 	}
 	if jid := inst.JID(); jid != "" {
-		if current, ok := m.getDeviceByJID(jid); ok {
+		if current, ok := m.getDeviceByJID(jid); ok && current.GetClient() == client {
 			return current
 		}
 	}
@@ -902,7 +911,7 @@ func (m *DeviceManager) EnsureClient(ctx context.Context, deviceID string) (*Dev
 		// A later boot reconciliation (loadFromRegistry) can move this same
 		// live client onto a different, canonical-id-keyed instance; resolve
 		// fresh on every event so this closure never drives the stale one.
-		handler(context.Background(), m.CurrentInstanceFor(inst), rawEvt)
+		handler(context.Background(), m.CurrentInstanceFor(inst, client), rawEvt)
 	})
 
 	inst.SetOnLoggedOut(func(deviceID string) {

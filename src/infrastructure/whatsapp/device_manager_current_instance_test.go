@@ -6,6 +6,7 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -23,17 +24,19 @@ import (
 func TestCurrentInstanceFor_ResolvesPastLoadFromRegistrysMigration(t *testing.T) {
 	adJID := types.NewADJID("27722983912", types.WhatsAppDomain, 59)
 	nonAD := adJID.ToNonAD().String()
+	liveClient := &whatsmeow.Client{}
 
 	// The startup instance, keyed exactly as InitWaCLI keys it: instanceID :=
 	// device.ID.String() (the AD JID string), not a registry device id.
-	startupInstance := &DeviceInstance{id: adJID.String(), jid: nonAD, adJID: adJID.String(), createdAt: time.Now()}
+	startupInstance := &DeviceInstance{id: adJID.String(), jid: nonAD, adJID: adJID.String(), client: liveClient, createdAt: time.Now()}
 
 	storage := &keepSlotStubStorage{}
 	manager := NewDeviceManager(nil, nil, storage)
 	manager.AddDevice(startupInstance)
 
 	// The real migration path: the registry (multi-user) layer loads its own
-	// canonical-id record for the same companion session.
+	// canonical-id record for the same companion session. loadFromRegistry
+	// transfers the live client pointer onto the new instance, same as production.
 	manager.loadFromRegistry([]*domainChatStorage.DeviceRecord{
 		{DeviceID: "d_canonical", DisplayName: "Aryeh Lewis", JID: nonAD, ADJID: adJID.String(), CreatedAt: time.Now()},
 	})
@@ -45,12 +48,40 @@ func TestCurrentInstanceFor_ResolvesPastLoadFromRegistrysMigration(t *testing.T)
 	if _, stillThere := manager.GetDevice(adJID.String()); stillThere {
 		t.Fatal("expected the startup slot to be replaced, not kept alongside the canonical one")
 	}
+	if canonical.GetClient() != liveClient {
+		t.Fatal("expected the migration to transfer the same live client onto the canonical instance")
+	}
 
 	// The whole point: a closure still holding the stale startupInstance must
-	// resolve to the canonical instance that actually replaced it.
-	current := manager.CurrentInstanceFor(startupInstance)
+	// resolve to the canonical instance that actually replaced it, because it
+	// genuinely holds the same live connection.
+	current := manager.CurrentInstanceFor(startupInstance, liveClient)
 	if current != canonical {
 		t.Fatalf("expected CurrentInstanceFor to resolve to the canonical instance %q, got %q", canonical.ID(), current.ID())
+	}
+}
+
+// Security: two distinct companion sessions can legitimately share a phone
+// number (issue #760's sibling slots). An event from slot A's client must
+// never be routed to slot B's instance just because they share a bare-number
+// JID - only an exact client match may cross from one *DeviceInstance to
+// another.
+func TestCurrentInstanceFor_NeverCrossesToASiblingSlotWithADifferentClient(t *testing.T) {
+	nonAD := "27722983912@s.whatsapp.net"
+	clientA := &whatsmeow.Client{}
+	clientB := &whatsmeow.Client{}
+
+	manager := NewDeviceManager(nil, nil, nil)
+	staleA := &DeviceInstance{id: "stale-a", jid: nonAD, client: clientA, createdAt: time.Now()}
+	slotB := &DeviceInstance{id: "slot-b", jid: nonAD, client: clientB, createdAt: time.Now()} // a different companion, same number
+	manager.AddDevice(slotB)
+
+	// staleA is NOT registered under its own id (simulating a closure that
+	// outlived its slot), so resolution falls through to the bare-number JID
+	// match - which must be rejected because slotB holds a different client.
+	got := manager.CurrentInstanceFor(staleA, clientA)
+	if got != staleA {
+		t.Fatalf("expected the stale instance back (never slotB), got %q", got.ID())
 	}
 }
 
@@ -61,7 +92,7 @@ func TestCurrentInstanceFor_StillCurrentReturnsItself(t *testing.T) {
 	inst := &DeviceInstance{id: "d_only", createdAt: time.Now()}
 	manager.AddDevice(inst)
 
-	if got := manager.CurrentInstanceFor(inst); got != inst {
+	if got := manager.CurrentInstanceFor(inst, nil); got != inst {
 		t.Fatalf("expected the same, still-registered instance back, got %v", got)
 	}
 }
@@ -72,19 +103,19 @@ func TestCurrentInstanceFor_UnknownInstanceFallsBackToItself(t *testing.T) {
 	manager := NewDeviceManager(nil, nil, nil)
 	inst := &DeviceInstance{id: "d_never_registered", createdAt: time.Now()}
 
-	if got := manager.CurrentInstanceFor(inst); got != inst {
+	if got := manager.CurrentInstanceFor(inst, nil); got != inst {
 		t.Fatalf("expected the original instance back when the manager has no record of it, got %v", got)
 	}
 }
 
 func TestCurrentInstanceFor_NilSafety(t *testing.T) {
 	var nilManager *DeviceManager
-	if got := nilManager.CurrentInstanceFor(&DeviceInstance{id: "x"}); got == nil {
+	if got := nilManager.CurrentInstanceFor(&DeviceInstance{id: "x"}, nil); got == nil {
 		t.Fatal("expected the fallback instance back from a nil manager, not nil")
 	}
 
 	manager := NewDeviceManager(nil, nil, nil)
-	if got := manager.CurrentInstanceFor(nil); got != nil {
+	if got := manager.CurrentInstanceFor(nil, nil); got != nil {
 		t.Fatalf("expected nil back for a nil fallback instance, got %v", got)
 	}
 }
