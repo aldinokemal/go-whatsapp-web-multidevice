@@ -73,6 +73,8 @@ func TestSchemas(t *testing.T) {
 		{"send interactive both buttons and cards", sendSchema, `{"type":"interactive","phone":"628","body":"b","buttons":[{"name":"quick_reply","params":{}}],"cards":[{"body":"a","buttons":[{"name":"quick_reply","params":{}}]},{"body":"b","buttons":[{"name":"quick_reply","params":{}}]}]}`, true},
 		{"send interactive unknown button", sendSchema, `{"type":"interactive","phone":"628","body":"b","buttons":[{"name":"fax","params":{}}]}`, true},
 		{"send interactive params not object", sendSchema, `{"type":"interactive","phone":"628","body":"b","buttons":[{"name":"quick_reply","params":"x"}]}`, true},
+		{"send interactive card unknown button", sendSchema, `{"type":"interactive","phone":"628","body":"b","cards":[{"body":"a","buttons":[{"name":"fax","params":{}}]},{"body":"b","buttons":[{"name":"quick_reply","params":{}}]}]}`, true},
+		{"send interactive card send_location", sendSchema, `{"type":"interactive","phone":"628","body":"b","cards":[{"body":"a","buttons":[{"name":"send_location","params":{}}]},{"body":"b","buttons":[{"name":"quick_reply","params":{}}]}]}`, true},
 		{"send interactive one card", sendSchema, `{"type":"interactive","phone":"628","body":"b","cards":[{"body":"a","buttons":[{"name":"quick_reply","params":{}}]}]}`, true},
 
 		// ---- whatsapp_schedule ----

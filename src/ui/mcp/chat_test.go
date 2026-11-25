@@ -216,4 +216,28 @@ func TestHandleChatDispatch(t *testing.T) {
 		assert.Contains(t, resultText(t, res), "History sync requested")
 		assert.NotNil(t, res.StructuredContent)
 	})
+
+	t.Run("set_disappearing rejects a timer that would wrap to 0", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		res, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+			"action": "set_disappearing", "chat_jid": "628@s.whatsapp.net", "timer_seconds": float64(4294967296),
+		}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Nil(t, cs.timer)
+	})
+
+	t.Run("chat_jid is sanitized like REST send", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		_, err := h.handleChat(deviceCtx(), callReq(map[string]any{"action": "request_history", "chat_jid": "120363025246125486"}))
+		require.NoError(t, err)
+		require.NotNil(t, cs.history)
+		assert.Equal(t, "120363025246125486@g.us", cs.history.ChatJID)
+		_, err = h.handleChat(deviceCtx(), callReq(map[string]any{"action": "pin", "chat_jid": "628123", "pinned": true}))
+		require.NoError(t, err)
+		require.NotNil(t, cs.pinned)
+		assert.Equal(t, "628123@s.whatsapp.net", cs.pinned.ChatJID)
+	})
 }
