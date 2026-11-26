@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,13 +46,21 @@ func (r *restSendRetryRepo) nextEvent(t *testing.T) *domainChatStorage.ChatwootF
 }
 
 func TestChatwootRESTSendSurvivesRequestAndRetry(t *testing.T) {
+	for _, autoDownload := range []bool{false, true} {
+		t.Run(fmt.Sprintf("auto_download=%t", autoDownload), func(t *testing.T) {
+			testChatwootRESTSendRetry(t, autoDownload)
+		})
+	}
+}
+
+func testChatwootRESTSendRetry(t *testing.T, autoDownload bool) {
 	enabled, events, media, auto := config.ChatwootEnabled, config.ChatwootEvents, config.PathMedia, config.WhatsappAutoDownloadMedia
 	resolve := getChatwootClientFn
 	t.Cleanup(func() {
 		config.ChatwootEnabled, config.ChatwootEvents, config.PathMedia, config.WhatsappAutoDownloadMedia = enabled, events, media, auto
 		getChatwootClientFn = resolve
 	})
-	config.ChatwootEnabled, config.ChatwootEvents, config.PathMedia, config.WhatsappAutoDownloadMedia = true, []string{"message"}, t.TempDir(), true
+	config.ChatwootEnabled, config.ChatwootEvents, config.PathMedia, config.WhatsappAutoDownloadMedia = true, []string{"message"}, t.TempDir(), autoDownload
 
 	from := types.NewADJID("441111111111", 0, 2)
 	to := types.NewJID("442222222222", types.DefaultUserServer)
@@ -67,6 +76,14 @@ func TestChatwootRESTSendSurvivesRequestAndRetry(t *testing.T) {
 		FileName: proto.String("Customer Receipt.pdf"), Mimetype: proto.String("application/pdf"),
 		Caption: proto.String("Your receipt"), FileSHA256: hash[:],
 	}}
+	if !autoDownload {
+		for _, untouched := range []context.Context{t.Context(), WithChatwootRESTSend(t.Context())} {
+			data := map[string]any{}
+			require.NoError(t, buildMediaFields(untouched, nil, msg, data, "remote-only"))
+			require.Empty(t, extractMediaPath(data["document"]))
+			require.Equal(t, "Customer Receipt.pdf", data["document"].(map[string]any)["filename"])
+		}
+	}
 	getChatwootClientFn = func(deviceID string) (*chatwoot.ResolvedConfig, error) {
 		if deviceID != from.ToNonAD().String() {
 			t.Errorf("unexpected Chatwoot device %q", deviceID)
@@ -156,13 +173,20 @@ func TestChatwootRESTSendOnlyOptsInToAllowedMessages(t *testing.T) {
 	config.ChatwootEvents = []string{"message"}
 	recipient := types.NewJID("442222222222", types.DefaultUserServer)
 	restCtx := WithChatwootRESTSend(ctx)
-	require.True(t, shouldMirrorRESTSend(restCtx, recipient, "ack"))
-	require.False(t, shouldMirrorRESTSend(ctx, recipient, "ack"), "callbacks and workers use their own context")
-	require.False(t, shouldMirrorRESTSend(restCtx, recipient, ""))
+	msg := &waE2E.Message{Conversation: proto.String("hello")}
+	require.True(t, shouldMirrorRESTSend(restCtx, recipient, msg, "ack"))
+	require.False(t, shouldMirrorRESTSend(ctx, recipient, msg, "ack"), "callbacks and workers use their own context")
+	require.False(t, shouldMirrorRESTSend(restCtx, recipient, msg, ""))
+	for _, viewOnce := range []*waE2E.Message{
+		{ImageMessage: &waE2E.ImageMessage{ViewOnce: proto.Bool(true)}},
+		{VideoMessage: &waE2E.VideoMessage{ViewOnce: proto.Bool(true)}},
+	} {
+		require.False(t, shouldMirrorRESTSend(restCtx, recipient, viewOnce, "ack"))
+	}
 	for _, excluded := range []types.JID{
 		types.StatusBroadcastJID, types.NewJID("123", types.BroadcastServer),
 		types.NewJID("123", types.NewsletterServer), types.NewJID("0", types.DefaultUserServer),
 	} {
-		require.False(t, shouldMirrorRESTSend(restCtx, excluded, "ack"))
+		require.False(t, shouldMirrorRESTSend(restCtx, excluded, msg, "ack"))
 	}
 }

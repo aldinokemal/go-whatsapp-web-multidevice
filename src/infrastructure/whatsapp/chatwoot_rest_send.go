@@ -32,9 +32,20 @@ func WithChatwootRESTSend(ctx context.Context) context.Context {
 // RememberChatwootUpload keeps the actual (possibly transcoded) bytes until the
 // send is acknowledged. A carousel can upload several files in one request.
 func RememberChatwootUpload(ctx context.Context, hash, data []byte) {
-	if uploads, ok := ctx.Value(restSendKey{}).(uploadedMedia); ok && len(hash) > 0 && config.WhatsappAutoDownloadMedia {
+	if uploads, ok := ctx.Value(restSendKey{}).(uploadedMedia); ok && len(hash) > 0 {
 		uploads[string(hash)] = data
 	}
+}
+
+// A matching REST upload is already local. Only remote media needs the
+// operator's permission to download it from WhatsApp.
+func canExtractWebhookMedia(ctx context.Context, file whatsmeow.DownloadableMessage) bool {
+	if config.WhatsappAutoDownloadMedia {
+		return true
+	}
+	uploads, _ := ctx.Value(restSendKey{}).(uploadedMedia)
+	_, found := uploads[string(file.GetFileSHA256())]
+	return found
 }
 
 func extractWebhookMedia(ctx context.Context, client *whatsmeow.Client, file whatsmeow.DownloadableMessage) (utils.ExtractedMedia, error) {
@@ -46,16 +57,21 @@ func extractWebhookMedia(ctx context.Context, client *whatsmeow.Client, file wha
 	return utils.ExtractMedia(ctx, client, config.PathMedia, file)
 }
 
-func shouldMirrorRESTSend(ctx context.Context, recipient types.JID, messageID types.MessageID) bool {
+func shouldMirrorRESTSend(ctx context.Context, recipient types.JID, msg *waE2E.Message, messageID types.MessageID) bool {
 	_, optedIn := ctx.Value(restSendKey{}).(uploadedMedia)
-	return optedIn && messageID != "" && recipient.Server != types.BroadcastServer &&
-		recipient.Server != types.NewsletterServer && !utils.IsSystemBroadcastJID(recipient.String())
+	if !optedIn || messageID == "" || recipient.Server == types.BroadcastServer ||
+		recipient.Server == types.NewsletterServer || utils.IsSystemBroadcastJID(recipient.String()) {
+		return false
+	}
+	// REST marks explicitly view-once photos/videos on the media itself.
+	// An interactive message can use a view-once envelope for its carousel.
+	return !msg.GetImageMessage().GetViewOnce() && !msg.GetVideoMessage().GetViewOnce()
 }
 
 // ForwardRESTSendToChatwoot mirrors the server-acknowledged message. whatsmeow
 // emits no local Message event for SendMessage. Use only the Chatwoot leg.
 func ForwardRESTSendToChatwoot(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, sent whatsmeow.SendResponse) {
-	if !shouldMirrorRESTSend(ctx, recipient, sent.ID) {
+	if !shouldMirrorRESTSend(ctx, recipient, msg, sent.ID) {
 		return
 	}
 	device, ok := DeviceFromContext(ctx)

@@ -9,7 +9,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 
-	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/types/events"
@@ -472,7 +471,7 @@ func buildAlbumFields(evt *events.Message, msg *waE2E.Message, payload map[strin
 
 func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.Message, payload map[string]any, messageID string) error {
 	if audioMedia := msg.GetAudioMessage(); audioMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if canExtractWebhookMedia(ctx, audioMedia) {
 			extracted, err := extractWebhookMedia(ctx, client, audioMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -490,7 +489,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if documentMedia := msg.GetDocumentMessage(); documentMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if canExtractWebhookMedia(ctx, documentMedia) {
 			extracted, err := extractWebhookMedia(ctx, client, documentMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -509,7 +508,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if imageMedia := msg.GetImageMessage(); imageMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if canExtractWebhookMedia(ctx, imageMedia) {
 			extracted, err := extractWebhookMedia(ctx, client, imageMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -528,7 +527,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if stickerMedia := msg.GetStickerMessage(); stickerMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if canExtractWebhookMedia(ctx, stickerMedia) {
 			extracted, err := extractWebhookMedia(ctx, client, stickerMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -546,7 +545,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if videoMedia := msg.GetVideoMessage(); videoMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if canExtractWebhookMedia(ctx, videoMedia) {
 			extracted, err := extractWebhookMedia(ctx, client, videoMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -565,7 +564,7 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 	}
 
 	if ptvMedia := msg.GetPtvMessage(); ptvMedia != nil {
-		if config.WhatsappAutoDownloadMedia {
+		if canExtractWebhookMedia(ctx, ptvMedia) {
 			extracted, err := extractWebhookMedia(ctx, client, ptvMedia)
 			if err != nil {
 				// Media expired/unavailable: skip the attachment but keep
@@ -604,14 +603,12 @@ func buildMediaFields(ctx context.Context, client *whatsmeow.Client, msg *waE2E.
 // values). Without this, buildMediaFields only looks at the top-level
 // message — which is empty for InteractiveMessage, since it's a distinct
 // oneof case from GetImageMessage()/GetVideoMessage()/GetDocumentMessage() —
-// so header media silently never reached Chatwoot. Returns nil when
-// WHATSAPP_AUTO_DOWNLOAD_MEDIA is disabled: as with top-level media, a
-// URL-only reference isn't something Chatwoot can fetch itself, so there's
-// nothing usable to attach (see extractMediaPath in webhook_forward.go).
+// so header media silently never reached Chatwoot. A header needs either
+// locally supplied bytes or permission to download from WhatsApp.
 // header.GetLocationMessage()/GetProductMessage()/GetJPEGThumbnail() are not
 // handled: no existing payload field/attachment path covers them here.
 func collectInteractiveMedia(ctx context.Context, client *whatsmeow.Client, im *waE2E.InteractiveMessage, messageID string) []string {
-	if im == nil || !config.WhatsappAutoDownloadMedia {
+	if im == nil {
 		return nil
 	}
 
@@ -629,21 +626,21 @@ func extractInteractiveHeaderMediaPaths(ctx context.Context, client *whatsmeow.C
 	}
 
 	var paths []string
-	if imageMedia := header.GetImageMessage(); imageMedia != nil {
+	if imageMedia := header.GetImageMessage(); imageMedia != nil && canExtractWebhookMedia(ctx, imageMedia) {
 		if extracted, err := extractWebhookMedia(ctx, client, imageMedia); err != nil {
 			logrus.Errorf("Failed to download interactive header image for message %s: %v", messageID, utils.MediaErrorForLog(err))
 		} else {
 			paths = append(paths, extracted.MediaPath)
 		}
 	}
-	if videoMedia := header.GetVideoMessage(); videoMedia != nil {
+	if videoMedia := header.GetVideoMessage(); videoMedia != nil && canExtractWebhookMedia(ctx, videoMedia) {
 		if extracted, err := extractWebhookMedia(ctx, client, videoMedia); err != nil {
 			logrus.Errorf("Failed to download interactive header video for message %s: %v", messageID, utils.MediaErrorForLog(err))
 		} else {
 			paths = append(paths, extracted.MediaPath)
 		}
 	}
-	if documentMedia := header.GetDocumentMessage(); documentMedia != nil {
+	if documentMedia := header.GetDocumentMessage(); documentMedia != nil && canExtractWebhookMedia(ctx, documentMedia) {
 		if extracted, err := extractWebhookMedia(ctx, client, documentMedia); err != nil {
 			logrus.Errorf("Failed to download interactive header document for message %s: %v", messageID, utils.MediaErrorForLog(err))
 		} else {
