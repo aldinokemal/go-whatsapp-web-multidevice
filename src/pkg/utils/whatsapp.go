@@ -1321,6 +1321,23 @@ func SanitizePhone(phone *string) {
 	}
 }
 
+// ParsePhoneJID accepts phone numbers and phone JIDs for registration lookups.
+// Unlike SanitizePhone, a long number is never inferred to be a group.
+func ParsePhoneJID(phone string) (types.JID, error) {
+	phone = strings.TrimSpace(phone)
+	jid, err := ParseJID(phone)
+	if err != nil {
+		return types.EmptyJID, err
+	}
+	if jid.Server != types.DefaultUserServer || strings.Count(phone, "@") > 1 {
+		return types.EmptyJID, errors.New("expected a phone number or an @s.whatsapp.net user JID")
+	}
+	if len(jid.User) == 0 || len(jid.User) > maxPhoneNumberLength || strings.Trim(jid.User, "0123456789") != "" {
+		return types.EmptyJID, fmt.Errorf("phone number must contain 1 to %d digits", maxPhoneNumberLength)
+	}
+	return jid.ToNonAD(), nil
+}
+
 // whatsappLookup is the part of *whatsmeow.Client that ResolveOnWhatsapp uses.
 type whatsappLookup interface {
 	IsOnWhatsApp(ctx context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error)

@@ -88,7 +88,7 @@ func (s *stubUserToolService) MyListContactsDetailed(context.Context) (domainUse
 
 func TestHandleUserDispatch(t *testing.T) {
 	t.Run("phone actions get a sanitized phone and a structured result", func(t *testing.T) {
-		for _, action := range []string{"info", "check", "business_profile", "avatar", "subscribe_presence"} {
+		for _, action := range []string{"info", "business_profile", "avatar", "subscribe_presence"} {
 			svc := &stubUserToolService{}
 			res, err := InitMcpUser(svc, &stubResolver{}).handleUser(deviceCtx(), callReq(map[string]any{"action": action, "phone": " 628123 "}))
 			require.NoError(t, err)
@@ -97,6 +97,18 @@ func TestHandleUserDispatch(t *testing.T) {
 			assert.Equal(t, "628123@s.whatsapp.net", svc.phone, action)
 			require.NotNil(t, svc.ret, action)
 			assert.Equal(t, svc.ret, res.StructuredContent, action)
+		}
+	})
+
+	t.Run("check passes the number to the registration lookup without inferring a group", func(t *testing.T) {
+		for _, phone := range []string{"628123", "1234567890123456"} {
+			svc := &stubUserToolService{}
+			res, err := InitMcpUser(svc, &stubResolver{}).handleUser(deviceCtx(), callReq(map[string]any{"action": "check", "phone": " " + phone + " "}))
+			require.NoError(t, err)
+			require.False(t, res.IsError)
+			require.Equal(t, "check", svc.called)
+			require.Equal(t, phone, svc.phone)
+			require.Equal(t, svc.ret, res.StructuredContent)
 		}
 	})
 

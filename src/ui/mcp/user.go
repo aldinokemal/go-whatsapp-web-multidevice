@@ -46,9 +46,11 @@ func (h *UserHandler) handleUser(ctx context.Context, request mcpg.CallToolReque
 	if err != nil {
 		return mcpg.NewToolResultError(err.Error()), nil
 	}
-	// Same as REST /user/*: a bare number gets @s.whatsapp.net.
 	phone := strings.TrimSpace(request.GetString("phone", ""))
-	utils.SanitizePhone(&phone)
+	// As in REST, pass check its original number; other actions infer a user/group suffix.
+	if action != "check" {
+		utils.SanitizePhone(&phone)
+	}
 
 	var resp any
 	switch action {

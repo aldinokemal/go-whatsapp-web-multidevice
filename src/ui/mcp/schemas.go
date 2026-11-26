@@ -208,9 +208,9 @@ const userSchema = `{
   "type": "object",
   "required": ["action"],
   "properties": {
-    "action": {"type": "string", "enum": ["info","check","business_profile","avatar","subscribe_presence","set_push_name","my_privacy","my_groups","my_newsletters","my_contacts_detailed"], "description": "User/account query. check = is the number on WhatsApp; subscribe_presence = receive this user's online/offline presence events (delivered only when the server runs with WHATSAPP_PRESENCE_ON_CONNECT=available); set_push_name changes this account's display name; my_* read this account's own data"},
+    "action": {"type": "string", "enum": ["info","check","business_profile","avatar","subscribe_presence","set_push_name","my_privacy","my_groups","my_newsletters","my_contacts_detailed"], "description": "check looks up a phone number. subscribe_presence receives this user's online/offline events while this account is available. Set WHATSAPP_PRESENCE_ON_CONNECT=available or call whatsapp_send with type=presence and presence=available at runtime. set_push_name changes this account's display name. my_* reads this account's own data."},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
-    "phone": {"type": "string", "description": "info/check/business_profile/avatar/subscribe_presence: phone number or JID of the user (avatar also accepts a group JID)"},
+    "phone": {"type": "string", "description": "User phone number or JID. check accepts an international number of up to 15 digits or its @s.whatsapp.net JID. avatar also accepts a group JID."},
     "is_preview": {"type": "boolean", "description": "avatar: return the low-resolution preview (default false)"},
     "is_community": {"type": "boolean", "description": "avatar: phone is a community group JID (default false)"},
     "push_name": {"type": "string", "minLength": 1, "description": "set_push_name: new display name for this account"}

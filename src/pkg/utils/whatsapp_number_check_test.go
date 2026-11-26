@@ -9,6 +9,18 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
+func TestParsePhoneJIDAcceptsPhoneNumbersAndDeviceJIDs(t *testing.T) {
+	want := types.NewJID("123456789012345", types.DefaultUserServer)
+	for _, phone := range []string{
+		want.User, " +" + want.User + " ", want.String(), want.User + ":7@s.whatsapp.net",
+	} {
+		got, err := ParsePhoneJID(phone)
+		if err != nil || got != want {
+			t.Errorf("ParsePhoneJID(%q) = %v, %v; want %v", phone, got, err, want)
+		}
+	}
+}
+
 type fakeWhatsappLookup struct {
 	phones        []string
 	numberResults []types.IsOnWhatsAppResponse

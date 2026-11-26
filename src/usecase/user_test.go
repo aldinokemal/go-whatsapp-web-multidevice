@@ -19,6 +19,22 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
+func TestIsOnWhatsAppRejectsInvalidPhoneBeforeLookup(t *testing.T) {
+	ctx := whatsapp.ContextWithDevice(context.Background(), &whatsapp.DeviceInstance{})
+	for _, phone := range []string{
+		"", "abc", "1234567890123456", "+1234567890123456",
+		"1234567890123456@s.whatsapp.net", "1234567890123456@g.us",
+		"123@newsletter", "123@lid", "status@broadcast", "123@s.whatsapp.net@extra",
+	} {
+		t.Run(phone, func(t *testing.T) {
+			result, err := NewUserService(nil).IsOnWhatsApp(ctx, domainUser.CheckRequest{Phone: phone})
+			var invalidJID pkgError.InvalidJID
+			require.ErrorAs(t, err, &invalidJID)
+			require.False(t, result.IsOnWhatsApp)
+		})
+	}
+}
+
 func TestDecodeAvatarImageRejectsOversizedHeaderBeforeDecode(t *testing.T) {
 	img, err := decodeAvatarImage(bytes.NewReader(pngWithIHDR(20000, 20000)))
 	require.ErrorIs(t, err, utils.ErrImageTooLarge)
