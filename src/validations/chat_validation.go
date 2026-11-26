@@ -91,6 +91,32 @@ func validateTimerValue(value any) error {
 	return pkgError.ValidationError("timer_seconds must be one of: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)")
 }
 
+// ValidMuteDurations contains the mute durations WhatsApp offers, in seconds.
+var ValidMuteDurations = []int64{
+	0,      // Always
+	28800,  // 8 hours
+	604800, // 1 week
+}
+
+func ValidateMuteChat(ctx context.Context, request *domainChat.MuteChatRequest) error {
+	err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.ChatJID, validation.Required),
+	)
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	if !request.Muted {
+		return nil
+	}
+	for _, valid := range ValidMuteDurations {
+		if request.DurationSeconds == valid {
+			return nil
+		}
+	}
+	return pkgError.ValidationError("duration_seconds must be one of: 28800 (8h), 604800 (1 week), 0 (always)")
+}
+
 // MaxRequestChatHistoryCount caps how many older messages can be requested
 // from the phone in a single on-demand history sync request.
 const MaxRequestChatHistoryCount = 500

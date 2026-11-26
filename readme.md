@@ -449,7 +449,7 @@ operation:
 | `whatsapp_send`    | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `link`, `forward`, `interactive`, `chat_presence`, `presence`        |
 | `whatsapp_schedule` | `list`, `get`, `pause`, `resume`, `cancel`                                                                                                                    |
 | `whatsapp_message` | `react`, `edit`, `revoke`, `delete`, `mark_read`, `mark_played`, `star`, `unstar`, `download_media`                                                           |
-| `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`, `pin`, `set_disappearing`, `request_history`                                                        |
+| `whatsapp_chat`    | `list_chats`, `list_contacts`, `get_messages`, `archive`, `pin`, `mute`, `set_disappearing`, `request_history`                                                |
 | `whatsapp_group`   | `create`, `join_with_link`, `info_from_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `set_photo`, `remove_photo`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
 | `whatsapp_newsletter` | `follow`, `unfollow`, `info`, `directory`, `messages`, `message_updates`, `live_updates_subscribe`, `live_updates_unsubscribe`, `live_updates_list`        |
@@ -771,6 +771,7 @@ You may also fork or modify the source code.
 | ✅       | Get Chat Messages                      | GET    | /chat/:chat_jid/messages            |
 | ✅       | Pin Chat                               | POST   | /chat/:chat_jid/pin                 |
 | ✅       | Archive Chat                           | POST   | /chat/:chat_jid/archive             |
+| ✅       | Mute Chat                              | POST   | /chat/:chat_jid/mute                |
 | ✅       | Set Disappearing Messages              | POST   | /chat/:chat_jid/disappearing        |
 | ✅       | Request Chat History (Load Older Msgs) | POST   | /chat/:chat_jid/history             |
 | ✅       | Chatwoot Sync History                  | POST   | /chatwoot/sync                      |

@@ -324,3 +324,28 @@ func TestValidateRequestChatHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMuteChat(t *testing.T) {
+	durationErr := pkgError.ValidationError("duration_seconds must be one of: 28800 (8h), 604800 (1 week), 0 (always)")
+	tests := []struct {
+		name    string
+		request domainChat.MuteChatRequest
+		err     any
+	}{
+		{"mute for 8 hours", domainChat.MuteChatRequest{ChatJID: "6289685028129@s.whatsapp.net", Muted: true, DurationSeconds: 28800}, nil},
+		{"mute for 1 week", domainChat.MuteChatRequest{ChatJID: "6289685028129@s.whatsapp.net", Muted: true, DurationSeconds: 604800}, nil},
+		{"mute always", domainChat.MuteChatRequest{ChatJID: "6289685028129@s.whatsapp.net", Muted: true}, nil},
+		{"unmute", domainChat.MuteChatRequest{ChatJID: "6289685028129@s.whatsapp.net", Muted: false}, nil},
+		{"unmute ignores duration", domainChat.MuteChatRequest{ChatJID: "6289685028129@s.whatsapp.net", Muted: false, DurationSeconds: 60}, nil},
+		{"other duration", domainChat.MuteChatRequest{ChatJID: "6289685028129@s.whatsapp.net", Muted: true, DurationSeconds: 3600}, durationErr},
+		{"negative duration", domainChat.MuteChatRequest{ChatJID: "6289685028129@s.whatsapp.net", Muted: true, DurationSeconds: -1}, durationErr},
+		{"empty chat_jid", domainChat.MuteChatRequest{Muted: true}, pkgError.ValidationError("chat_jid: cannot be blank.")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMuteChat(context.Background(), &tt.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}

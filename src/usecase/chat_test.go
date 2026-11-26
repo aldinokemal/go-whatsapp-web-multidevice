@@ -11,6 +11,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -629,4 +630,59 @@ func TestRequestChatHistoryNoStoredMessages(t *testing.T) {
 		t.Fatalf("anchor lookup used device=%q chat=%q, want device=%q chat=%q",
 			repo.oldestMessageDeviceID, repo.oldestMessageChatJID, deviceID, chatJID)
 	}
+}
+
+func TestMuteChatRequiresClient(t *testing.T) {
+	service := NewChatService(&chatUsecaseRepoStub{})
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("628999999999@s.whatsapp.net", nil, nil))
+
+	_, err := service.MuteChat(ctx, domainChat.MuteChatRequest{ChatJID: "628123456789@s.whatsapp.net", Muted: true})
+	if err != pkgError.ErrWaCLI {
+		t.Fatalf("expected ErrWaCLI, got %v", err)
+	}
+}
+
+func TestMuteChatValidatesBeforeClient(t *testing.T) {
+	service := NewChatService(&chatUsecaseRepoStub{})
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("628999999999@s.whatsapp.net", nil, nil))
+
+	_, err := service.MuteChat(ctx, domainChat.MuteChatRequest{ChatJID: "628123456789@s.whatsapp.net", Muted: true, DurationSeconds: 60})
+	if _, ok := err.(pkgError.ValidationError); !ok {
+		t.Fatalf("expected a ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestBuildMuteChatPatch(t *testing.T) {
+	target := types.NewJID("628123456789", types.DefaultUserServer)
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	t.Run("timed mute", func(t *testing.T) {
+		patch, until := buildMuteChatPatch(target, true, 8*time.Hour, now)
+		action := patch.Mutations[0].Value.GetMuteAction()
+		if patch.Type != appstate.WAPatchRegularHigh || patch.Mutations[0].Index[0] != appstate.IndexMute || patch.Mutations[0].Index[1] != target.String() {
+			t.Fatalf("unexpected patch %s %v", patch.Type, patch.Mutations[0].Index)
+		}
+		if !action.GetMuted() || action.GetMuteEndTimestamp() != now.Add(8*time.Hour).UnixMilli() {
+			t.Fatalf("unexpected action muted=%v end=%d", action.GetMuted(), action.GetMuteEndTimestamp())
+		}
+		if until == nil || !until.Equal(now.Add(8*time.Hour)) {
+			t.Fatalf("unexpected muted until %v", until)
+		}
+	})
+
+	t.Run("mute always", func(t *testing.T) {
+		patch, until := buildMuteChatPatch(target, true, 0, now)
+		action := patch.Mutations[0].Value.GetMuteAction()
+		if !action.GetMuted() || action.GetMuteEndTimestamp() != -1 || until != nil {
+			t.Fatalf("unexpected action muted=%v end=%d until=%v", action.GetMuted(), action.GetMuteEndTimestamp(), until)
+		}
+	})
+
+	t.Run("unmute", func(t *testing.T) {
+		patch, until := buildMuteChatPatch(target, false, 8*time.Hour, now)
+		action := patch.Mutations[0].Value.GetMuteAction()
+		if action.GetMuted() || action.MuteEndTimestamp != nil || until != nil {
+			t.Fatalf("unexpected action muted=%v end=%v until=%v", action.GetMuted(), action.MuteEndTimestamp, until)
+		}
+	})
 }
