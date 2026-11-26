@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -168,18 +169,20 @@ func TestMarkChatAsReadUsesRouteJIDAndBody(t *testing.T) {
 	controller := &Chat{Service: spy}
 	app.Post("/chat/:chat_jid/read", controller.MarkChatAsRead)
 
-	body := `{"chat_jid":"other@s.whatsapp.net","read":false}`
-	req := httptest.NewRequest("POST", "/chat/120363025982934543%40g.us/read", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
+	for _, read := range []bool{true, false} {
+		body := fmt.Sprintf(`{"chat_jid":"other@s.whatsapp.net","read":%t}`, read)
+		req := httptest.NewRequest("POST", "/chat/120363025982934543%40g.us/read", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
 
-	resp, err := app.Test(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, fiber.StatusOK, resp.StatusCode)
-	require.Equal(t, 1, spy.calls)
-	require.Equal(t, "120363025982934543@g.us", spy.lastRead.ChatJID)
-	require.NotNil(t, spy.lastRead.Read)
-	require.False(t, *spy.lastRead.Read)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+		require.Equal(t, "120363025982934543@g.us", spy.lastRead.ChatJID)
+		require.NotNil(t, spy.lastRead.Read)
+		require.Equal(t, read, *spy.lastRead.Read)
+	}
+	require.Equal(t, 2, spy.calls)
 }
 
 func TestMarkChatAsReadKeepsMissingFlagNil(t *testing.T) {

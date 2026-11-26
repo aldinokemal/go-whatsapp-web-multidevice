@@ -171,17 +171,19 @@ func TestHandleChatDispatch(t *testing.T) {
 	})
 
 	t.Run("read", func(t *testing.T) {
-		cs := &stubChatService{}
-		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
-		res, err := h.handleChat(deviceCtx(), callReq(map[string]any{
-			"action": "read", "chat_jid": "628@s.whatsapp.net", "read": false,
-		}))
-		require.NoError(t, err)
-		assert.False(t, res.IsError)
-		require.NotNil(t, cs.read)
-		assert.Equal(t, "628@s.whatsapp.net", cs.read.ChatJID)
-		require.NotNil(t, cs.read.Read)
-		assert.False(t, *cs.read.Read)
+		for _, read := range []bool{true, false} {
+			cs := &stubChatService{}
+			h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+			res, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+				"action": "read", "chat_jid": "628@s.whatsapp.net", "read": read,
+			}))
+			require.NoError(t, err)
+			assert.False(t, res.IsError)
+			require.NotNil(t, cs.read)
+			assert.Equal(t, "628@s.whatsapp.net", cs.read.ChatJID)
+			require.NotNil(t, cs.read.Read)
+			assert.Equal(t, read, *cs.read.Read)
+		}
 	})
 
 	t.Run("read without the flag", func(t *testing.T) {

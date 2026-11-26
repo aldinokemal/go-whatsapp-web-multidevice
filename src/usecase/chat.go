@@ -494,7 +494,11 @@ func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainCha
 
 	// The message range names the newest message the flag applies to. Without
 	// a stored message, BuildMarkChatAsRead falls back to the current time.
-	lastTimestamp, lastKey := service.lastMessageKey(storageDeviceID(ctx), targetJID, chatKeys(request.ChatJID, targetJID)...)
+	lastTimestamp, lastKey, err := service.lastMessageKey(storageDeviceID(ctx), targetJID, chatKeys(request.ChatJID, targetJID)...)
+	if err != nil {
+		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to look up the last stored message")
+		return response, err
+	}
 	patchInfo := appstate.BuildMarkChatAsRead(targetJID, read, lastTimestamp, lastKey)
 
 	// Send app state update
@@ -525,46 +529,68 @@ func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainCha
 	return response, nil
 }
 
-// lastMessageKeyLookback bounds how many recent rows are scanned for the
-// newest real message; stored call records are skipped.
-const lastMessageKeyLookback = 20
+// lastMessageKeyPage is how many stored rows are read per query while looking
+// for the newest real message; stored call records are skipped.
+const lastMessageKeyPage = 50
 
 // lastMessageKey returns the timestamp and key of the newest stored message of
-// a chat, looked up under each key in order. It returns a zero time and a nil
-// key when the device or the chat has no stored message.
-func (service serviceChat) lastMessageKey(deviceID string, target types.JID, keys ...string) (time.Time, *waCommon.MessageKey) {
+// a chat across all the keys it may be stored under. It returns a zero time and
+// a nil key when the device or the chat has no stored message.
+func (service serviceChat) lastMessageKey(deviceID string, target types.JID, keys ...string) (time.Time, *waCommon.MessageKey, error) {
 	if deviceID == "" || service.chatStorageRepo == nil {
-		return time.Time{}, nil
+		return time.Time{}, nil, nil
 	}
+	var newest *domainChatStorage.Message
 	for _, key := range keys {
+		message, err := service.newestRealMessage(deviceID, key)
+		if err != nil {
+			return time.Time{}, nil, err
+		}
+		if message != nil && (newest == nil || message.Timestamp.After(newest.Timestamp)) {
+			newest = message
+		}
+	}
+	if newest == nil {
+		return time.Time{}, nil, nil
+	}
+
+	messageKey := &waCommon.MessageKey{
+		RemoteJID: proto.String(target.String()),
+		FromMe:    proto.Bool(newest.IsFromMe),
+		ID:        proto.String(newest.ID),
+	}
+	if target.Server == types.GroupServer && !newest.IsFromMe && newest.Sender != "" {
+		participant := newest.Sender
+		if !strings.Contains(participant, "@") {
+			participant += "@" + types.DefaultUserServer
+		}
+		messageKey.Participant = proto.String(participant)
+	}
+	return newest.Timestamp, messageKey, nil
+}
+
+// newestRealMessage returns the newest stored message of a chat key that is
+// not a call record, or nil when there is none.
+func (service serviceChat) newestRealMessage(deviceID, chatJID string) (*domainChatStorage.Message, error) {
+	for offset := 0; ; offset += lastMessageKeyPage {
 		messages, err := service.chatStorageRepo.GetMessages(&domainChatStorage.MessageFilter{
 			DeviceID: deviceID,
-			ChatJID:  key,
-			Limit:    lastMessageKeyLookback,
+			ChatJID:  chatJID,
+			Limit:    lastMessageKeyPage,
+			Offset:   offset,
 		})
 		if err != nil {
-			return time.Time{}, nil
+			return nil, err
 		}
 		for _, message := range messages {
-			if message == nil || message.ID == "" || message.MediaType == "call" {
-				continue
+			if message != nil && message.ID != "" && message.MediaType != "call" {
+				return message, nil
 			}
-			messageKey := &waCommon.MessageKey{
-				RemoteJID: proto.String(target.String()),
-				FromMe:    proto.Bool(message.IsFromMe),
-				ID:        proto.String(message.ID),
-			}
-			if target.Server == types.GroupServer && !message.IsFromMe && message.Sender != "" {
-				participant := message.Sender
-				if !strings.Contains(participant, "@") {
-					participant += "@" + types.DefaultUserServer
-				}
-				messageKey.Participant = proto.String(participant)
-			}
-			return message.Timestamp, messageKey
+		}
+		if len(messages) < lastMessageKeyPage {
+			return nil, nil
 		}
 	}
-	return time.Time{}, nil
 }
 
 // RequestChatHistory asks the phone for older messages of a chat (what

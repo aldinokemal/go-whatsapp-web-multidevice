@@ -3,6 +3,8 @@ package usecase
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -10,6 +12,8 @@ import (
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
@@ -642,79 +646,113 @@ func TestMarkChatAsReadRequiresClient(t *testing.T) {
 	}
 }
 
-// lastMessageRepoStub returns stored messages per chat JID and records the
-// filters it was asked for.
+// lastMessageRepoStub returns stored messages per chat JID, newest first and
+// paged like the SQL repository, and records the filters it was asked for.
 type lastMessageRepoStub struct {
 	domainChatStorage.IChatStorageRepository
 	byChat  map[string][]*domainChatStorage.Message
 	filters []domainChatStorage.MessageFilter
+	err     error
 }
 
 func (r *lastMessageRepoStub) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
 	r.filters = append(r.filters, *filter)
-	return r.byChat[filter.ChatJID], nil
+	if r.err != nil {
+		return nil, r.err
+	}
+	rows := r.byChat[filter.ChatJID]
+	if filter.Offset >= len(rows) {
+		return nil, nil
+	}
+	rows = rows[filter.Offset:]
+	if filter.Limit > 0 && len(rows) > filter.Limit {
+		rows = rows[:filter.Limit]
+	}
+	return rows, nil
 }
 
 func TestLastMessageKey(t *testing.T) {
 	deviceID := "628999999999@s.whatsapp.net"
 	sentAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	chat := types.NewJID("628123456789", types.DefaultUserServer)
 
 	t.Run("skips call records and keeps device scope", func(t *testing.T) {
-		chat := types.NewJID("628123456789", types.DefaultUserServer)
 		repo := &lastMessageRepoStub{byChat: map[string][]*domainChatStorage.Message{
 			chat.String(): {
 				{ID: "call:ABC", MediaType: "call", Timestamp: sentAt.Add(time.Minute)},
 				{ID: "MSG1", IsFromMe: true, Sender: deviceID, Timestamp: sentAt},
 			},
 		}}
-		ts, key := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, chat, chat.String())
-		if key == nil || key.GetID() != "MSG1" || !key.GetFromMe() || key.GetRemoteJID() != chat.String() || key.Participant != nil {
-			t.Fatalf("unexpected key %v", key)
+		ts, key, err := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, chat, chat.String())
+		require.NoError(t, err)
+		require.NotNil(t, key)
+		assert.Equal(t, "MSG1", key.GetID())
+		assert.True(t, key.GetFromMe())
+		assert.Equal(t, chat.String(), key.GetRemoteJID())
+		assert.Nil(t, key.Participant)
+		assert.True(t, ts.Equal(sentAt))
+		require.NotEmpty(t, repo.filters)
+		assert.Equal(t, deviceID, repo.filters[0].DeviceID)
+	})
+
+	t.Run("pages past a run of call records", func(t *testing.T) {
+		rows := make([]*domainChatStorage.Message, 0, lastMessageKeyPage+1)
+		for i := 0; i < lastMessageKeyPage; i++ {
+			rows = append(rows, &domainChatStorage.Message{ID: fmt.Sprintf("call:%d", i), MediaType: "call", Timestamp: sentAt.Add(time.Hour)})
 		}
-		if !ts.Equal(sentAt) {
-			t.Fatalf("unexpected timestamp %v", ts)
-		}
-		if len(repo.filters) != 1 || repo.filters[0].DeviceID != deviceID {
-			t.Fatalf("unexpected filters %+v", repo.filters)
-		}
+		rows = append(rows, &domainChatStorage.Message{ID: "MSG2", Timestamp: sentAt})
+		repo := &lastMessageRepoStub{byChat: map[string][]*domainChatStorage.Message{chat.String(): rows}}
+		_, key, err := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, chat, chat.String())
+		require.NoError(t, err)
+		require.NotNil(t, key)
+		assert.Equal(t, "MSG2", key.GetID())
+		assert.Len(t, repo.filters, 2)
 	})
 
 	t.Run("group message carries the participant", func(t *testing.T) {
 		group := types.NewJID("120363025982934543", types.GroupServer)
 		repo := &lastMessageRepoStub{byChat: map[string][]*domainChatStorage.Message{
-			group.String(): {{ID: "MSG2", Sender: "628111111111", Timestamp: sentAt}},
+			group.String(): {{ID: "MSG3", Sender: "628111111111", Timestamp: sentAt}},
 		}}
-		_, key := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, group, group.String())
-		if key == nil || key.GetParticipant() != "628111111111@s.whatsapp.net" || key.GetFromMe() {
-			t.Fatalf("unexpected key %v", key)
-		}
+		_, key, err := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, group, group.String())
+		require.NoError(t, err)
+		require.NotNil(t, key)
+		assert.Equal(t, "628111111111@s.whatsapp.net", key.GetParticipant())
+		assert.False(t, key.GetFromMe())
 	})
 
-	t.Run("falls through to the next key", func(t *testing.T) {
-		chat := types.NewJID("628123456789", types.DefaultUserServer)
+	t.Run("newest message across keys", func(t *testing.T) {
 		repo := &lastMessageRepoStub{byChat: map[string][]*domainChatStorage.Message{
-			"123@lid": {{ID: "MSG3", Timestamp: sentAt}},
+			chat.String(): {{ID: "OLDER", Timestamp: sentAt}},
+			"123@lid":     {{ID: "NEWER", Timestamp: sentAt.Add(time.Minute)}},
 		}}
-		_, key := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, chat, chat.String(), "123@lid")
-		if key == nil || key.GetID() != "MSG3" || key.GetRemoteJID() != chat.String() {
-			t.Fatalf("unexpected key %v", key)
-		}
+		ts, key, err := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, chat, chat.String(), "123@lid")
+		require.NoError(t, err)
+		require.NotNil(t, key)
+		assert.Equal(t, "NEWER", key.GetID())
+		assert.Equal(t, chat.String(), key.GetRemoteJID())
+		assert.True(t, ts.Equal(sentAt.Add(time.Minute)))
 	})
 
 	t.Run("no stored message", func(t *testing.T) {
-		chat := types.NewJID("628123456789", types.DefaultUserServer)
-		ts, key := serviceChat{chatStorageRepo: &lastMessageRepoStub{}}.lastMessageKey(deviceID, chat, chat.String())
-		if key != nil || !ts.IsZero() {
-			t.Fatalf("expected no key, got %v %v", ts, key)
-		}
+		ts, key, err := serviceChat{chatStorageRepo: &lastMessageRepoStub{}}.lastMessageKey(deviceID, chat, chat.String())
+		require.NoError(t, err)
+		assert.Nil(t, key)
+		assert.True(t, ts.IsZero())
+	})
+
+	t.Run("lookup error", func(t *testing.T) {
+		repo := &lastMessageRepoStub{err: errors.New("database is locked")}
+		_, key, err := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, chat, chat.String())
+		require.EqualError(t, err, "database is locked")
+		assert.Nil(t, key)
 	})
 
 	t.Run("no device", func(t *testing.T) {
-		chat := types.NewJID("628123456789", types.DefaultUserServer)
 		repo := &lastMessageRepoStub{}
-		_, key := serviceChat{chatStorageRepo: repo}.lastMessageKey("", chat, chat.String())
-		if key != nil || len(repo.filters) != 0 {
-			t.Fatalf("expected no lookup without a device, got key %v filters %+v", key, repo.filters)
-		}
+		_, key, err := serviceChat{chatStorageRepo: repo}.lastMessageKey("", chat, chat.String())
+		require.NoError(t, err)
+		assert.Nil(t, key)
+		assert.Empty(t, repo.filters)
 	})
 }
