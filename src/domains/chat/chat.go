@@ -113,7 +113,10 @@ type RequestChatHistoryResponse struct {
 // Mark Chat As Read operations
 type MarkChatAsReadRequest struct {
 	ChatJID string `json:"chat_jid" uri:"chat_jid"`
-	Read    bool   `json:"read"`
+	// Read is required: true marks the chat as read, false as unread. A
+	// pointer, so a request without the field is rejected instead of marking
+	// the chat as unread.
+	Read *bool `json:"read"`
 }
 
 type MarkChatAsReadResponse struct {

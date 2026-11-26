@@ -471,13 +471,9 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 	return response, nil
 }
 
-// RequestChatHistory asks the phone for older messages of a chat (what
-// WhatsApp Web does when you scroll up / "load older messages"). It anchors
-// the request at the oldest message currently stored for that chat and sends
-// a HISTORY_SYNC_ON_DEMAND peer message via whatsmeow's
-// BuildHistorySyncRequest. The phone answers asynchronously with a
-// *events.HistorySync (ON_DEMAND), which the existing history-sync handler
-// persists into chat storage the same way it does for the initial bootstrap.
+// MarkChatAsRead marks a chat as read or unread through an app state patch,
+// like "Mark as read" and "Mark as unread" in WhatsApp. It sends no read
+// receipts.
 func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainChat.MarkChatAsReadRequest) (response domainChat.MarkChatAsReadResponse, err error) {
 	if err = validations.ValidateMarkChatAsRead(ctx, &request); err != nil {
 		return response, err
@@ -494,16 +490,18 @@ func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainCha
 		return response, err
 	}
 
+	read := *request.Read
+
 	// The message range names the newest message the flag applies to. Without
 	// a stored message, BuildMarkChatAsRead falls back to the current time.
 	lastTimestamp, lastKey := service.lastMessageKey(storageDeviceID(ctx), targetJID, chatKeys(request.ChatJID, targetJID)...)
-	patchInfo := appstate.BuildMarkChatAsRead(targetJID, request.Read, lastTimestamp, lastKey)
+	patchInfo := appstate.BuildMarkChatAsRead(targetJID, read, lastTimestamp, lastKey)
 
 	// Send app state update
 	if err = client.SendAppState(ctx, patchInfo); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"chat_jid": request.ChatJID,
-			"read":     request.Read,
+			"read":     read,
 		}).Error("Failed to send mark chat as read app state")
 		return response, err
 	}
@@ -511,9 +509,9 @@ func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainCha
 	// Build response
 	response.Status = "success"
 	response.ChatJID = request.ChatJID
-	response.Read = request.Read
+	response.Read = read
 
-	if request.Read {
+	if read {
 		response.Message = "Chat marked as read successfully"
 	} else {
 		response.Message = "Chat marked as unread successfully"
@@ -521,7 +519,7 @@ func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainCha
 
 	logrus.WithFields(logrus.Fields{
 		"chat_jid": request.ChatJID,
-		"read":     request.Read,
+		"read":     read,
 	}).Info("Chat read state operation completed successfully")
 
 	return response, nil
@@ -569,6 +567,13 @@ func (service serviceChat) lastMessageKey(deviceID string, target types.JID, key
 	return time.Time{}, nil
 }
 
+// RequestChatHistory asks the phone for older messages of a chat (what
+// WhatsApp Web does when you scroll up / "load older messages"). It anchors
+// the request at the oldest message currently stored for that chat and sends
+// a HISTORY_SYNC_ON_DEMAND peer message via whatsmeow's
+// BuildHistorySyncRequest. The phone answers asynchronously with a
+// *events.HistorySync (ON_DEMAND), which the existing history-sync handler
+// persists into chat storage the same way it does for the initial bootstrap.
 func (service serviceChat) RequestChatHistory(ctx context.Context, request domainChat.RequestChatHistoryRequest) (response domainChat.RequestChatHistoryResponse, err error) {
 	if err = validations.ValidateRequestChatHistory(ctx, &request); err != nil {
 		return response, err

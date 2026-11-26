@@ -122,9 +122,16 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		}
 		return mcpg.NewToolResultStructured(resp, resp.Message), nil
 	case "read":
+		var read *bool
+		if args := request.GetArguments(); args != nil {
+			if _, ok := args["read"]; ok {
+				v := request.GetBool("read", false)
+				read = &v
+			}
+		}
 		resp, err := h.chatService.MarkChatAsRead(ctx, domainChat.MarkChatAsReadRequest{
 			ChatJID: chatJID,
-			Read:    request.GetBool("read", false),
+			Read:    read,
 		})
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil

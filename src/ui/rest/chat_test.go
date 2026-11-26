@@ -112,7 +112,7 @@ func (s *requestChatHistorySpy) ArchiveChat(context.Context, domainChat.ArchiveC
 func (s *requestChatHistorySpy) MarkChatAsRead(_ context.Context, request domainChat.MarkChatAsReadRequest) (domainChat.MarkChatAsReadResponse, error) {
 	s.calls++
 	s.lastRead = request
-	return domainChat.MarkChatAsReadResponse{Status: "success", ChatJID: request.ChatJID, Read: request.Read}, nil
+	return domainChat.MarkChatAsReadResponse{Status: "success", ChatJID: request.ChatJID}, nil
 }
 
 func (s *requestChatHistorySpy) RequestChatHistory(_ context.Context, request domainChat.RequestChatHistoryRequest) (domainChat.RequestChatHistoryResponse, error) {
@@ -178,5 +178,23 @@ func TestMarkChatAsReadUsesRouteJIDAndBody(t *testing.T) {
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
 	require.Equal(t, 1, spy.calls)
 	require.Equal(t, "120363025982934543@g.us", spy.lastRead.ChatJID)
-	require.False(t, spy.lastRead.Read)
+	require.NotNil(t, spy.lastRead.Read)
+	require.False(t, *spy.lastRead.Read)
+}
+
+func TestMarkChatAsReadKeepsMissingFlagNil(t *testing.T) {
+	for _, body := range []string{`{}`, `{"read":null}`} {
+		app := fiber.New()
+		spy := &requestChatHistorySpy{}
+		controller := &Chat{Service: spy}
+		app.Post("/chat/:chat_jid/read", controller.MarkChatAsRead)
+
+		req := httptest.NewRequest("POST", "/chat/6289685028129%40s.whatsapp.net/read", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Nil(t, spy.lastRead.Read, "body %s must not turn into mark as unread", body)
+	}
 }

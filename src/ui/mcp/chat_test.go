@@ -180,7 +180,19 @@ func TestHandleChatDispatch(t *testing.T) {
 		assert.False(t, res.IsError)
 		require.NotNil(t, cs.read)
 		assert.Equal(t, "628@s.whatsapp.net", cs.read.ChatJID)
-		assert.False(t, cs.read.Read)
+		require.NotNil(t, cs.read.Read)
+		assert.False(t, *cs.read.Read)
+	})
+
+	t.Run("read without the flag", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		_, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+			"action": "read", "chat_jid": "628@s.whatsapp.net",
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, cs.read)
+		assert.Nil(t, cs.read.Read, "a missing flag must reach validation as nil, not as unread")
 	})
 
 	t.Run("set_disappearing", func(t *testing.T) {

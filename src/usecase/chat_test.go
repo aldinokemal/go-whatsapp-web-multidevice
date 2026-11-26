@@ -635,7 +635,8 @@ func TestMarkChatAsReadRequiresClient(t *testing.T) {
 	service := NewChatService(&chatUsecaseRepoStub{})
 	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("628999999999@s.whatsapp.net", nil, nil))
 
-	_, err := service.MarkChatAsRead(ctx, domainChat.MarkChatAsReadRequest{ChatJID: "628123456789@s.whatsapp.net"})
+	read := false
+	_, err := service.MarkChatAsRead(ctx, domainChat.MarkChatAsReadRequest{ChatJID: "628123456789@s.whatsapp.net", Read: &read})
 	if err != pkgError.ErrWaCLI {
 		t.Fatalf("expected ErrWaCLI, got %v", err)
 	}

@@ -94,6 +94,7 @@ func validateTimerValue(value any) error {
 func ValidateMarkChatAsRead(ctx context.Context, request *domainChat.MarkChatAsReadRequest) error {
 	err := validation.ValidateStructWithContext(ctx, request,
 		validation.Field(&request.ChatJID, validation.Required),
+		validation.Field(&request.Read, validation.NotNil),
 	)
 
 	if err != nil {

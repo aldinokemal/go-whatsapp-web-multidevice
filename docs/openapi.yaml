@@ -7030,9 +7030,6 @@ components:
     MarkChatAsReadResponse:
       type: object
       properties:
-        status:
-          type: integer
-          example: 200
         code:
           type: string
           example: SUCCESS
