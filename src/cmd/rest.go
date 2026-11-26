@@ -184,6 +184,7 @@ func restServer(_ *cobra.Command, _ []string) {
 		rest.InitRestMessage(r, messageUsecase, sendUsecase)
 		rest.InitRestGroup(r, groupUsecase)
 		rest.InitRestNewsletter(r, newsletterUsecase)
+		rest.InitRestLabel(r, labelUsecase)
 		websocket.RegisterRoutes(r, appUsecase)
 	}
 
@@ -206,6 +207,7 @@ func restServer(_ *cobra.Command, _ []string) {
 			Message:    messageUsecase,
 			Group:      groupUsecase,
 			Newsletter: newsletterUsecase,
+			Label:      labelUsecase,
 		})
 	}
 

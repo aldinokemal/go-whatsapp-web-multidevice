@@ -74,7 +74,7 @@ func handler(ctx context.Context, instance *DeviceInstance, rawEvt any) {
 	case *events.HistorySync:
 		handleHistorySync(ctx, evt, chatStorageRepo, client)
 	case *events.AppState:
-		handleAppState(ctx, evt, instance.JID(), client)
+		handleAppState(ctx, evt, instance.JID(), client, chatStorageRepo)
 	case *events.GroupInfo:
 		handleGroupInfo(ctx, evt, instance.JID(), client)
 	case *events.JoinedGroup:
@@ -386,10 +386,13 @@ func handleReceipt(ctx context.Context, evt *events.Receipt, deviceID string, cl
 	}
 }
 
-func handleAppState(ctx context.Context, evt *events.AppState, deviceID string, client *whatsmeow.Client) {
+func handleAppState(ctx context.Context, evt *events.AppState, deviceID string, client *whatsmeow.Client, chatStorageRepo domainChatStorage.IChatStorageRepository) {
 	log.Debugf("App state event: %+v / %+v", evt.Index, evt.SyncActionValue)
 
 	if isLabelAppState(evt) {
+		if err := storeLabelAppState(ctx, evt, deviceID, client, chatStorageRepo); err != nil {
+			logrus.Errorf("Failed to store label appstate event: %v", err)
+		}
 		go func(e *events.AppState, c *whatsmeow.Client) {
 			webhookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 			defer cancel()

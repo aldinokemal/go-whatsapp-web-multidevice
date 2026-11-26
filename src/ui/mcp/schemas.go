@@ -222,3 +222,24 @@ const userSchema = `{
     {"if": {"properties": {"action": {"const": "set_push_name"}}}, "then": {"required": ["push_name"]}}
   ]
 }`
+
+const labelSchema = `{
+  "type": "object",
+  "required": ["action"],
+  "properties": {
+    "action": {"type": "string", "enum": ["list","resync","edit","chat"], "description": "list reads the labels stored from app state. resync fetches every label and label chat from WhatsApp again; use it once for labels created before this device was paired. edit creates, renames or deletes a label. chat adds a chat to a label or removes it."},
+    "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
+    "label_id": {"type": "string", "minLength": 1, "maxLength": 64, "description": "edit/chat: label ID. For a new label, pick an ID that list does not show (WhatsApp uses numeric IDs)"},
+    "name": {"type": "string", "maxLength": 255, "description": "edit: label name; required unless deleted=true"},
+    "color": {"type": "integer", "minimum": 0, "description": "edit: index in WhatsApp's label palette; an edit keeps the stored color when omitted"},
+    "type": {"type": "string", "enum": ["", "CUSTOM"], "description": "edit: CUSTOM for a chat list of a personal account; empty for a Business label. An edit keeps the stored type when omitted"},
+    "order_index": {"type": "integer", "minimum": 0, "description": "edit: position of the label; an edit keeps the stored position when omitted"},
+    "deleted": {"type": "boolean", "description": "edit: true deletes the label"},
+    "chat_jid": {"type": "string", "description": "chat: chat JID (e.g. 628@s.whatsapp.net or group@g.us)"},
+    "labeled": {"type": "boolean", "description": "chat: true adds the chat to the label, false removes it"}
+  },
+  "allOf": [
+    {"if": {"properties": {"action": {"const": "edit"}}}, "then": {"required": ["label_id"]}},
+    {"if": {"properties": {"action": {"const": "chat"}}}, "then": {"required": ["label_id", "chat_jid", "labeled"]}}
+  ]
+}`

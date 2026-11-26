@@ -5,6 +5,7 @@ import (
 	domainApp "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/app"
 	domainChat "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chat"
 	domainGroup "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/group"
+	domainLabel "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/label"
 	domainMessage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/message"
 	domainNewsletter "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/newsletter"
 	domainSend "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/send"
@@ -23,9 +24,10 @@ type Deps struct {
 	Message    domainMessage.IMessageUsecase
 	Group      domainGroup.IGroupUsecase
 	Newsletter domainNewsletter.INewsletterUsecase
+	Label      domainLabel.ILabelUsecase
 }
 
-// NewServer builds the MCPServer with the 8 consolidated tools registered.
+// NewServer builds the MCPServer with the 9 consolidated tools registered.
 func NewServer(deps Deps, resolver deviceResolver) *server.MCPServer {
 	s := server.NewMCPServer(
 		"WhatsApp Web Multidevice MCP Server",
@@ -44,5 +46,6 @@ func NewServer(deps Deps, resolver deviceResolver) *server.MCPServer {
 	InitMcpApp(deps.App, resolver).AddAppTools(s)
 	InitMcpNewsletter(deps.Newsletter, resolver).AddNewsletterTools(s)
 	InitMcpUser(deps.User, resolver).AddUserTools(s)
+	InitMcpLabel(deps.Label, resolver).AddLabelTools(s)
 	return s
 }

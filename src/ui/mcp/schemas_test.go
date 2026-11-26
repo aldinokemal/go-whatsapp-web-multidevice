@@ -197,6 +197,17 @@ func TestSchemas(t *testing.T) {
 		{"app reconnect ok", appSchema, `{"action":"reconnect"}`, false},
 		{"app bad action", appSchema, `{"action":"restart"}`, true},
 
+		// ---- whatsapp_label ----
+		{"label list ok", labelSchema, `{"action":"list"}`, false},
+		{"label resync ok", labelSchema, `{"action":"resync"}`, false},
+		{"label edit ok", labelSchema, `{"action":"edit","label_id":"30","name":"Family","type":"CUSTOM","color":2}`, false},
+		{"label delete ok", labelSchema, `{"action":"edit","label_id":"30","deleted":true}`, false},
+		{"label edit missing id", labelSchema, `{"action":"edit","name":"Family"}`, true},
+		{"label edit bad type", labelSchema, `{"action":"edit","label_id":"30","name":"Family","type":"FAVORITES"}`, true},
+		{"label chat ok", labelSchema, `{"action":"chat","label_id":"30","chat_jid":"628@s.whatsapp.net","labeled":false}`, false},
+		{"label chat missing flag", labelSchema, `{"action":"chat","label_id":"30","chat_jid":"628@s.whatsapp.net"}`, true},
+		{"label chat missing jid", labelSchema, `{"action":"chat","label_id":"30","labeled":true}`, true},
+		{"label bad action", labelSchema, `{"action":"nuke"}`, true},
 		// ---- whatsapp_user ----
 		{"user info ok", userSchema, `{"action":"info","phone":"628"}`, false},
 		{"user info missing phone", userSchema, `{"action":"info"}`, true},
@@ -218,7 +229,7 @@ func TestSchemas(t *testing.T) {
 
 	// compile each schema once
 	compiled := map[string]*jsonschema.Schema{}
-	for _, raw := range []string{sendSchema, scheduleSchema, messageSchema, chatSchema, groupSchema, appSchema, newsletterSchema, userSchema} {
+	for _, raw := range []string{sendSchema, scheduleSchema, messageSchema, chatSchema, groupSchema, appSchema, newsletterSchema, userSchema, labelSchema} {
 		compiled[raw] = compileSchema(t, raw)
 	}
 

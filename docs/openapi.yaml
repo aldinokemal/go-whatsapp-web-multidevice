@@ -37,6 +37,8 @@ tags:
     description: Group setting
   - name: newsletter
     description: newsletter setting
+  - name: label
+    description: Labels (WhatsApp Business) and chat lists (personal accounts)
   - name: chatwoot
     description: Chatwoot integration for customer support
 security:
@@ -3379,6 +3381,211 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorNotFound'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /labels:
+    get:
+      operationId: listLabels
+      tags:
+        - label
+      summary: List labels and their chats
+      description: |
+        Returns the labels this device knows, with the chats in each one. They are kept from the app state updates WhatsApp sends to this device, including changes made on the phone and the patches sent through this API. Deleted labels are left out.
+        Labels that existed before this device was paired only appear after `POST /labels/resync`.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListLabelsResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /labels/resync:
+    post:
+      operationId: resyncLabels
+      tags:
+        - label
+      summary: Fetch every label from WhatsApp again
+      description: Runs a full sync of the app state collection that holds labels and label chats, replaces the stored copy for this device and returns it. Use it once after pairing, or when the stored labels drifted. No label webhooks are sent for the resync.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListLabelsResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /label:
+    post:
+      operationId: editLabel
+      tags:
+        - label
+      summary: Create, rename or delete a label
+      description: |
+        Sends a label edit as an app state update, so it reaches the phone and the other linked devices. The same request creates a label (new `label_id`), renames it or, with `deleted`, deletes it.
+        On WhatsApp Business, labels have no type. On personal accounts, the chat lists of the chat filter bar are labels of type `CUSTOM`.
+        Fields left out of an edit keep the values stored for that label, so a rename keeps its color, position and type.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label_id:
+                  type: string
+                  example: '30'
+                  description: Label ID. For a new label, use an ID that GET /labels does not list. WhatsApp uses numeric IDs.
+                name:
+                  type: string
+                  example: Paid
+                  description: Label name. Required unless deleted is true.
+                color:
+                  type: integer
+                  format: int32
+                  minimum: 0
+                  example: 5
+                  description: Index in WhatsApp's label palette. An edit keeps the stored color when omitted.
+                type:
+                  type: string
+                  enum: ['', CUSTOM]
+                  example: CUSTOM
+                  description: CUSTOM for a chat list of a personal account; empty for a Business label. An edit keeps the stored type when omitted.
+                order_index:
+                  type: integer
+                  format: int32
+                  minimum: 0
+                  example: 1
+                  description: Position of the label. An edit keeps the stored position when omitted.
+                deleted:
+                  type: boolean
+                  example: false
+                  description: true deletes the label
+              required:
+                - label_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EditLabelResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
+  /chat/{chat_jid}/label:
+    post:
+      operationId: labelChat
+      tags:
+        - label
+      summary: Add a chat to a label or remove it
+      description: Sends the label association as an app state update, so it reaches the phone and the other linked devices.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group). Percent-encoded values (e.g., groupid%40g.us) are accepted.
+          example: '6289685028129@s.whatsapp.net'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label_id:
+                  type: string
+                  example: '30'
+                labeled:
+                  type: boolean
+                  example: true
+                  description: true adds the chat to the label, false removes it
+              required:
+                - label_id
+                - labeled
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelChatResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
         '500':
           description: Internal Server Error
           content:
@@ -6971,6 +7178,120 @@ components:
               type: string
               example: '6289685028129@s.whatsapp.net'
             archived:
+              type: boolean
+              example: true
+    LabelInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          example: '30'
+        name:
+          type: string
+          example: Family
+        color:
+          type: integer
+          format: int32
+          example: 5
+        type:
+          type: string
+          example: CUSTOM
+          description: List type sent by WhatsApp (CUSTOM for the chat lists of personal accounts). Omitted when WhatsApp sent none.
+        order_index:
+          type: integer
+          format: int32
+          example: 1
+        active:
+          type: boolean
+          example: true
+        chats:
+          type: array
+          items:
+            type: string
+          example: ['6289685028129@s.whatsapp.net', '120363025982934543@g.us']
+        updated_at:
+          type: string
+          format: date-time
+          example: '2026-01-02T03:04:05Z'
+    ListLabelsResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Success get labels
+        results:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/LabelInfo'
+    EditLabelResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Label saved successfully
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Label saved successfully
+            label_id:
+              type: string
+              example: '30'
+            name:
+              type: string
+              example: Family
+            color:
+              type: integer
+              format: int32
+              example: 5
+            type:
+              type: string
+              example: CUSTOM
+            order_index:
+              type: integer
+              format: int32
+              example: 1
+            deleted:
+              type: boolean
+              example: false
+    LabelChatResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Chat added to label successfully
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Chat added to label successfully
+            chat_jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+            label_id:
+              type: string
+              example: '30'
+            labeled:
               type: boolean
               example: true
     GroupInfoResponse:
