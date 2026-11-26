@@ -31,6 +31,12 @@ func ProcessGroupPhoto(file *multipart.FileHeader) (*bytes.Buffer, error) {
 	}
 	defer src.Close()
 
+	return ProcessGroupPhotoReader(src)
+}
+
+// ProcessGroupPhotoReader is ProcessGroupPhoto for an image that is not an
+// upload, such as one fetched from a URL.
+func ProcessGroupPhotoReader(src io.Reader) (*bytes.Buffer, error) {
 	// Header dimensions are checked before the raster is allocated.
 	img, format, err := DecodeImageWithinBudget(src)
 	if err != nil {
