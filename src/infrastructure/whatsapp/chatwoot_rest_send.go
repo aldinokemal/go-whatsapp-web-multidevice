@@ -63,9 +63,18 @@ func shouldMirrorRESTSend(ctx context.Context, recipient types.JID, msg *waE2E.M
 		recipient.Server == types.NewsletterServer || utils.IsSystemBroadcastJID(recipient.String()) {
 		return false
 	}
-	// REST marks explicitly view-once photos/videos on the media itself.
-	// An interactive message can use a view-once envelope for its carousel.
-	return !msg.GetImageMessage().GetViewOnce() && !msg.GetVideoMessage().GetViewOnce()
+	// REST uses the original view-once envelope as the wire format for
+	// ordinary interactive cards and buttons, even without a privacy flag.
+	// Other view-once envelopes and individually flagged media are private.
+	for msg.GetEphemeralMessage() != nil {
+		msg = msg.GetEphemeralMessage().GetMessage()
+	}
+	if wrapped := msg.GetViewOnceMessage(); wrapped != nil {
+		return wrapped.GetMessage().GetInteractiveMessage() != nil
+	}
+	return msg != nil && msg.GetViewOnceMessageV2() == nil && msg.GetViewOnceMessageV2Extension() == nil &&
+		!msg.GetImageMessage().GetViewOnce() && !msg.GetVideoMessage().GetViewOnce() &&
+		!msg.GetAudioMessage().GetViewOnce() && !msg.GetPtvMessage().GetViewOnce()
 }
 
 // ForwardRESTSendToChatwoot mirrors the server-acknowledged message. whatsmeow

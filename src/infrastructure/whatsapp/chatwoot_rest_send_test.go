@@ -177,7 +177,17 @@ func TestChatwootRESTSendOnlyOptsInToAllowedMessages(t *testing.T) {
 	require.True(t, shouldMirrorRESTSend(restCtx, recipient, msg, "ack"))
 	require.False(t, shouldMirrorRESTSend(ctx, recipient, msg, "ack"), "callbacks and workers use their own context")
 	require.False(t, shouldMirrorRESTSend(restCtx, recipient, msg, ""))
+	interactive := &waE2E.Message{InteractiveMessage: &waE2E.InteractiveMessage{}}
+	require.True(t, shouldMirrorRESTSend(restCtx, recipient, &waE2E.Message{
+		ViewOnceMessage: &waE2E.FutureProofMessage{Message: interactive},
+	}, "ack"), "ordinary interactive cards use the v1 envelope on the wire")
+	private := &waE2E.FutureProofMessage{Message: &waE2E.Message{ImageMessage: &waE2E.ImageMessage{}}}
 	for _, viewOnce := range []*waE2E.Message{
+		{ViewOnceMessage: private},
+		{ViewOnceMessageV2: private},
+		{ViewOnceMessageV2Extension: private},
+		{EphemeralMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{ViewOnceMessage: private}}},
+		{AudioMessage: &waE2E.AudioMessage{ViewOnce: proto.Bool(true)}},
 		{ImageMessage: &waE2E.ImageMessage{ViewOnce: proto.Bool(true)}},
 		{VideoMessage: &waE2E.VideoMessage{ViewOnce: proto.Bool(true)}},
 	} {

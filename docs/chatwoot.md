@@ -666,7 +666,9 @@ An exact entry matches a chat under either of its addresses, so `111222333@lid` 
 | Contacts | ✅ | vCard information preserved |
 | Polls | ✅ | Creations and edits show the options; an added option shows as `Poll option added: <name>`. Votes are not posted, since WhatsApp only updates the poll's tally; webhooks still receive them |
 
-Messages sent from your phone or through an immediate REST `/send/*` request appear as **outgoing** in the sending device’s Chatwoot inbox. For REST uploads, GOWA saves the bytes it sent in the media directory so Chatwoot retries retain the attachment, filename and caption even when `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`. Media available only from WhatsApp still follows the auto-download setting. GOWA skips REST photos and videos sent with `view_once=true`. The usual Chatwoot event and chat filters apply.
+Messages sent from your phone or through an immediate REST `/send/*` or `/message/:message_id/forward` request appear as **outgoing** in the sending device’s Chatwoot inbox. For REST uploads, GOWA saves the bytes it sent in the media directory so Chatwoot retries retain the attachment, filename and caption even when `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`. Media available only from WhatsApp still follows the auto-download setting. GOWA skips REST photos and videos sent with `view_once=true`. The usual Chatwoot event and chat filters apply.
+
+The REST response confirms that WhatsApp accepted the message. Chatwoot forwarding runs in the background. If GOWA stops before delivering the mirror or queuing a retry, the mirror can be lost. Concurrent sends can appear out of order. If Chatwoot creates a message but its response is lost before GOWA saves the link, a retry can create a duplicate.
 
 Live WhatsApp messages that hit a transient Chatwoot failure (network error, HTTP 429, or HTTP 5xx) are stored in the local chat storage retry queue and replayed in the background with capped exponential backoff. Permanent Chatwoot errors (most HTTP 4xx responses) are logged and not retried.
 
