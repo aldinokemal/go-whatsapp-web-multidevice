@@ -24,7 +24,7 @@ func InitMcpGroup(groupService domainGroup.IGroupUsecase, resolver deviceResolve
 
 func (h *GroupHandler) AddGroupTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_group",
-		mcpg.WithDescription("Manage WhatsApp groups: create, join_with_link, leave, info, participants, add/remove/promote/demote participants, invite_link, set_name, set_topic, set_settings (announce/locked), join_requests, manage_join_requests."),
+		mcpg.WithDescription("Manage WhatsApp groups: create, join_with_link, info_from_link (preview without joining), leave, info, participants, add/remove/promote/demote participants, invite_link, set_name, set_topic, set_settings (announce/locked), set_photo (from URL), remove_photo, join_requests, manage_join_requests."),
 		mcpg.WithTitleAnnotation("Group Management"),
 		mcpg.WithReadOnlyHintAnnotation(false),
 		mcpg.WithDestructiveHintAnnotation(true),
@@ -71,6 +71,14 @@ func (h *GroupHandler) handleGroup(ctx context.Context, request mcpg.CallToolReq
 		}
 		structured := map[string]any{"group_id": joinedID, "invite_link": link}
 		return mcpg.NewToolResultStructured(structured, fmt.Sprintf("Joined group %s", joinedID)), nil
+	case "info_from_link":
+		resp, err := h.groupService.GetGroupInfoFromLink(ctx, domainGroup.GetGroupInfoFromLinkRequest{
+			Link: strings.TrimSpace(request.GetString("invite_link", "")),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructuredOnly(resp), nil
 	case "leave":
 		if err := h.groupService.LeaveGroup(ctx, domainGroup.LeaveGroupRequest{GroupID: groupID}); err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil
@@ -145,6 +153,23 @@ func (h *GroupHandler) handleGroup(ctx context.Context, request mcpg.CallToolReq
 			return mcpg.NewToolResultError("set_settings requires announce and/or locked"), nil
 		}
 		return mcpg.NewToolResultText(fmt.Sprintf("Updated %s for group %s", strings.Join(applied, "+"), groupID)), nil
+	case "set_photo", "remove_photo":
+		photoReq := domainGroup.SetGroupPhotoRequest{GroupID: groupID}
+		message := "Removed group photo"
+		if action == "set_photo" {
+			// An empty URL would reach the usecase as a removal.
+			photoReq.PhotoURL = strings.TrimSpace(request.GetString("photo_url", ""))
+			if photoReq.PhotoURL == "" {
+				return mcpg.NewToolResultError("set_photo requires photo_url; use remove_photo to remove the photo"), nil
+			}
+			message = "Updated group photo"
+		}
+		pictureID, err := h.groupService.SetGroupPhoto(ctx, photoReq)
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		resp := domainGroup.SetGroupPhotoResponse{PictureID: pictureID, Message: message}
+		return mcpg.NewToolResultStructured(resp, fmt.Sprintf("%s for %s", message, groupID)), nil
 	case "join_requests":
 		resp, err := h.groupService.GetGroupRequestParticipants(ctx, domainGroup.GetGroupRequestParticipantsRequest{GroupID: groupID})
 		if err != nil {

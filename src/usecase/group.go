@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -352,6 +353,16 @@ func (service serviceGroup) SetGroupPhoto(ctx context.Context, request domainGro
 			request.Photo.Size, processedImageBuffer.Len())
 
 		// Convert buffer to byte slice
+		photoBytes = processedImageBuffer.Bytes()
+	} else if request.PhotoURL != "" {
+		imageData, _, err := utils.DownloadImageFromURL(ctx, request.PhotoURL)
+		if err != nil {
+			return pictureID, pkgError.InternalServerError(fmt.Sprintf("failed to download image from URL %v", err))
+		}
+		processedImageBuffer, err := utils.ProcessGroupPhotoReader(bytes.NewReader(imageData))
+		if err != nil {
+			return pictureID, err
+		}
 		photoBytes = processedImageBuffer.Bytes()
 	}
 
