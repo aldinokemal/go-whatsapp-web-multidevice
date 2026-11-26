@@ -494,7 +494,12 @@ func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainCha
 
 	// The message range names the newest message the flag applies to. Without
 	// a stored message, BuildMarkChatAsRead falls back to the current time.
-	lastTimestamp, lastKey, err := service.lastMessageKey(storageDeviceID(ctx), targetJID, chatKeys(request.ChatJID, targetJID)...)
+	// Rows of the same chat can sit under its phone JID and its LID.
+	keys := chatKeys(request.ChatJID, targetJID)
+	if lid := utils.ResolvePhoneToLID(ctx, targetJID, client); !lid.IsEmpty() {
+		keys = append(keys, lid.String())
+	}
+	lastTimestamp, lastKey, err := service.lastMessageKey(storageDeviceID(ctx), targetJID, keys...)
 	if err != nil {
 		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to look up the last stored message")
 		return response, err
