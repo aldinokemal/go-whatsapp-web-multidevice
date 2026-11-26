@@ -25,7 +25,7 @@ type Deps struct {
 	Newsletter domainNewsletter.INewsletterUsecase
 }
 
-// NewServer builds the MCPServer with the 7 consolidated tools registered.
+// NewServer builds the MCPServer with the 8 consolidated tools registered.
 func NewServer(deps Deps, resolver deviceResolver) *server.MCPServer {
 	s := server.NewMCPServer(
 		"WhatsApp Web Multidevice MCP Server",
@@ -43,5 +43,6 @@ func NewServer(deps Deps, resolver deviceResolver) *server.MCPServer {
 	InitMcpGroup(deps.Group, resolver).AddGroupTools(s)
 	InitMcpApp(deps.App, resolver).AddAppTools(s)
 	InitMcpNewsletter(deps.Newsletter, resolver).AddNewsletterTools(s)
+	InitMcpUser(deps.User, resolver).AddUserTools(s)
 	return s
 }

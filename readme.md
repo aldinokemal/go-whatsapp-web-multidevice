@@ -441,7 +441,7 @@ running, the MCP endpoint is available at `http://<host>:<port><base-path>/mcp` 
 
 #### Available MCP Tools
 
-There are seven consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
+There are eight consolidated tools; agents choose behavior through a `type`/`action` argument instead of one tool per
 operation:
 
 | Tool               | `type` / `action` values                                                                                                                                     |
@@ -453,6 +453,7 @@ operation:
 | `whatsapp_group`   | `create`, `join_with_link`, `info_from_link`, `leave`, `info`, `participants`, `add_participants`, `remove_participants`, `promote`, `demote`, `invite_link`, `set_name`, `set_topic`, `set_settings`, `set_photo`, `remove_photo`, `join_requests`, `manage_join_requests` |
 | `whatsapp_app`     | `status`, `login_qr`, `login_code`, `logout`, `reconnect`                                                                                                     |
 | `whatsapp_newsletter` | `follow`, `unfollow`, `info`, `directory`, `messages`, `message_updates`, `live_updates_subscribe`, `live_updates_unsubscribe`, `live_updates_list`        |
+| `whatsapp_user`    | `info`, `check`, `business_profile`, `avatar`, `subscribe_presence`, `set_push_name`, `my_privacy`, `my_groups`, `my_newsletters`, `my_contacts_detailed` |
 
 `whatsapp_send` also accepts `scheduled_at`, `timezone`, `recurrence`, `weekdays`, `day_of_month`, `end_at`, and
 `occurrence_limit` to schedule the message instead of sending it now (except `interactive`, `chat_presence`, and `presence`); manage the result with `whatsapp_schedule`.

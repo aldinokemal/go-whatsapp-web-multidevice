@@ -515,18 +515,16 @@ func (service serviceUser) ChangePushName(ctx context.Context, request domainUse
 }
 
 func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.CheckRequest) (response domainUser.CheckResponse, err error) {
+	jid, err := utils.ParsePhoneJID(request.Phone)
+	if err != nil {
+		return response, pkgError.InvalidJID(err.Error())
+	}
 	client := whatsapp.ClientFromContext(ctx)
 	if client == nil {
 		return response, pkgError.ErrWaCLI
 	}
 	utils.MustLogin(client)
 
-	utils.SanitizePhone(&request.Phone)
-
-	jid, err := utils.ParseJID(request.Phone)
-	if err != nil {
-		return response, pkgError.InvalidJID(err.Error())
-	}
 	_, response.IsOnWhatsApp, err = utils.ResolveOnWhatsapp(client, jid)
 	return response, err
 }
@@ -567,7 +565,7 @@ func (service serviceUser) SubscribePresence(ctx context.Context, request domain
 	// configured presence-on-connect value — surface the requirement instead.
 	if config.WhatsappPresenceOnConnect != "available" {
 		logrus.Warnf("presence subscription: client presence-on-connect is %q; "+
-			"contact presence updates require WHATSAPP_PRESENCE_ON_CONNECT=available "+
+			"contact presence updates require the account to be available on connect or at runtime "+
 			"(note: marking the device available suppresses phone notifications)", config.WhatsappPresenceOnConnect)
 	}
 

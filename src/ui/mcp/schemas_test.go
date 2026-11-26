@@ -196,11 +196,29 @@ func TestSchemas(t *testing.T) {
 		{"app logout ok", appSchema, `{"action":"logout"}`, false},
 		{"app reconnect ok", appSchema, `{"action":"reconnect"}`, false},
 		{"app bad action", appSchema, `{"action":"restart"}`, true},
+
+		// ---- whatsapp_user ----
+		{"user info ok", userSchema, `{"action":"info","phone":"628"}`, false},
+		{"user info missing phone", userSchema, `{"action":"info"}`, true},
+		{"user check ok", userSchema, `{"action":"check","phone":"628"}`, false},
+		{"user check missing phone", userSchema, `{"action":"check"}`, true},
+		{"user business_profile missing phone", userSchema, `{"action":"business_profile"}`, true},
+		{"user avatar ok", userSchema, `{"action":"avatar","phone":"628","is_preview":true,"is_community":false}`, false},
+		{"user avatar missing phone", userSchema, `{"action":"avatar"}`, true},
+		{"user subscribe_presence missing phone", userSchema, `{"action":"subscribe_presence"}`, true},
+		{"user set_push_name ok", userSchema, `{"action":"set_push_name","push_name":"Aldo"}`, false},
+		{"user set_push_name missing name", userSchema, `{"action":"set_push_name"}`, true},
+		{"user set_push_name empty name", userSchema, `{"action":"set_push_name","push_name":""}`, true},
+		{"user my_privacy ok", userSchema, `{"action":"my_privacy"}`, false},
+		{"user my_groups ok", userSchema, `{"action":"my_groups"}`, false},
+		{"user my_newsletters ok", userSchema, `{"action":"my_newsletters"}`, false},
+		{"user my_contacts_detailed ok", userSchema, `{"action":"my_contacts_detailed","device_id":"dev2"}`, false},
+		{"user bad action", userSchema, `{"action":"change_avatar"}`, true},
 	}
 
 	// compile each schema once
 	compiled := map[string]*jsonschema.Schema{}
-	for _, raw := range []string{sendSchema, scheduleSchema, messageSchema, chatSchema, groupSchema, appSchema, newsletterSchema} {
+	for _, raw := range []string{sendSchema, scheduleSchema, messageSchema, chatSchema, groupSchema, appSchema, newsletterSchema, userSchema} {
 		compiled[raw] = compileSchema(t, raw)
 	}
 
