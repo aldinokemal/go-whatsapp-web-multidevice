@@ -1160,7 +1160,8 @@ func (f downloadFile) ReadFrom(r io.Reader) (int64, error) {
 	return f.File.ReadFrom(r)
 }
 
-func storeExtractedMedia(storageLocation string, mediaFile whatsmeow.DownloadableMessage, data []byte) (extractedMedia ExtractedMedia, err error) {
+// StoreMediaBytes saves plaintext media under the same size and naming rules as ExtractMedia.
+func StoreMediaBytes(storageLocation string, mediaFile whatsmeow.DownloadableMessage, data []byte) (extractedMedia ExtractedMedia, err error) {
 	// Validate file size before writing to disk
 	maxFileSize := config.WhatsappSettingMaxDownloadSize
 	if int64(len(data)) > maxFileSize {

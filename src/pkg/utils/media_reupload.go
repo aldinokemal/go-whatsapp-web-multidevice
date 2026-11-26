@@ -81,7 +81,7 @@ func downloadReuploadedMedia(ctx context.Context, downloader mediaDownloader, di
 	if err != nil {
 		return ReuploadedMedia{}, err
 	}
-	extracted, err := storeExtractedMedia(storageLocation, mediaFile, data)
+	extracted, err := StoreMediaBytes(storageLocation, mediaFile, data)
 	if err != nil {
 		return ReuploadedMedia{}, err
 	}

@@ -1067,23 +1067,19 @@ func findChatwootConversation(resolved *chatwoot.ResolvedConfig, info *chatwootC
 }
 
 // syncMessageToChatwoot creates or finds contact/conversation and sends the message.
-func syncMessageToChatwoot(resolved *chatwoot.ResolvedConfig, info *chatwootContactInfo, content string, attachments []string, opts chatwoot.MessageOptions, reply *chatwootReplyTarget, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) (*chatwootSyncResult, error) {
+func syncMessageToChatwoot(resolved *chatwoot.ResolvedConfig, info *chatwootContactInfo, content string, attachments []chatwoot.MessageAttachment, opts chatwoot.MessageOptions, reply *chatwootReplyTarget, deviceID string, linkRepo domainChatStorage.IChatStorageRepository) (*chatwootSyncResult, error) {
 	cw := resolved.Client
 
 	messageType := "incoming"
 	if info.IsFromMe {
 		messageType = "outgoing"
 	}
-	messageAttachments := make([]chatwoot.MessageAttachment, 0, len(attachments))
-	for _, path := range attachments {
-		messageAttachments = append(messageAttachments, chatwoot.MessageAttachment{Path: path, FileName: utils.StoredMediaDisplayName(path)})
-	}
 	post := func(conversationID int) (int, error) {
 		logrus.Infof("Chatwoot: Conversation ID: %d", conversationID)
 		attemptOpts := opts
 		body := reply.apply(conversationID, content, &attemptOpts)
 		logrus.Infof("Chatwoot: Creating message (Length: %d, Attachments: %d)", len(body), len(attachments))
-		return cw.CreateMessage(conversationID, body, messageType, messageAttachments, attemptOpts)
+		return cw.CreateMessage(conversationID, body, messageType, attachments, attemptOpts)
 	}
 	conversationID, fromLink, err := findChatwootConversation(resolved, info, deviceID, linkRepo, reply)
 	var msgID int
@@ -1833,7 +1829,18 @@ func syncPayloadToChatwoot(ctx context.Context, payload map[string]any, eventNam
 	if eventName == EventTypeMessage {
 		deliveredLinkRepo = linkRepo
 	}
-	result, err := syncMessageToChatwoot(resolved, info, content, attachments, msgOpts, reply, deviceID, deliveredLinkRepo)
+	files := make([]chatwoot.MessageAttachment, 0, len(attachments))
+	document, _ := data["document"].(map[string]any)
+	documentName, _ := document["filename"].(string)
+	documentPath := extractMediaPath(document)
+	for _, path := range attachments {
+		name := utils.StoredMediaDisplayName(path)
+		if documentName != "" && path == documentPath {
+			name = documentName
+		}
+		files = append(files, chatwoot.MessageAttachment{Path: path, FileName: name})
+	}
+	result, err := syncMessageToChatwoot(resolved, info, content, files, msgOpts, reply, deviceID, deliveredLinkRepo)
 	if err != nil {
 		return err
 	}

@@ -754,7 +754,7 @@ func TestStoredAudioDownloadPreservesFormat(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := storeExtractedMedia(t.TempDir(), rebuilt, tt.data)
+			got, err := StoreMediaBytes(t.TempDir(), rebuilt, tt.data)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -789,7 +789,7 @@ func TestAudioDownloadPreservesDeclaredMIME(t *testing.T) {
 	for _, mimeType := range []string{"audio/ogg; codecs=opus", "audio/aac", "audio/amr", "audio/amr-wb", "audio/mpeg"} {
 		t.Run(mimeType, func(t *testing.T) {
 			data := []byte{0, 1, 2, 3}
-			got, err := storeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{Mimetype: proto.String(mimeType)}, data)
+			got, err := StoreMediaBytes(t.TempDir(), &waE2E.AudioMessage{Mimetype: proto.String(mimeType)}, data)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -840,7 +840,7 @@ func TestAudioDownloadMP3FrameValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := storeExtractedMedia(t.TempDir(), &waE2E.AudioMessage{}, tt.data)
+			got, err := StoreMediaBytes(t.TempDir(), &waE2E.AudioMessage{}, tt.data)
 			if err != nil {
 				t.Fatal(err)
 			}

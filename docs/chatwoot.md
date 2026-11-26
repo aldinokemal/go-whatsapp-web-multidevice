@@ -666,7 +666,7 @@ An exact entry matches a chat under either of its addresses, so `111222333@lid` 
 | Contacts | ✅ | vCard information preserved |
 | Polls | ✅ | Creations and edits show the options; an added option shows as `Poll option added: <name>`. Votes are not posted, since WhatsApp only updates the poll's tally; webhooks still receive them |
 
-**Outgoing messages (sent from your own WhatsApp device)** are automatically forwarded to Chatwoot as `outgoing` messages.
+Messages sent from your phone or through an immediate REST `/send/*` request appear as **outgoing** in the sending device’s Chatwoot inbox. With `WHATSAPP_AUTO_DOWNLOAD_MEDIA=true`, GOWA attaches the media it uploaded to WhatsApp, including a document’s filename and caption. The usual Chatwoot event and chat filters apply.
 
 Live WhatsApp messages that hit a transient Chatwoot failure (network error, HTTP 429, or HTTP 5xx) are stored in the local chat storage retry queue and replayed in the background with capped exponential backoff. Permanent Chatwoot errors (most HTTP 4xx responses) are logged and not retried.
 

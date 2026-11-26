@@ -273,6 +273,8 @@ func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeo
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
 
+	whatsapp.ForwardRESTSendToChatwoot(ctx, client, recipient, msg, ts)
+
 	// Store the sent message using chatstorage
 	senderJID := whatsapp.OwnSenderJID(client)
 
@@ -2169,10 +2171,15 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 // uploadMedia uploads media for a send to recipient, using the newsletter
 // upload for newsletter recipients.
 func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
-	if service.uploadMediaFn != nil {
-		return service.uploadMediaFn(ctx, client, mediaType, media, recipient)
+	upload := service.uploadMediaFn
+	if upload == nil {
+		upload = uploadMediaForRecipient
 	}
-	return uploadMediaForRecipient(ctx, client, mediaType, media, recipient)
+	uploaded, err = upload(ctx, client, mediaType, media, recipient)
+	if err == nil {
+		whatsapp.RememberChatwootUpload(ctx, uploaded.FileSHA256, media)
+	}
+	return uploaded, err
 }
 
 func uploadMediaForRecipient(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
