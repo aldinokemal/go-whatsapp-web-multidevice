@@ -1338,9 +1338,11 @@ func (r *SQLiteRepository) EnqueueChatwootForwardEvent(event *domainChatStorage.
 			payload_json = excluded.payload_json,
 			last_error = excluded.last_error,
 			next_attempt_at = excluded.next_attempt_at,
-			updated_at = excluded.updated_at
+			updated_at = excluded.updated_at,
+			lease_until = NULL
+		WHERE chatwoot_forward_queue.lease_until IS NULL OR chatwoot_forward_queue.lease_until <= ?
 	`, event.DeviceID, event.EventName, event.WhatsAppMessageID, event.PayloadJSON,
-		event.Attempts, event.LastError, event.NextAttemptAt, event.CreatedAt, event.UpdatedAt)
+		event.Attempts, event.LastError, event.NextAttemptAt, event.CreatedAt, event.UpdatedAt, now.UTC())
 	return err
 }
 
@@ -1353,10 +1355,10 @@ func (r *SQLiteRepository) ListDueChatwootForwardEvents(now time.Time, limit int
 		SELECT id, device_id, event_name, wa_message_id, payload_json,
 			attempts, last_error, next_attempt_at, created_at, updated_at
 		FROM chatwoot_forward_queue
-		WHERE next_attempt_at <= ?
+		WHERE next_attempt_at <= ? AND (lease_until IS NULL OR lease_until <= ?)
 		ORDER BY next_attempt_at ASC, id ASC
 		LIMIT ?
-	`, now, limit)
+	`, now, now.UTC(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1377,26 +1379,45 @@ func (r *SQLiteRepository) ListDueChatwootForwardEvents(now time.Time, limit int
 	return events, rows.Err()
 }
 
-func (r *SQLiteRepository) MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error {
-	if id == 0 {
-		return fmt.Errorf("chatwoot forward event id is required")
+func (r *SQLiteRepository) ClaimNextChatwootForwardEvent(now, leaseUntil time.Time) (*domainChatStorage.ChatwootForwardEvent, error) {
+	if !leaseUntil.After(now) {
+		return nil, errors.New("chatwoot forward lease must end after the claim time")
 	}
-	_, err := r.db.Exec(`
-		UPDATE chatwoot_forward_queue
-		SET attempts = attempts + 1,
-			last_error = ?,
-			next_attempt_at = ?,
-			updated_at = ?
-		WHERE id = ?
-	`, lastError, nextAttemptAt, time.Now(), id)
-	return err
+	row := r.db.QueryRow(`UPDATE chatwoot_forward_queue SET lease_until = ?
+		WHERE id = (SELECT id FROM chatwoot_forward_queue WHERE next_attempt_at <= ?
+			AND (lease_until IS NULL OR lease_until <= ?) ORDER BY next_attempt_at, id LIMIT 1)
+		RETURNING id, device_id, event_name, wa_message_id, payload_json, attempts, last_error, next_attempt_at, created_at, updated_at`,
+		leaseUntil.UTC(), now, now.UTC())
+	var event domainChatStorage.ChatwootForwardEvent
+	err := row.Scan(&event.ID, &event.DeviceID, &event.EventName, &event.WhatsAppMessageID, &event.PayloadJSON,
+		&event.Attempts, &event.LastError, &event.NextAttemptAt, &event.CreatedAt, &event.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
 }
 
-func (r *SQLiteRepository) MarkChatwootForwardEventDone(id int64) error {
-	if id == 0 {
-		return fmt.Errorf("chatwoot forward event id is required")
+func (r *SQLiteRepository) MarkChatwootForwardEventFailed(id int64, leaseUntil time.Time, lastError string, nextAttemptAt time.Time) error {
+	return checkChatwootForwardClaim(r.db.Exec(`UPDATE chatwoot_forward_queue
+		SET attempts = attempts + 1, last_error = ?, next_attempt_at = ?, updated_at = ?, lease_until = NULL
+		WHERE id = ? AND lease_until = ?`, lastError, nextAttemptAt, time.Now(), id, leaseUntil.UTC()))
+}
+
+func (r *SQLiteRepository) MarkChatwootForwardEventDone(id int64, leaseUntil time.Time) error {
+	return checkChatwootForwardClaim(r.db.Exec(`DELETE FROM chatwoot_forward_queue WHERE id = ? AND lease_until = ?`, id, leaseUntil.UTC()))
+}
+
+func checkChatwootForwardClaim(result sql.Result, err error) error {
+	if err != nil {
+		return err
 	}
-	_, err := r.db.Exec(`DELETE FROM chatwoot_forward_queue WHERE id = ?`, id)
+	changed, err := result.RowsAffected()
+	if err == nil && changed == 0 {
+		return errors.New("chatwoot forward event is no longer claimed by this worker")
+	}
 	return err
 }
 
@@ -3538,5 +3559,8 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 54: Poll retries must reuse the secret as well as the ID.
 		`ALTER TABLE scheduled_sends ADD COLUMN pending_poll_secret BLOB`,
+
+		// Migration 55: One worker owns a Chatwoot delivery until it finishes or the lease expires.
+		`ALTER TABLE chatwoot_forward_queue ADD COLUMN lease_until TIMESTAMP NULL`,
 	}
 }

@@ -4,20 +4,23 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
-	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatstorage"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/ui/rest"
 	"github.com/gofiber/fiber/v3"
@@ -29,8 +32,7 @@ import (
 )
 
 type restMirrorRepo struct {
-	chatUsecaseRepoStub
-	queued chan *domainChatStorage.ChatwootForwardEvent
+	domainChatStorage.IChatStorageRepository
 }
 
 func (r *restMirrorRepo) GetMessageByIDAndDevice(_, id string) (*domainChatStorage.Message, error) {
@@ -38,15 +40,6 @@ func (r *restMirrorRepo) GetMessageByIDAndDevice(_, id string) (*domainChatStora
 }
 
 func (r *restMirrorRepo) StoreSentMessageWithContext(context.Context, string, string, string, string, time.Time, *waE2E.Message) error {
-	return nil
-}
-
-func (r *restMirrorRepo) GetChatwootDeviceConfigByIdentifier(string) (*domainChatStorage.ChatwootDeviceConfig, error) {
-	return nil, errors.New("temporary destination lookup failure")
-}
-
-func (r *restMirrorRepo) EnqueueChatwootForwardEvent(event *domainChatStorage.ChatwootForwardEvent) error {
-	r.queued <- event
 	return nil
 }
 
@@ -61,9 +54,28 @@ func TestChatwootMirrorFromRESTEndpoints(t *testing.T) {
 	config.ChatwootEnabled, config.ChatwootEvents = true, []string{"message"}
 	config.WhatsappAutoDownloadMedia, config.WhatsappSettingMaxDownloadSize, config.PathMedia = false, 1, t.TempDir()
 
-	repo := &restMirrorRepo{queued: make(chan *domainChatStorage.ChatwootForwardEvent, 1)}
+	dbPath := filepath.Join(t.TempDir(), "chatstorage.db")
+	openDB := func() (*sql.DB, domainChatStorage.IChatStorageRepository) {
+		t.Helper()
+		db, err := sql.Open(sqlite.DriverName, dbPath)
+		require.NoError(t, err)
+		t.Cleanup(func() { db.Close() })
+		return db, chatstorage.NewStorageRepository(db)
+	}
+	db, storage := openDB()
+	require.NoError(t, storage.InitializeSchema())
+	repo := &restMirrorRepo{storage}
 	chatwoot.InitClientRegistry(repo)
 	sender := types.NewJID("441111111111", types.DefaultUserServer)
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected Chatwoot request before the queue worker started: %s", r.URL.Path)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(destination.Close)
+	require.NoError(t, repo.SaveChatwootDeviceConfig(&domainChatStorage.ChatwootDeviceConfig{
+		DeviceID: "support", DeviceJID: sender.String(), ChatwootURL: destination.URL, APIToken: "test",
+		AccountID: 1, InboxID: 2, Enabled: true,
+	}))
 	client := &whatsmeow.Client{Store: &store.Device{ID: &sender}}
 	instance := whatsapp.NewDeviceInstance("support", client, repo)
 	service := serviceSend{
@@ -89,25 +101,12 @@ func TestChatwootMirrorFromRESTEndpoints(t *testing.T) {
 	})
 	rest.InitRestSend(app, service)
 	rest.InitRestMessage(app, nil, service)
-	send := func(req *http.Request, id string) map[string]any {
+	send := func(req *http.Request) {
 		t.Helper()
 		resp, err := app.Test(req)
 		require.NoError(t, err)
 		resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
-		select {
-		case event := <-repo.queued:
-			require.Equal(t, sender.String(), event.DeviceID)
-			require.Equal(t, id, event.WhatsAppMessageID)
-			var message whatsapp.WebhookEvent
-			require.NoError(t, json.Unmarshal([]byte(event.PayloadJSON), &message))
-			require.Equal(t, id, message.Payload["id"])
-			require.Equal(t, true, message.Payload["is_from_me"])
-			return message.Payload
-		case <-time.After(3 * time.Second):
-			t.Fatalf("acknowledged send %q did not reach the Chatwoot retry queue", id)
-			return nil
-		}
 	}
 
 	const content = "Attachment larger than the incoming download limit"
@@ -122,7 +121,31 @@ func TestChatwootMirrorFromRESTEndpoints(t *testing.T) {
 	require.NoError(t, form.Close())
 	req := httptest.NewRequest(http.MethodPost, "/send/file", &body)
 	req.Header.Set("Content-Type", form.FormDataContentType())
-	data := send(req, "file-ack")
+	send(req)
+	req = httptest.NewRequest(http.MethodPost, "/message/original/forward", strings.NewReader(`{"phone":"442222222222"}`))
+	req.Header.Set("Content-Type", "application/json")
+	send(req)
+
+	// Simulate a restart before the first Chatwoot delivery. Both HTTP sends
+	// have returned; only committed queue rows and media files survive.
+	require.NoError(t, db.Close())
+	_, reopened := openDB()
+	due, err := reopened.ListDueChatwootForwardEvents(time.Now(), 10)
+	require.NoError(t, err)
+	require.Len(t, due, 2)
+	payload := func(event *domainChatStorage.ChatwootForwardEvent, id string) map[string]any {
+		t.Helper()
+		require.Equal(t, sender.String(), event.DeviceID)
+		require.Equal(t, id, event.WhatsAppMessageID)
+		require.Empty(t, event.LastError)
+		require.Zero(t, event.Attempts)
+		var message whatsapp.WebhookEvent
+		require.NoError(t, json.Unmarshal([]byte(event.PayloadJSON), &message))
+		require.Equal(t, id, message.Payload["id"])
+		require.Equal(t, true, message.Payload["is_from_me"])
+		return message.Payload
+	}
+	data := payload(due[0], "file-ack")
 	require.Equal(t, "Your receipt", data["body"])
 	document, ok := data["document"].(map[string]any)
 	require.True(t, ok)
@@ -132,8 +155,5 @@ func TestChatwootMirrorFromRESTEndpoints(t *testing.T) {
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, content, string(got))
-
-	req = httptest.NewRequest(http.MethodPost, "/message/original/forward", strings.NewReader(`{"phone":"442222222222"}`))
-	req.Header.Set("Content-Type", "application/json")
-	require.Equal(t, "Forward this", send(req, "forward-ack")["body"])
+	require.Equal(t, "Forward this", payload(due[1], "forward-ack")["body"])
 }

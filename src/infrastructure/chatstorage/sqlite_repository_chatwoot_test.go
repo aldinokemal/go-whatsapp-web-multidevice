@@ -6,6 +6,7 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSQLiteRepositoryStoresAndLooksUpChatwootMessageLinks(t *testing.T) {
@@ -407,8 +408,25 @@ func TestSQLiteRepositoryChatwootForwardQueueLifecycle(t *testing.T) {
 		t.Fatalf("unexpected due event: %+v", due[0])
 	}
 
+	firstLease := now.Add(30 * time.Second)
+	claimed, err := repo.ClaimNextChatwootForwardEvent(now, firstLease)
+	require.NoError(t, err)
+	require.Equal(t, due[0], claimed)
+	other, err := repo.ClaimNextChatwootForwardEvent(now, firstLease)
+	require.NoError(t, err)
+	require.Nil(t, other, "a second worker cannot take an active delivery")
+
+	// Simulate a crash. A replacement worker reclaims the job after expiry.
+	// The original worker cannot delete or postpone the replacement's claim.
+	secondLease := firstLease.Add(time.Minute)
+	other, err = repo.ClaimNextChatwootForwardEvent(firstLease, secondLease)
+	require.NoError(t, err)
+	require.Equal(t, claimed, other)
+	require.Error(t, repo.MarkChatwootForwardEventDone(claimed.ID, firstLease))
+	require.Error(t, repo.MarkChatwootForwardEventFailed(claimed.ID, firstLease, "stale failure", now))
+
 	nextAttempt := now.Add(2 * time.Minute)
-	if err := repo.MarkChatwootForwardEventFailed(due[0].ID, "still down", nextAttempt); err != nil {
+	if err := repo.MarkChatwootForwardEventFailed(other.ID, secondLease, "still down", nextAttempt); err != nil {
 		t.Fatalf("mark retry failed: %v", err)
 	}
 
@@ -428,7 +446,11 @@ func TestSQLiteRepositoryChatwootForwardQueueLifecycle(t *testing.T) {
 		t.Fatalf("unexpected retried event: %+v", due)
 	}
 
-	if err := repo.MarkChatwootForwardEventDone(due[0].ID); err != nil {
+	finalLease := nextAttempt.Add(time.Minute)
+	claimed, err = repo.ClaimNextChatwootForwardEvent(nextAttempt, finalLease)
+	require.NoError(t, err)
+	require.Equal(t, due[0], claimed)
+	if err := repo.MarkChatwootForwardEventDone(claimed.ID, finalLease); err != nil {
 		t.Fatalf("mark retry done: %v", err)
 	}
 	due, err = repo.ListDueChatwootForwardEvents(nextAttempt.Add(time.Hour), 10)

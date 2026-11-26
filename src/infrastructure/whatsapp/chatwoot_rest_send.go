@@ -2,19 +2,21 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"maps"
-	"strings"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/chatwoot"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 )
+
+const restSendSlotKey = "rest_send_slot"
 
 type restSendKey struct{}
 type uploadedMedia map[string][]byte
@@ -91,53 +93,41 @@ func ForwardRESTSendToChatwoot(ctx context.Context, client *whatsmeow.Client, re
 	if sender.IsEmpty() {
 		return
 	}
-	// Fiber can reuse form strings after the handler returns. Copy the message
-	// while it still owns them; the detached worker also uses the sending
-	// account's identity even if the slot is re-paired before delivery.
-	wire, err := proto.Marshal(msg)
-	if err != nil {
-		logrus.Errorf("Chatwoot: failed to encode sent message %s: %v", sent.ID, err)
+	// Save the mirror while the HTTP request still owns its form fields and
+	// upload bytes. The queue worker performs the Chatwoot HTTP requests.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	deviceID := sender.String()
+	route, err := getChatwootClientFn(deviceID)
+	if errors.Is(err, chatwoot.ErrClientRegistryUnavailable) {
+		logrus.Errorf("Chatwoot: cannot queue sent message %s: %v", sent.ID, err)
 		return
 	}
-	recipient.User = strings.Clone(recipient.User)
-	recipient.Server = strings.Clone(recipient.Server)
+	if err == nil && (route == nil || route.Client == nil || !route.Client.IsConfigured()) {
+		return
+	}
+	repo := device.GetChatStorage()
+	if repo == nil {
+		logrus.Errorf("Chatwoot: cannot queue sent message %s without chat storage", sent.ID)
+		return
+	}
 	evt := &events.Message{
 		Info: types.MessageInfo{
 			MessageSource: types.MessageSource{Chat: recipient, Sender: sender, IsFromMe: true, IsGroup: recipient.Server == types.GroupServer},
 			ID:            sent.ID, Timestamp: sent.Timestamp,
 		},
-		Message: &waE2E.Message{},
+		Message: msg,
 	}
 	aliases := map[string]any{}
-	// SendMessage may address a phone chat using its LID on the wire.
 	addChatwootIdentityAliases(aliases, sent.Chat, sent.Sender, types.EmptyJID, types.EmptyJID)
-	scoped := ContextWithDevice(context.WithoutCancel(ctx), NewDeviceInstance(device.ID(), client, device.GetChatStorage()))
-	go forwardRESTSend(scoped, client, evt, wire, aliases)
-}
-
-func forwardRESTSend(ctx context.Context, client *whatsmeow.Client, evt *events.Message, wire []byte, aliases map[string]any) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	deviceID := evt.Info.Sender.String()
-	uploads, _ := ctx.Value(restSendKey{}).(uploadedMedia)
-	if len(uploads) > 0 {
-		// Skip media writes for disabled/unmapped devices. A transient lookup
-		// error still needs a complete payload for the normal retry queue.
-		if route, err := getChatwootClientFn(deviceID); err == nil && (route == nil || route.Client == nil || !route.Client.IsConfigured()) {
-			return
-		}
-		buildFromFields(ctx, client, evt, aliases)
-		if chatwootPayloadExcluded(aliases) {
-			return
-		}
-	}
-	if err := proto.Unmarshal(wire, evt.Message); err != nil {
-		logrus.Errorf("Chatwoot: failed to decode sent message %s: %v", evt.Info.ID, err)
+	buildFromFields(ctx, client, evt, aliases)
+	if chatwootPayloadExcluded(aliases) {
 		return
 	}
 	poll := preparePollWebhookPayload(ctx, client, nil, evt)
 	event, data, err := buildEventPayload(ctx, client, evt, poll)
-	clear(uploads) // The payload now owns durable paths, including on retry.
+	uploads, _ := ctx.Value(restSendKey{}).(uploadedMedia)
+	clear(uploads)
 	if err != nil {
 		logrus.Errorf("Chatwoot: failed to build sent message %s: %v", evt.Info.ID, utils.MediaErrorForLog(err))
 		return
@@ -148,6 +138,8 @@ func forwardRESTSend(ctx context.Context, client *whatsmeow.Client, evt *events.
 		data["document"] = map[string]any{"path": path, "filename": utils.UnwrapMessage(evt.Message).GetDocumentMessage().GetFileName()}
 	}
 	maps.Copy(data, aliases)
-	payload := map[string]any{"event": event, "device_id": deviceID, "payload": data}
-	forwardToChatwoot(ctx, payload, event)
+	payload := map[string]any{"event": event, "device_id": deviceID, "payload": data, restSendSlotKey: device.ID()}
+	if storeChatwootForwardEvent(repo, deviceID, event, sent.ID, payload, time.Now(), nil) {
+		wakeChatwootForwardWorker()
+	}
 }

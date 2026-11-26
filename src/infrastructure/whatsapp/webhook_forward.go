@@ -1658,9 +1658,17 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 		payload[queuedAuthorizationKey] = authorized
 	}
 
+	if storeChatwootForwardEvent(linkRepo, deviceID, eventName, messageID, payload, time.Now().Add(chatwootForwardRetryDelay(0)), syncErr) {
+		logrus.Warnf("Chatwoot: Queued retry for WhatsApp message %s after transient failure", messageID)
+		return true
+	}
+	return false
+}
+
+func storeChatwootForwardEvent(repo domainChatStorage.IChatStorageRepository, deviceID, eventName, messageID string, payload map[string]any, due time.Time, lastError error) bool {
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
-		logrus.Errorf("Chatwoot: Failed to serialize retry payload for %s: %v", messageID, err)
+		logrus.Errorf("Chatwoot: Failed to serialize forward payload for %s: %v", messageID, err)
 		return false
 	}
 
@@ -1669,14 +1677,13 @@ func enqueueChatwootForwardRetry(linkRepo domainChatStorage.IChatStorageReposito
 		EventName:         eventName,
 		WhatsAppMessageID: messageID,
 		PayloadJSON:       string(payloadJSON),
-		LastError:         truncateChatwootForwardError(syncErr),
-		NextAttemptAt:     time.Now().Add(chatwootForwardRetryDelay(0)),
+		LastError:         truncateChatwootForwardError(lastError),
+		NextAttemptAt:     due,
 	}
-	if err := linkRepo.EnqueueChatwootForwardEvent(event); err != nil {
-		logrus.Errorf("Chatwoot: Failed to enqueue retry for %s: %v", messageID, err)
+	if err := repo.EnqueueChatwootForwardEvent(event); err != nil {
+		logrus.Errorf("Chatwoot: Failed to enqueue WhatsApp message %s: %v", messageID, err)
 		return false
 	}
-	logrus.Warnf("Chatwoot: Queued retry for WhatsApp message %s after transient failure", messageID)
 	return true
 }
 
@@ -1890,12 +1897,21 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 	if dm == nil {
 		return fmt.Errorf("chatwoot retry: device manager unavailable, not replaying %s for device %s", event.EventName, event.DeviceID)
 	}
-	instance, _, err := dm.ResolveDevice(event.DeviceID)
-	if err != nil || instance == nil {
-		if err == nil {
-			err = errors.New("device not found")
+	slot, _ := payload[restSendSlotKey].(string)
+	var instance *DeviceInstance
+	if slot != "" {
+		// A slot can be re-paired, and two companion slots can share a bare
+		// JID. Only use the original slot while it still owns this account.
+		instance, _ = dm.GetDevice(slot)
+		if instance == nil || instance.JID() != event.DeviceID {
+			return fmt.Errorf("chatwoot forward: slot %s is unavailable for device %s", slot, event.DeviceID)
 		}
-		return fmt.Errorf("chatwoot retry: device %s is not available: %w", event.DeviceID, err)
+	} else {
+		var err error
+		instance, _, err = dm.ResolveDevice(event.DeviceID)
+		if err != nil {
+			return fmt.Errorf("chatwoot retry: device %s is not available: %w", event.DeviceID, err)
+		}
 	}
 	ctx = ContextWithDevice(ctx, instance)
 	if event.EventName == "message.edited" || event.EventName == "message.revoked" {
@@ -1910,34 +1926,59 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 			NoteMessageRevokeAuthorization(event.DeviceID, chatJID, deleteTargetMessageID(event.EventName, data), authorized)
 		}
 	}
-	return syncPayloadToChatwoot(ctx, payload, event.EventName, event.DeviceID, repo)
+	err := syncPayloadToChatwoot(ctx, payload, event.EventName, event.DeviceID, repo)
+	var statusErr *chatwoot.HTTPStatusError
+	if slot != "" && errors.As(err, &statusErr) && !chatwoot.Retryable(err) {
+		logrus.Errorf("Chatwoot: permanent failure forwarding sent message %s: %v", event.WhatsAppMessageID, utils.MediaErrorForLog(err))
+		return nil
+	}
+	return err
 }
 
 func processDueChatwootForwardRetries(repo domainChatStorage.IChatStorageRepository) {
 	if repo == nil {
 		return
 	}
-	events, err := repo.ListDueChatwootForwardEvents(time.Now(), 20)
-	if err != nil {
-		logrus.Errorf("Chatwoot: Failed to list retry queue: %v", err)
-		return
-	}
-	for _, event := range events {
+	for range 20 {
+		now := time.Now()
+		// Claim only the job about to run. Chatwoot contact, conversation,
+		// and message calls can each take up to 30 seconds.
+		leaseUntil := now.Add(10 * time.Minute)
+		event, err := repo.ClaimNextChatwootForwardEvent(now, leaseUntil)
+		if err != nil {
+			logrus.Errorf("Chatwoot: failed to claim forward job: %v", err)
+			return
+		}
+		if event == nil {
+			return
+		}
 		if err := processChatwootForwardRetryEvent(repo, event); err != nil {
 			nextAttempt := time.Now().Add(chatwootForwardRetryDelay(event.Attempts + 1))
-			if markErr := repo.MarkChatwootForwardEventFailed(event.ID, truncateChatwootForwardError(err), nextAttempt); markErr != nil {
+			if markErr := repo.MarkChatwootForwardEventFailed(event.ID, leaseUntil, truncateChatwootForwardError(err), nextAttempt); markErr != nil {
 				logrus.Errorf("Chatwoot: Failed to reschedule retry job %d: %v", event.ID, markErr)
+				continue
 			}
 			logrus.Warnf("Chatwoot: Retry job %d for WhatsApp message %s failed, next attempt at %s: %v", event.ID, event.WhatsAppMessageID, nextAttempt.Format(time.RFC3339), utils.MediaErrorForLog(err))
 			continue
 		}
-		if err := repo.MarkChatwootForwardEventDone(event.ID); err != nil {
+		if err := repo.MarkChatwootForwardEventDone(event.ID, leaseUntil); err != nil {
 			logrus.Errorf("Chatwoot: Failed to delete completed retry job %d: %v", event.ID, err)
 		}
 	}
+	wakeChatwootForwardWorker()
 }
 
-var chatwootForwardRetryWorkerOnce sync.Once
+var (
+	chatwootForwardRetryWorkerOnce sync.Once
+	chatwootForwardWake            = make(chan struct{}, 1)
+)
+
+func wakeChatwootForwardWorker() {
+	select {
+	case chatwootForwardWake <- struct{}{}:
+	default:
+	}
+}
 
 func StartChatwootForwardRetryWorker(repo domainChatStorage.IChatStorageRepository) {
 	if repo == nil || !config.ChatwootEnabled {
@@ -1949,7 +1990,10 @@ func StartChatwootForwardRetryWorker(repo domainChatStorage.IChatStorageReposito
 			defer ticker.Stop()
 			for {
 				processDueChatwootForwardRetries(repo)
-				<-ticker.C
+				select {
+				case <-ticker.C:
+				case <-chatwootForwardWake:
+				}
 			}
 		}()
 	})

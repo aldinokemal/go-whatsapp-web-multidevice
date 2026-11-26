@@ -151,8 +151,13 @@ func testChatwootRESTSendRetry(t *testing.T, autoDownload bool) {
 			HTTPClient: &http.Client{Transport: transport},
 		}}, nil
 	}
-	replayCtx := ContextWithDevice(t.Context(), NewDeviceInstance("support", client, repo))
-	require.NoError(t, syncPayloadToChatwoot(replayCtx, payload, queued.EventName, queued.DeviceID, repo))
+	oldManager := deviceManager
+	t.Cleanup(func() { deviceManager = oldManager })
+	deviceManager = NewDeviceManager(nil, nil, nil)
+	deviceManager.AddDevice(companionInstance("support", "449999999999", 1))
+	require.Error(t, processChatwootForwardRetryEvent(repo, queued), "a re-paired slot must not deliver another account's queued message")
+	deviceManager.AddDevice(NewDeviceInstance("support", client, repo))
+	require.NoError(t, processChatwootForwardRetryEvent(repo, queued))
 	require.NotNil(t, repo.storedLink)
 	require.Equal(t, "outgoing", repo.storedLink.Direction)
 	require.Equal(t, int64(3), repo.storedLink.ChatwootConfigID)

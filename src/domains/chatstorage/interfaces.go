@@ -106,8 +106,11 @@ type IChatStorageRepository interface {
 	BackfillChatwootMessageLinkAccount(accountID int) (int64, error)
 	EnqueueChatwootForwardEvent(event *ChatwootForwardEvent) error
 	ListDueChatwootForwardEvents(now time.Time, limit int) ([]*ChatwootForwardEvent, error)
-	MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error
-	MarkChatwootForwardEventDone(id int64) error
+	// ClaimNextChatwootForwardEvent grants one worker the earliest available job.
+	// The returned claim can be completed or rescheduled only with its lease deadline.
+	ClaimNextChatwootForwardEvent(now, leaseUntil time.Time) (*ChatwootForwardEvent, error)
+	MarkChatwootForwardEventFailed(id int64, leaseUntil time.Time, lastError string, nextAttemptAt time.Time) error
+	MarkChatwootForwardEventDone(id int64, leaseUntil time.Time) error
 
 	// Scheduled send operations.
 	CreateScheduledSend(job *ScheduledSend) error
