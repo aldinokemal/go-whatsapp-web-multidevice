@@ -116,7 +116,7 @@ func loadFullHistoryConfig(cmd *cobra.Command) error {
 
 // pairDisplayNamePattern is the "Browser (OS)" format whatsmeow's PairPhone
 // requires for the pairing notification label.
-var pairDisplayNamePattern = regexp.MustCompile(`^[^()\s][^()]* \([^()\s][^()]*\)$`)
+var pairDisplayNamePattern = regexp.MustCompile(`^[^()\s][^()\r\n]* \([^()\s][^()\r\n]*\)$`)
 
 // loadDeviceNameConfig applies APP_OS_APPEND_VERSION and APP_PAIR_DISPLAY_NAME
 // unless their flags were passed, and rejects a pairing label that WhatsApp

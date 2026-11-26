@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -13,7 +14,7 @@ func TestLoadDeviceNameConfig(t *testing.T) {
 	viper.AutomaticEnv()
 
 	invalid := func(name string) string {
-		return `invalid pair display name "` + name + `" (APP_PAIR_DISPLAY_NAME or --pair-display-name): use the "Browser (OS)" format, such as "Chrome (Linux)"`
+		return `invalid pair display name ` + strconv.Quote(name) + ` (APP_PAIR_DISPLAY_NAME or --pair-display-name): use the "Browser (OS)" format, such as "Chrome (Linux)"`
 	}
 
 	for _, tc := range []struct {
@@ -31,6 +32,7 @@ func TestLoadDeviceNameConfig(t *testing.T) {
 			args: []string{"--os-append-version=false"}, wantPairName: "Chrome (Linux)"},
 		{name: "name without OS", pairName: "GOWA", wantErr: invalid("GOWA")},
 		{name: "empty OS", pairName: "Chrome ()", wantErr: invalid("Chrome ()")},
+		{name: "line break", pairName: "Chrome\n (Linux)", wantErr: invalid("Chrome\n (Linux)")},
 		{name: "invalid flag", args: []string{"--pair-display-name=Chrome(Linux)"}, wantErr: invalid("Chrome(Linux)")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
