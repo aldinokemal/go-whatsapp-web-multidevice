@@ -9,7 +9,7 @@ require (
 	github.com/dustin/go-humanize v1.1.0
 	github.com/fasthttp/websocket v1.5.12
 	github.com/go-ozzo/ozzo-validation/v4 v4.5.0
-	github.com/gofiber/contrib/v3/websocket v1.3.0
+	github.com/gofiber/contrib/v3/websocket v1.3.1
 	github.com/gofiber/fiber/v3 v3.7.0
 	github.com/gofiber/utils/v2 v2.6.5
 	github.com/google/uuid v1.6.0
@@ -24,7 +24,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/valyala/fasthttp v1.80.0
 	go.mau.fi/libsignal v0.2.3
-	go.mau.fi/whatsmeow v0.0.0-20261125185702-10b99a98616e
+	go.mau.fi/whatsmeow v0.0.0-20261126154439-c2ce5c339ae0
 	golang.org/x/image v0.48.0
 	golang.org/x/net v0.63.0
 	google.golang.org/protobuf v1.36.12
@@ -72,5 +72,5 @@ require (
 	golang.org/x/text v0.44.0 // indirect
 	modernc.org/libc v1.82.13 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.13.0 // indirect
+	modernc.org/memory v1.13.1 // indirect
 )
