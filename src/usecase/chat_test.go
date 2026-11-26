@@ -630,3 +630,90 @@ func TestRequestChatHistoryNoStoredMessages(t *testing.T) {
 			repo.oldestMessageDeviceID, repo.oldestMessageChatJID, deviceID, chatJID)
 	}
 }
+
+func TestMarkChatAsReadRequiresClient(t *testing.T) {
+	service := NewChatService(&chatUsecaseRepoStub{})
+	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("628999999999@s.whatsapp.net", nil, nil))
+
+	_, err := service.MarkChatAsRead(ctx, domainChat.MarkChatAsReadRequest{ChatJID: "628123456789@s.whatsapp.net"})
+	if err != pkgError.ErrWaCLI {
+		t.Fatalf("expected ErrWaCLI, got %v", err)
+	}
+}
+
+// lastMessageRepoStub returns stored messages per chat JID and records the
+// filters it was asked for.
+type lastMessageRepoStub struct {
+	domainChatStorage.IChatStorageRepository
+	byChat  map[string][]*domainChatStorage.Message
+	filters []domainChatStorage.MessageFilter
+}
+
+func (r *lastMessageRepoStub) GetMessages(filter *domainChatStorage.MessageFilter) ([]*domainChatStorage.Message, error) {
+	r.filters = append(r.filters, *filter)
+	return r.byChat[filter.ChatJID], nil
+}
+
+func TestLastMessageKey(t *testing.T) {
+	deviceID := "628999999999@s.whatsapp.net"
+	sentAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	t.Run("skips call records and keeps device scope", func(t *testing.T) {
+		chat := types.NewJID("628123456789", types.DefaultUserServer)
+		repo := &lastMessageRepoStub{byChat: map[string][]*domainChatStorage.Message{
+			chat.String(): {
+				{ID: "call:ABC", MediaType: "call", Timestamp: sentAt.Add(time.Minute)},
+				{ID: "MSG1", IsFromMe: true, Sender: deviceID, Timestamp: sentAt},
+			},
+		}}
+		ts, key := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, chat, chat.String())
+		if key == nil || key.GetID() != "MSG1" || !key.GetFromMe() || key.GetRemoteJID() != chat.String() || key.Participant != nil {
+			t.Fatalf("unexpected key %v", key)
+		}
+		if !ts.Equal(sentAt) {
+			t.Fatalf("unexpected timestamp %v", ts)
+		}
+		if len(repo.filters) != 1 || repo.filters[0].DeviceID != deviceID {
+			t.Fatalf("unexpected filters %+v", repo.filters)
+		}
+	})
+
+	t.Run("group message carries the participant", func(t *testing.T) {
+		group := types.NewJID("120363025982934543", types.GroupServer)
+		repo := &lastMessageRepoStub{byChat: map[string][]*domainChatStorage.Message{
+			group.String(): {{ID: "MSG2", Sender: "628111111111", Timestamp: sentAt}},
+		}}
+		_, key := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, group, group.String())
+		if key == nil || key.GetParticipant() != "628111111111@s.whatsapp.net" || key.GetFromMe() {
+			t.Fatalf("unexpected key %v", key)
+		}
+	})
+
+	t.Run("falls through to the next key", func(t *testing.T) {
+		chat := types.NewJID("628123456789", types.DefaultUserServer)
+		repo := &lastMessageRepoStub{byChat: map[string][]*domainChatStorage.Message{
+			"123@lid": {{ID: "MSG3", Timestamp: sentAt}},
+		}}
+		_, key := serviceChat{chatStorageRepo: repo}.lastMessageKey(deviceID, chat, chat.String(), "123@lid")
+		if key == nil || key.GetID() != "MSG3" || key.GetRemoteJID() != chat.String() {
+			t.Fatalf("unexpected key %v", key)
+		}
+	})
+
+	t.Run("no stored message", func(t *testing.T) {
+		chat := types.NewJID("628123456789", types.DefaultUserServer)
+		ts, key := serviceChat{chatStorageRepo: &lastMessageRepoStub{}}.lastMessageKey(deviceID, chat, chat.String())
+		if key != nil || !ts.IsZero() {
+			t.Fatalf("expected no key, got %v %v", ts, key)
+		}
+	})
+
+	t.Run("no device", func(t *testing.T) {
+		chat := types.NewJID("628123456789", types.DefaultUserServer)
+		repo := &lastMessageRepoStub{}
+		_, key := serviceChat{chatStorageRepo: repo}.lastMessageKey("", chat, chat.String())
+		if key != nil || len(repo.filters) != 0 {
+			t.Fatalf("expected no lookup without a device, got key %v filters %+v", key, repo.filters)
+		}
+	})
+}

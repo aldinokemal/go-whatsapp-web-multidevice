@@ -11,6 +11,9 @@ type IChatUsecase interface {
 	PinChat(ctx context.Context, request PinChatRequest) (response PinChatResponse, err error)
 	SetDisappearingTimer(ctx context.Context, request SetDisappearingTimerRequest) (response SetDisappearingTimerResponse, err error)
 	ArchiveChat(ctx context.Context, request ArchiveChatRequest) (response ArchiveChatResponse, err error)
+	// MarkChatAsRead sets the chat-level read/unread flag, like "Mark as
+	// unread" in WhatsApp. It sends no read receipts.
+	MarkChatAsRead(ctx context.Context, request MarkChatAsReadRequest) (response MarkChatAsReadResponse, err error)
 	// RequestChatHistory asks the phone (via an on-demand history sync request)
 	// for older messages of a chat, anchored at the oldest message currently
 	// stored for that chat.

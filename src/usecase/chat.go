@@ -15,7 +15,9 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 )
 
 type serviceChat struct {
@@ -476,6 +478,97 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 // BuildHistorySyncRequest. The phone answers asynchronously with a
 // *events.HistorySync (ON_DEMAND), which the existing history-sync handler
 // persists into chat storage the same way it does for the initial bootstrap.
+func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainChat.MarkChatAsReadRequest) (response domainChat.MarkChatAsReadResponse, err error) {
+	if err = validations.ValidateMarkChatAsRead(ctx, &request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	// The message range names the newest message the flag applies to. Without
+	// a stored message, BuildMarkChatAsRead falls back to the current time.
+	lastTimestamp, lastKey := service.lastMessageKey(storageDeviceID(ctx), targetJID, chatKeys(request.ChatJID, targetJID)...)
+	patchInfo := appstate.BuildMarkChatAsRead(targetJID, request.Read, lastTimestamp, lastKey)
+
+	// Send app state update
+	if err = client.SendAppState(ctx, patchInfo); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid": request.ChatJID,
+			"read":     request.Read,
+		}).Error("Failed to send mark chat as read app state")
+		return response, err
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.Read = request.Read
+
+	if request.Read {
+		response.Message = "Chat marked as read successfully"
+	} else {
+		response.Message = "Chat marked as unread successfully"
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid": request.ChatJID,
+		"read":     request.Read,
+	}).Info("Chat read state operation completed successfully")
+
+	return response, nil
+}
+
+// lastMessageKeyLookback bounds how many recent rows are scanned for the
+// newest real message; stored call records are skipped.
+const lastMessageKeyLookback = 20
+
+// lastMessageKey returns the timestamp and key of the newest stored message of
+// a chat, looked up under each key in order. It returns a zero time and a nil
+// key when the device or the chat has no stored message.
+func (service serviceChat) lastMessageKey(deviceID string, target types.JID, keys ...string) (time.Time, *waCommon.MessageKey) {
+	if deviceID == "" || service.chatStorageRepo == nil {
+		return time.Time{}, nil
+	}
+	for _, key := range keys {
+		messages, err := service.chatStorageRepo.GetMessages(&domainChatStorage.MessageFilter{
+			DeviceID: deviceID,
+			ChatJID:  key,
+			Limit:    lastMessageKeyLookback,
+		})
+		if err != nil {
+			return time.Time{}, nil
+		}
+		for _, message := range messages {
+			if message == nil || message.ID == "" || message.MediaType == "call" {
+				continue
+			}
+			messageKey := &waCommon.MessageKey{
+				RemoteJID: proto.String(target.String()),
+				FromMe:    proto.Bool(message.IsFromMe),
+				ID:        proto.String(message.ID),
+			}
+			if target.Server == types.GroupServer && !message.IsFromMe && message.Sender != "" {
+				participant := message.Sender
+				if !strings.Contains(participant, "@") {
+					participant += "@" + types.DefaultUserServer
+				}
+				messageKey.Participant = proto.String(participant)
+			}
+			return message.Timestamp, messageKey
+		}
+	}
+	return time.Time{}, nil
+}
+
 func (service serviceChat) RequestChatHistory(ctx context.Context, request domainChat.RequestChatHistoryRequest) (response domainChat.RequestChatHistoryResponse, err error) {
 	if err = validations.ValidateRequestChatHistory(ctx, &request); err != nil {
 		return response, err

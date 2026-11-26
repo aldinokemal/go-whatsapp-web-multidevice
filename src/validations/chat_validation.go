@@ -91,6 +91,18 @@ func validateTimerValue(value any) error {
 	return pkgError.ValidationError("timer_seconds must be one of: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)")
 }
 
+func ValidateMarkChatAsRead(ctx context.Context, request *domainChat.MarkChatAsReadRequest) error {
+	err := validation.ValidateStructWithContext(ctx, request,
+		validation.Field(&request.ChatJID, validation.Required),
+	)
+
+	if err != nil {
+		return pkgError.ValidationError(err.Error())
+	}
+
+	return nil
+}
+
 // MaxRequestChatHistoryCount caps how many older messages can be requested
 // from the phone in a single on-demand history sync request.
 const MaxRequestChatHistoryCount = 500

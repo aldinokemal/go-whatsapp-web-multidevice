@@ -3386,6 +3386,60 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /chat/{chat_jid}/read:
+    post:
+      operationId: markChatAsRead
+      tags:
+        - chat
+      summary: Mark a chat as read or unread
+      description: Set the chat-level read flag, like "Mark as unread" and "Mark as read" in WhatsApp. The change is sent as an app state update, so it reaches the phone and the other linked devices. No read receipts are sent; use /message/{message_id}/read for that.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group). Percent-encoded values (e.g., groupid%40g.us) are accepted.
+          example: '6289685028129@s.whatsapp.net'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                read:
+                  type: boolean
+                  example: false
+                  description: Whether to mark the chat as read (true) or unread (false)
+              required:
+                - read
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkChatAsReadResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /group/info:
     get:
       operationId: groupInfo
@@ -6973,6 +7027,33 @@ components:
             archived:
               type: boolean
               example: true
+    MarkChatAsReadResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 200
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Chat marked as unread successfully
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Chat marked as unread successfully
+            chat_jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+            read:
+              type: boolean
+              example: false
     GroupInfoResponse:
       type: object
       properties:

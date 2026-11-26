@@ -19,6 +19,7 @@ type stubChatService struct {
 	fetched  *domainChat.GetChatMessagesRequest
 	archived *domainChat.ArchiveChatRequest
 	pinned   *domainChat.PinChatRequest
+	read     *domainChat.MarkChatAsReadRequest
 	timer    *domainChat.SetDisappearingTimerRequest
 	history  *domainChat.RequestChatHistoryRequest
 	err      error
@@ -41,6 +42,10 @@ func (s *stubChatService) ArchiveChat(_ context.Context, r domainChat.ArchiveCha
 func (s *stubChatService) PinChat(_ context.Context, r domainChat.PinChatRequest) (domainChat.PinChatResponse, error) {
 	s.pinned = &r
 	return domainChat.PinChatResponse{Message: "pinned"}, s.err
+}
+func (s *stubChatService) MarkChatAsRead(_ context.Context, r domainChat.MarkChatAsReadRequest) (domainChat.MarkChatAsReadResponse, error) {
+	s.read = &r
+	return domainChat.MarkChatAsReadResponse{Message: "marked"}, s.err
 }
 func (s *stubChatService) SetDisappearingTimer(_ context.Context, r domainChat.SetDisappearingTimerRequest) (domainChat.SetDisappearingTimerResponse, error) {
 	s.timer = &r
@@ -163,6 +168,19 @@ func TestHandleChatDispatch(t *testing.T) {
 		require.NotNil(t, cs.pinned)
 		assert.Equal(t, "628@s.whatsapp.net", cs.pinned.ChatJID)
 		assert.True(t, cs.pinned.Pinned)
+	})
+
+	t.Run("read", func(t *testing.T) {
+		cs := &stubChatService{}
+		h := InitMcpChat(cs, &stubUserService{}, &stubResolver{})
+		res, err := h.handleChat(deviceCtx(), callReq(map[string]any{
+			"action": "read", "chat_jid": "628@s.whatsapp.net", "read": false,
+		}))
+		require.NoError(t, err)
+		assert.False(t, res.IsError)
+		require.NotNil(t, cs.read)
+		assert.Equal(t, "628@s.whatsapp.net", cs.read.ChatJID)
+		assert.False(t, cs.read.Read)
 	})
 
 	t.Run("set_disappearing", func(t *testing.T) {

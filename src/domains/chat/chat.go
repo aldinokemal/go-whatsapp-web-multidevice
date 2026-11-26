@@ -110,6 +110,19 @@ type RequestChatHistoryResponse struct {
 	AnchorTimestamp string `json:"anchor_timestamp"`
 }
 
+// Mark Chat As Read operations
+type MarkChatAsReadRequest struct {
+	ChatJID string `json:"chat_jid" uri:"chat_jid"`
+	Read    bool   `json:"read"`
+}
+
+type MarkChatAsReadResponse struct {
+	Status  string `json:"status"`
+	Message string `json:"message"`
+	ChatJID string `json:"chat_jid"`
+	Read    bool   `json:"read"`
+}
+
 // Archive Chat operations
 type ArchiveChatRequest struct {
 	ChatJID  string `json:"chat_jid" uri:"chat_jid"`
