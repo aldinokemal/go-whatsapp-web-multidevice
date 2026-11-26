@@ -2,7 +2,6 @@ package validations
 
 import (
 	"context"
-	"fmt"
 	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"go.mau.fi/whatsmeow/types"
@@ -16,7 +15,8 @@ func ValidateLoginWithCode(ctx context.Context, phoneNumber string) error {
 		validation.Match(regexp.MustCompile(`^\+?[0-9]{1,15}$`)),
 	)
 	if err != nil {
-		return pkgError.ValidationError(fmt.Sprintf("phone_number(%s): %s", phoneNumber, err.Error()))
+		// The number stays out of the message: the REST recovery middleware logs it.
+		return pkgError.ValidationError("phone_number: " + err.Error())
 	}
 	return nil
 }

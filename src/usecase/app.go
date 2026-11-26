@@ -160,8 +160,7 @@ func (service *serviceApp) Login(ctx context.Context, deviceID string) (response
 
 func (service *serviceApp) LoginWithCode(ctx context.Context, deviceID string, phoneNumber string) (loginCode string, err error) {
 	if err = validations.ValidateLoginWithCode(ctx, phoneNumber); err != nil {
-		// The validation error quotes the number; it goes back to the caller only.
-		logrus.Errorf("[LOGIN_CODE][%s] Invalid phone number for pairing", deviceID)
+		logrus.Errorf("[LOGIN_CODE][%s] Invalid phone number for pairing: %s", deviceID, err.Error())
 		return loginCode, err
 	}
 

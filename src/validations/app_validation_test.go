@@ -3,6 +3,7 @@ package validations
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -143,5 +144,15 @@ func TestValidatePasskeyResponse(t *testing.T) {
 				assert.ErrorContains(t, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateLoginWithCodeKeepsNumberOutOfError(t *testing.T) {
+	err := ValidateLoginWithCode(context.Background(), "+6281234567890a")
+	if err == nil {
+		t.Fatal("expected a validation error")
+	}
+	if strings.Contains(err.Error(), "6281234567890") {
+		t.Fatalf("validation error quotes the phone number: %q", err.Error())
 	}
 }
