@@ -469,13 +469,8 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 	return response, nil
 }
 
-// RequestChatHistory asks the phone for older messages of a chat (what
-// WhatsApp Web does when you scroll up / "load older messages"). It anchors
-// the request at the oldest message currently stored for that chat and sends
-// a HISTORY_SYNC_ON_DEMAND peer message via whatsmeow's
-// BuildHistorySyncRequest. The phone answers asynchronously with a
-// *events.HistorySync (ON_DEMAND), which the existing history-sync handler
-// persists into chat storage the same way it does for the initial bootstrap.
+// MuteChat mutes a chat for a fixed duration or until it is unmuted, or
+// unmutes it, through an app state patch.
 func (service serviceChat) MuteChat(ctx context.Context, request domainChat.MuteChatRequest) (response domainChat.MuteChatResponse, err error) {
 	if err = validations.ValidateMuteChat(ctx, &request); err != nil {
 		return response, err
@@ -544,6 +539,13 @@ func buildMuteChatPatch(target types.JID, muted bool, duration time.Duration, no
 	return appstate.BuildMuteAbs(target, true, &endMillis), &until
 }
 
+// RequestChatHistory asks the phone for older messages of a chat (what
+// WhatsApp Web does when you scroll up / "load older messages"). It anchors
+// the request at the oldest message currently stored for that chat and sends
+// a HISTORY_SYNC_ON_DEMAND peer message via whatsmeow's
+// BuildHistorySyncRequest. The phone answers asynchronously with a
+// *events.HistorySync (ON_DEMAND), which the existing history-sync handler
+// persists into chat storage the same way it does for the initial bootstrap.
 func (service serviceChat) RequestChatHistory(ctx context.Context, request domainChat.RequestChatHistoryRequest) (response domainChat.RequestChatHistoryResponse, err error) {
 	if err = validations.ValidateRequestChatHistory(ctx, &request); err != nil {
 		return response, err
