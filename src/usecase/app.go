@@ -187,7 +187,9 @@ func (service *serviceApp) LoginWithCode(ctx context.Context, deviceID string, p
 		}
 	}
 
-	logrus.Infof("[LOGIN_CODE][%s] Starting phone pairing for number: %s", deviceID, phoneNumber)
+	// Keep the phone number and the pairing code out of the logs: while the code
+	// is valid, anyone who reads it can link a device to the account.
+	logrus.Infof("[LOGIN_CODE][%s] Starting phone pairing", deviceID)
 	loginCode, err = client.PairPhone(ctx, phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
 	if err != nil {
 		logrus.Errorf("Error when pairing phone: %s", err.Error())
@@ -195,7 +197,7 @@ func (service *serviceApp) LoginWithCode(ctx context.Context, deviceID string, p
 	}
 
 	instance.UpdateStateFromClient()
-	logrus.Infof("Successfully paired phone with code: %s", loginCode)
+	logrus.Infof("[LOGIN_CODE][%s] Pairing code issued", deviceID)
 	return loginCode, nil
 }
 
