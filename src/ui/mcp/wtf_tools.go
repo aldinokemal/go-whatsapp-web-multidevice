@@ -35,7 +35,7 @@ const (
 	ToolGroupFromLink = "wtf_group_preview"
 )
 
-const deviceIDProp = `"device_id": {"type": "string", "description": "Which of your WhatsApp numbers acts (from wtf_my_devices). Optional when you have exactly one number"}`
+const deviceIDProp = `"device_id": {"type": "string", "description": "Which of your WhatsApp numbers acts: its device_id from wtf_my_devices, or the name you gave it with wtf_rename_number. Optional when you have exactly one number"}`
 
 const contactInfoSchema = `{
   "type": "object",
