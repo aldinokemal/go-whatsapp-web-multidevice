@@ -101,14 +101,12 @@ var ValidMuteDurations = []int64{
 func ValidateMuteChat(ctx context.Context, request *domainChat.MuteChatRequest) error {
 	err := validation.ValidateStructWithContext(ctx, request,
 		validation.Field(&request.ChatJID, validation.Required),
+		validation.Field(&request.Muted, validation.NotNil),
 	)
 	if err != nil {
 		return pkgError.ValidationError(err.Error())
 	}
 
-	if !request.Muted {
-		return nil
-	}
 	for _, valid := range ValidMuteDurations {
 		if request.DurationSeconds == valid {
 			return nil

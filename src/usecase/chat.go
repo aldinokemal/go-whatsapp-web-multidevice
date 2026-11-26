@@ -492,17 +492,18 @@ func (service serviceChat) MuteChat(ctx context.Context, request domainChat.Mute
 		return response, err
 	}
 
-	if !request.Muted {
+	muted := *request.Muted
+	if !muted {
 		request.DurationSeconds = 0
 	}
 
-	patchInfo, mutedUntil := buildMuteChatPatch(targetJID, request.Muted, time.Duration(request.DurationSeconds)*time.Second, time.Now())
+	patchInfo, mutedUntil := buildMuteChatPatch(targetJID, muted, time.Duration(request.DurationSeconds)*time.Second, time.Now())
 
 	// Send app state update
 	if err = client.SendAppState(ctx, patchInfo); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"chat_jid": request.ChatJID,
-			"muted":    request.Muted,
+			"muted":    muted,
 		}).Error("Failed to send mute chat app state")
 		return response, err
 	}
@@ -510,13 +511,13 @@ func (service serviceChat) MuteChat(ctx context.Context, request domainChat.Mute
 	// Build response
 	response.Status = "success"
 	response.ChatJID = request.ChatJID
-	response.Muted = request.Muted
+	response.Muted = muted
 	response.DurationSeconds = request.DurationSeconds
 	if mutedUntil != nil {
 		response.MutedUntil = mutedUntil.UTC().Format(time.RFC3339)
 	}
 
-	if request.Muted {
+	if muted {
 		response.Message = "Chat muted successfully"
 	} else {
 		response.Message = "Chat unmuted successfully"
@@ -524,7 +525,7 @@ func (service serviceChat) MuteChat(ctx context.Context, request domainChat.Mute
 
 	logrus.WithFields(logrus.Fields{
 		"chat_jid":         request.ChatJID,
-		"muted":            request.Muted,
+		"muted":            muted,
 		"duration_seconds": request.DurationSeconds,
 	}).Info("Chat mute operation completed successfully")
 

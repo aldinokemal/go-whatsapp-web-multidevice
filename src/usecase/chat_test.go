@@ -636,7 +636,8 @@ func TestMuteChatRequiresClient(t *testing.T) {
 	service := NewChatService(&chatUsecaseRepoStub{})
 	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("628999999999@s.whatsapp.net", nil, nil))
 
-	_, err := service.MuteChat(ctx, domainChat.MuteChatRequest{ChatJID: "628123456789@s.whatsapp.net", Muted: true})
+	muted := true
+	_, err := service.MuteChat(ctx, domainChat.MuteChatRequest{ChatJID: "628123456789@s.whatsapp.net", Muted: &muted})
 	if err != pkgError.ErrWaCLI {
 		t.Fatalf("expected ErrWaCLI, got %v", err)
 	}
@@ -646,7 +647,8 @@ func TestMuteChatValidatesBeforeClient(t *testing.T) {
 	service := NewChatService(&chatUsecaseRepoStub{})
 	ctx := whatsapp.ContextWithDevice(context.Background(), whatsapp.NewDeviceInstance("628999999999@s.whatsapp.net", nil, nil))
 
-	_, err := service.MuteChat(ctx, domainChat.MuteChatRequest{ChatJID: "628123456789@s.whatsapp.net", Muted: true, DurationSeconds: 60})
+	muted := true
+	_, err := service.MuteChat(ctx, domainChat.MuteChatRequest{ChatJID: "628123456789@s.whatsapp.net", Muted: &muted, DurationSeconds: 60})
 	if _, ok := err.(pkgError.ValidationError); !ok {
 		t.Fatalf("expected a ValidationError, got %T: %v", err, err)
 	}

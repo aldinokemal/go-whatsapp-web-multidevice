@@ -122,9 +122,16 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		}
 		return mcpg.NewToolResultStructured(resp, resp.Message), nil
 	case "mute":
+		var muted *bool
+		if args := request.GetArguments(); args != nil {
+			if _, ok := args["muted"]; ok {
+				v := request.GetBool("muted", false)
+				muted = &v
+			}
+		}
 		resp, err := h.chatService.MuteChat(ctx, domainChat.MuteChatRequest{
 			ChatJID:         chatJID,
-			Muted:           request.GetBool("muted", false),
+			Muted:           muted,
 			DurationSeconds: int64(request.GetInt("duration_seconds", 0)),
 		})
 		if err != nil {

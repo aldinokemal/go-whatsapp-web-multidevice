@@ -112,7 +112,7 @@ func (s *requestChatHistorySpy) ArchiveChat(context.Context, domainChat.ArchiveC
 func (s *requestChatHistorySpy) MuteChat(_ context.Context, request domainChat.MuteChatRequest) (domainChat.MuteChatResponse, error) {
 	s.calls++
 	s.lastMute = request
-	return domainChat.MuteChatResponse{Status: "success", ChatJID: request.ChatJID, Muted: request.Muted}, nil
+	return domainChat.MuteChatResponse{Status: "success", ChatJID: request.ChatJID}, nil
 }
 
 func (s *requestChatHistorySpy) RequestChatHistory(_ context.Context, request domainChat.RequestChatHistoryRequest) (domainChat.RequestChatHistoryResponse, error) {
@@ -178,6 +178,24 @@ func TestMuteChatUsesRouteJIDAndBody(t *testing.T) {
 	require.Equal(t, fiber.StatusOK, resp.StatusCode)
 	require.Equal(t, 1, spy.calls)
 	require.Equal(t, "120363025982934543@g.us", spy.lastMute.ChatJID)
-	require.True(t, spy.lastMute.Muted)
+	require.NotNil(t, spy.lastMute.Muted)
+	require.True(t, *spy.lastMute.Muted)
 	require.Equal(t, int64(28800), spy.lastMute.DurationSeconds)
+}
+
+func TestMuteChatKeepsMissingFlagNil(t *testing.T) {
+	for _, body := range []string{`{"duration_seconds":28800}`, `{"muted":null}`} {
+		app := fiber.New()
+		spy := &requestChatHistorySpy{}
+		controller := &Chat{Service: spy}
+		app.Post("/chat/:chat_jid/mute", controller.MuteChat)
+
+		req := httptest.NewRequest("POST", "/chat/6289685028129%40s.whatsapp.net/mute", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Nil(t, spy.lastMute.Muted, "body %s must not turn into an unmute", body)
+	}
 }

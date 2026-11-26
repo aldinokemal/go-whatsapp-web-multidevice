@@ -124,7 +124,7 @@ const chatSchema = `{
     "archived": {"type": "boolean", "description": "archive: true to archive, false to unarchive"},
     "pinned": {"type": "boolean", "description": "pin: true to pin, false to unpin"},
     "muted": {"type": "boolean", "description": "mute: true to mute, false to unmute"},
-    "duration_seconds": {"type": "integer", "enum": [0, 28800, 604800], "description": "mute with muted=true: 28800 (8h), 604800 (1 week) or 0 (always, the default)"},
+    "duration_seconds": {"type": "integer", "enum": [0, 28800, 604800], "description": "mute: 28800 (8h), 604800 (1 week) or 0 (always, the default); not used when muted=false"},
     "timer_seconds": {"type": "integer", "enum": [0, 86400, 604800, 7776000], "description": "set_disappearing: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)"},
     "count": {"type": "integer", "minimum": 1, "maximum": 500, "description": "request_history: how many older messages to request (default 50)"}
   },

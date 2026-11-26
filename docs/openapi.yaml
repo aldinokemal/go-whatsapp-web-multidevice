@@ -3418,7 +3418,7 @@ paths:
                   enum: [0, 28800, 604800]
                   default: 0
                   example: 28800
-                  description: How long the chat stays muted when muted is true. 28800 (8 hours), 604800 (1 week) or 0 (always). Ignored when muted is false.
+                  description: How long the chat stays muted. 28800 (8 hours), 604800 (1 week) or 0 (always). Not used when muted is false.
               required:
                 - muted
       responses:
@@ -7037,9 +7037,6 @@ components:
     MuteChatResponse:
       type: object
       properties:
-        status:
-          type: integer
-          example: 200
         code:
           type: string
           example: SUCCESS
