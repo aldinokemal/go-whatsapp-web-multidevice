@@ -59,12 +59,26 @@ func appStateTime(evt *events.AppState) time.Time {
 	return time.Now().UTC()
 }
 
+var labelLocks sync.Map // storage device ID -> *sync.Mutex
+
+// LockLabels serializes the label writes of one device: app state events, API
+// edits and a resync. It returns the unlock function.
+func LockLabels(deviceID string) func() {
+	value, _ := labelLocks.LoadOrStore(deviceID, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 // storeLabelAppState keeps chat storage in step with a label_edit or
 // label_jid mutation, including the echo of the patches this device sends.
+// An app state value replaces the previous one for its index, so the label
+// row is written whole.
 func storeLabelAppState(ctx context.Context, evt *events.AppState, deviceID string, client *whatsmeow.Client, repo domainChatStorage.IChatStorageRepository) error {
 	if repo == nil || deviceID == "" || evt == nil || evt.SyncActionValue == nil || len(evt.Index) < 2 {
 		return nil
 	}
+	defer LockLabels(deviceID)()
 	switch evt.Index[0] {
 	case appstate.IndexLabelEdit:
 		if evt.LabelEditAction == nil {
@@ -79,14 +93,20 @@ func storeLabelAppState(ctx context.Context, evt *events.AppState, deviceID stri
 		if !ok {
 			return nil
 		}
-		labeled := evt.LabelAssociationAction.GetLabeled()
-		if err := repo.SetLabelChat(deviceID, evt.Index[1], stored, labeled, appStateTime(evt)); err != nil {
-			return err
-		}
-		// A link saved under the LID before it resolved goes away with the chat.
-		if !labeled && sent != stored {
-			return repo.SetLabelChat(deviceID, evt.Index[1], sent, false, appStateTime(evt))
-		}
+		return StoreLabelChat(repo, deviceID, evt.Index[1], stored, sent, evt.LabelAssociationAction.GetLabeled(), appStateTime(evt))
+	}
+	return nil
+}
+
+// StoreLabelChat records a chat added to or removed from a label under the
+// stored JID. A row saved under the LID before it resolved is dropped, so one
+// chat is never listed twice. The caller holds LockLabels.
+func StoreLabelChat(repo domainChatStorage.IChatStorageRepository, deviceID, labelID, stored, sent string, labeled bool, at time.Time) error {
+	if err := repo.SetLabelChat(deviceID, labelID, stored, labeled, at); err != nil {
+		return err
+	}
+	if sent != "" && sent != stored {
+		return repo.SetLabelChat(deviceID, labelID, sent, false, at)
 	}
 	return nil
 }
@@ -148,32 +168,37 @@ func labelStateFromEvents(ctx context.Context, client *whatsmeow.Client, deviceI
 	return outLabels, outLinks
 }
 
-var labelResyncMu sync.Mutex
-
-// FetchLabelState runs a full sync of the "regular" app state collection,
-// where labels and their chats live, and returns what it holds. Labels created
-// before this device was paired only arrive this way.
+// ResyncLabels runs a full sync of the "regular" app state collection, where
+// labels and their chats live, and replaces the stored copy of the device with
+// what it holds. Labels created before this device was paired only arrive this
+// way. The device's label lock is held from the fetch to the replacement, so
+// an app state event or API edit that lands meanwhile is applied after it.
 //
 // whatsmeow returns the mutations of a full sync only while
 // EmitAppStateEventsOnFullSync is set and has no per-call option, so the flag
-// is set for the length of the call. The events are read here, not
-// dispatched, so a resync does not send label webhooks.
-func FetchLabelState(ctx context.Context, client *whatsmeow.Client, deviceID string) ([]*domainChatStorage.Label, []*domainChatStorage.LabelChat, error) {
+// is set on this device's client for the length of the call. The events are
+// read here, not dispatched, so a resync does not send label webhooks.
+func ResyncLabels(ctx context.Context, client *whatsmeow.Client, deviceID string, repo domainChatStorage.IChatStorageRepository) error {
 	if client == nil {
-		return nil, nil, fmt.Errorf("whatsapp client is not initialized")
+		return fmt.Errorf("whatsapp client is not initialized")
 	}
-	labelResyncMu.Lock()
-	defer labelResyncMu.Unlock()
+	if repo == nil || deviceID == "" {
+		return fmt.Errorf("device identification required")
+	}
+	defer LockLabels(deviceID)()
 
 	previous := client.EmitAppStateEventsOnFullSync
 	client.EmitAppStateEventsOnFullSync = true
-	defer func() { client.EmitAppStateEventsOnFullSync = previous }()
-
 	evts, err := client.DangerousInternals().FetchAppState(ctx, appstate.WAPatchRegular, true, false)
+	client.EmitAppStateEventsOnFullSync = previous
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to sync labels: %w", err)
+		return fmt.Errorf("failed to sync labels: %w", err)
 	}
+
 	labels, chats := labelStateFromEvents(ctx, client, deviceID, evts)
-	logrus.Debugf("[LABEL] Full sync for %s returned %d labels and %d label chats", deviceID, len(labels), len(chats))
-	return labels, chats, nil
+	if err := repo.ReplaceLabels(deviceID, labels, chats); err != nil {
+		return fmt.Errorf("failed to store labels: %w", err)
+	}
+	logrus.Debugf("[LABEL] Full sync for %s stored %d labels and %d label chats", deviceID, len(labels), len(chats))
+	return nil
 }

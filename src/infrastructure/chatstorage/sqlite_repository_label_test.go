@@ -120,3 +120,23 @@ func TestDeviceCleanupRemovesLabels(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, chats)
 }
+
+func TestDeletingLabelDropsItsChats(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	device := "device-a@s.whatsapp.net"
+	require.NoError(t, repo.UpsertLabel(&domainChatStorage.Label{DeviceID: device, ID: "1", Name: "Paid", Active: true}))
+	require.NoError(t, repo.UpsertLabel(&domainChatStorage.Label{DeviceID: device, ID: "2", Name: "Lead", Active: true}))
+	require.NoError(t, repo.SetLabelChat(device, "1", "628111@s.whatsapp.net", true, time.Time{}))
+	require.NoError(t, repo.SetLabelChat(device, "2", "628222@s.whatsapp.net", true, time.Time{}))
+
+	require.NoError(t, repo.UpsertLabel(&domainChatStorage.Label{DeviceID: device, ID: "1", Name: "Paid", Deleted: true}))
+
+	got, err := repo.GetLabel(device, "1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.True(t, got.Deleted)
+	chats, err := repo.GetLabelChats(device)
+	require.NoError(t, err)
+	require.Len(t, chats, 1, "a reused label ID must not inherit old chats")
+	assert.Equal(t, "2", chats[0].LabelID)
+}

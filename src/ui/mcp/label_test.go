@@ -69,6 +69,16 @@ func TestHandleLabelDispatch(t *testing.T) {
 		assert.False(t, svc.edited.Deleted)
 	})
 
+	t.Run("edit rejects values outside int32", func(t *testing.T) {
+		svc := &stubLabelService{}
+		res, err := InitMcpLabel(svc, &stubResolver{}).handleLabel(deviceCtx(), callReq(map[string]any{
+			"action": "edit", "label_id": "30", "name": "Family", "color": float64(4294967296),
+		}))
+		require.NoError(t, err)
+		assert.True(t, res.IsError)
+		assert.Nil(t, svc.edited, "a wrapped value must not reach the service")
+	})
+
 	t.Run("chat", func(t *testing.T) {
 		for _, labeled := range []bool{true, false} {
 			svc := &stubLabelService{}

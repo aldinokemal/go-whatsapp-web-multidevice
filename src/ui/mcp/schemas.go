@@ -231,15 +231,15 @@ const labelSchema = `{
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
     "label_id": {"type": "string", "minLength": 1, "maxLength": 64, "description": "edit/chat: label ID. For a new label, pick an ID that list does not show (WhatsApp uses numeric IDs)"},
     "name": {"type": "string", "maxLength": 255, "description": "edit: label name; required unless deleted=true"},
-    "color": {"type": "integer", "minimum": 0, "description": "edit: index in WhatsApp's label palette; an edit keeps the stored color when omitted"},
+    "color": {"type": "integer", "minimum": 0, "maximum": 2147483647, "description": "edit: index in WhatsApp's label palette; an edit keeps the stored color when omitted"},
     "type": {"type": "string", "enum": ["", "CUSTOM"], "description": "edit: CUSTOM for a chat list of a personal account; empty for a Business label. An edit keeps the stored type when omitted"},
-    "order_index": {"type": "integer", "minimum": 0, "description": "edit: position of the label; an edit keeps the stored position when omitted"},
+    "order_index": {"type": "integer", "minimum": 0, "maximum": 2147483647, "description": "edit: position of the label; an edit keeps the stored position when omitted"},
     "deleted": {"type": "boolean", "description": "edit: true deletes the label"},
     "chat_jid": {"type": "string", "description": "chat: chat JID (e.g. 628@s.whatsapp.net or group@g.us)"},
     "labeled": {"type": "boolean", "description": "chat: true adds the chat to the label, false removes it"}
   },
   "allOf": [
-    {"if": {"properties": {"action": {"const": "edit"}}}, "then": {"required": ["label_id"]}},
+    {"if": {"properties": {"action": {"const": "edit"}}}, "then": {"required": ["label_id"], "anyOf": [{"required": ["name"]}, {"required": ["deleted"], "properties": {"deleted": {"const": true}}}]}},
     {"if": {"properties": {"action": {"const": "chat"}}}, "then": {"required": ["label_id", "chat_jid", "labeled"]}}
   ]
 }`

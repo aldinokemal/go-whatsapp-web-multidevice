@@ -3490,6 +3490,7 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+                  maximum: 2147483647
                   example: 5
                   description: Index in WhatsApp's label palette. An edit keeps the stored color when omitted.
                 type:
@@ -3501,6 +3502,7 @@ paths:
                   type: integer
                   format: int32
                   minimum: 0
+                  maximum: 2147483647
                   example: 1
                   description: Position of the label. An edit keeps the stored position when omitted.
                 deleted:
@@ -3509,6 +3511,14 @@ paths:
                   description: true deletes the label
               required:
                 - label_id
+              anyOf:
+                - required:
+                    - name
+                - required:
+                    - deleted
+                  properties:
+                    deleted:
+                      enum: [true]
       responses:
         '200':
           description: OK

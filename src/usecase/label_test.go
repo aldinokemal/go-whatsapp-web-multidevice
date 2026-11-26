@@ -116,6 +116,15 @@ func TestBuildLabelEditPatch(t *testing.T) {
 		assert.Equal(t, "CUSTOM", label.Type)
 	})
 
+	t.Run("edit keeps an inactive list inactive", func(t *testing.T) {
+		stored := &domainChatStorage.Label{ID: "30", Name: "Family", Type: "CUSTOM", Active: false}
+		patch, label := buildLabelEditPatch(domainLabel.EditLabelRequest{LabelID: "30", Name: "Close family"}, stored)
+		action := patch.Mutations[0].Value.GetLabelEditAction()
+		require.NotNil(t, action.IsActive)
+		assert.False(t, action.GetIsActive())
+		assert.False(t, label.Active)
+	})
+
 	t.Run("delete keeps the stored name", func(t *testing.T) {
 		stored := &domainChatStorage.Label{ID: "30", Name: "Family", Type: "CUSTOM", Active: true}
 		patch, label := buildLabelEditPatch(domainLabel.EditLabelRequest{LabelID: "30", Deleted: true}, stored)

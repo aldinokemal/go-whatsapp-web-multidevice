@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	domainLabel "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/label"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
@@ -36,14 +37,21 @@ func (h *LabelHandler) AddLabelTools(mcpServer *server.MCPServer) {
 }
 
 // optionalInt32 returns the argument as a pointer, or nil when it is absent.
-func optionalInt32(request mcpg.CallToolRequest, name string) *int32 {
-	if args := request.GetArguments(); args != nil {
-		if _, ok := args[name]; ok {
-			v := int32(request.GetInt(name, 0))
-			return &v
-		}
+// A value outside the int32 range is an error instead of wrapping around.
+func optionalInt32(request mcpg.CallToolRequest, name string) (*int32, error) {
+	args := request.GetArguments()
+	if args == nil {
+		return nil, nil
 	}
-	return nil
+	if _, ok := args[name]; !ok {
+		return nil, nil
+	}
+	value := request.GetInt(name, 0)
+	if value < math.MinInt32 || value > math.MaxInt32 {
+		return nil, fmt.Errorf("%s must be between 0 and %d", name, math.MaxInt32)
+	}
+	v := int32(value)
+	return &v, nil
 }
 
 func (h *LabelHandler) handleLabel(ctx context.Context, request mcpg.CallToolRequest) (*mcpg.CallToolResult, error) {
@@ -71,12 +79,20 @@ func (h *LabelHandler) handleLabel(ctx context.Context, request mcpg.CallToolReq
 		}
 		return mcpg.NewToolResultStructuredOnly(resp), nil
 	case "edit":
+		color, err := optionalInt32(request, "color")
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		orderIndex, err := optionalInt32(request, "order_index")
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
 		resp, err := h.labelService.EditLabel(ctx, domainLabel.EditLabelRequest{
 			LabelID:    request.GetString("label_id", ""),
 			Name:       request.GetString("name", ""),
-			Color:      optionalInt32(request, "color"),
+			Color:      color,
 			Type:       request.GetString("type", ""),
-			OrderIndex: optionalInt32(request, "order_index"),
+			OrderIndex: orderIndex,
 			Deleted:    request.GetBool("deleted", false),
 		})
 		if err != nil {

@@ -151,3 +151,50 @@ func TestLabelStateFromEvents(t *testing.T) {
 	}
 	assert.Equal(t, []string{"1/628111111111@s.whatsapp.net", "1/628333333333@s.whatsapp.net"}, got)
 }
+
+func TestStoreLabelChatDropsTheLIDRow(t *testing.T) {
+	deviceID := "628999999999@s.whatsapp.net"
+	for _, labeled := range []bool{true, false} {
+		repo := &labelRepoSpy{}
+		require.NoError(t, StoreLabelChat(repo, deviceID, "5", "628123456789@s.whatsapp.net", "123456789@lid", labeled, time.Time{}))
+		assert.Equal(t, []labelChatCall{
+			{deviceID, "5", "628123456789@s.whatsapp.net", labeled},
+			{deviceID, "5", "123456789@lid", false},
+		}, repo.chats)
+	}
+
+	repo := &labelRepoSpy{}
+	require.NoError(t, StoreLabelChat(repo, deviceID, "5", "628123456789@s.whatsapp.net", "628123456789@s.whatsapp.net", true, time.Time{}))
+	assert.Len(t, repo.chats, 1)
+}
+
+func TestLockLabelsIsPerDevice(t *testing.T) {
+	unlockA := LockLabels("device-a")
+	acquired := make(chan struct{})
+	go func() {
+		defer LockLabels("device-b")()
+		close(acquired)
+	}()
+	select {
+	case <-acquired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a lock held for one device blocked another device")
+	}
+
+	waiting := make(chan struct{})
+	go func() {
+		defer LockLabels("device-a")()
+		close(waiting)
+	}()
+	select {
+	case <-waiting:
+		t.Fatal("a second writer of the same device did not wait")
+	case <-time.After(50 * time.Millisecond):
+	}
+	unlockA()
+	select {
+	case <-waiting:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the waiting writer never got the lock")
+	}
+}

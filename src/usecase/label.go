@@ -45,15 +45,9 @@ func (service *serviceLabel) ResyncLabels(ctx context.Context) (response domainL
 		return response, fmt.Errorf("device identification required")
 	}
 
-	labels, chats, err := whatsapp.FetchLabelState(ctx, client, deviceID)
-	if err != nil {
+	if err = whatsapp.ResyncLabels(ctx, client, deviceID, service.chatStorageRepo); err != nil {
 		return response, err
 	}
-	if err = service.chatStorageRepo.ReplaceLabels(deviceID, labels, chats); err != nil {
-		return response, fmt.Errorf("failed to store labels: %w", err)
-	}
-	logrus.WithFields(logrus.Fields{"labels": len(labels), "label_chats": len(chats)}).Info("Labels resynced")
-
 	return service.storedLabels(deviceID)
 }
 
@@ -110,9 +104,13 @@ func (service *serviceLabel) EditLabel(ctx context.Context, request domainLabel.
 	}
 	utils.MustLogin(client)
 
+	// Hold the device's label lock from the read to the local write, so edits
+	// that each leave out different fields do not undo one another, and the
+	// echo of this patch is stored after this write.
 	deviceID := storageDeviceID(ctx)
 	var stored *domainChatStorage.Label
 	if deviceID != "" {
+		defer whatsapp.LockLabels(deviceID)()
 		if stored, err = service.chatStorageRepo.GetLabel(deviceID, request.LabelID); err != nil {
 			return response, fmt.Errorf("failed to read label %s: %w", request.LabelID, err)
 		}
@@ -154,12 +152,13 @@ func (service *serviceLabel) EditLabel(ctx context.Context, request domainLabel.
 
 // buildLabelEditPatch builds the label_edit patch on top of whatsmeow's
 // BuildLabelEdit. Fields the request leaves out keep their stored values, so a
-// rename does not drop the color, the position or the list type. A typed label
-// (a chat list of a personal account) also carries is_active, as the phone
-// sends it.
+// rename does not drop the color, the position, the list type or whether the
+// list is active. A typed label (a chat list of a personal account) also
+// carries is_active, as the phone sends it.
 func buildLabelEditPatch(request domainLabel.EditLabelRequest, stored *domainChatStorage.Label) (appstate.PatchInfo, *domainChatStorage.Label) {
 	label := &domainChatStorage.Label{ID: request.LabelID, Name: request.Name, Type: request.Type, Active: true, Deleted: request.Deleted}
 	if stored != nil {
+		label.Active = stored.Active
 		label.Color = stored.Color
 		label.OrderIndex = stored.OrderIndex
 		if label.Type == "" {
@@ -184,7 +183,7 @@ func buildLabelEditPatch(request domainLabel.EditLabelRequest, stored *domainCha
 	if value, ok := waSyncAction.LabelEditAction_ListType_value[label.Type]; ok && label.Type != "" {
 		listType := waSyncAction.LabelEditAction_ListType(value)
 		action.Type = &listType
-		action.IsActive = proto.Bool(true)
+		action.IsActive = proto.Bool(label.Active)
 	}
 	return patchInfo, label
 }
@@ -206,6 +205,10 @@ func (service *serviceLabel) LabelChat(ctx context.Context, request domainLabel.
 	}
 
 	labeled := *request.Labeled
+	deviceID := storageDeviceID(ctx)
+	if deviceID != "" {
+		defer whatsapp.LockLabels(deviceID)()
+	}
 	if err = client.SendAppState(ctx, appstate.BuildLabelChat(targetJID, request.LabelID, labeled)); err != nil {
 		logrus.WithError(err).WithFields(logrus.Fields{
 			"chat_jid": request.ChatJID,
@@ -214,9 +217,10 @@ func (service *serviceLabel) LabelChat(ctx context.Context, request domainLabel.
 		return response, err
 	}
 
-	if deviceID := storageDeviceID(ctx); deviceID != "" {
+	if deviceID != "" {
+		sent := targetJID.ToNonAD().String()
 		chatJID := whatsapp.NormalizeJIDFromLID(ctx, targetJID, client).ToNonAD().String()
-		if storeErr := service.chatStorageRepo.SetLabelChat(deviceID, request.LabelID, chatJID, labeled, time.Now()); storeErr != nil {
+		if storeErr := whatsapp.StoreLabelChat(service.chatStorageRepo, deviceID, request.LabelID, chatJID, sent, labeled, time.Now()); storeErr != nil {
 			logrus.WithError(storeErr).WithField("label_id", request.LabelID).Warn("Failed to store label chat")
 		}
 	}

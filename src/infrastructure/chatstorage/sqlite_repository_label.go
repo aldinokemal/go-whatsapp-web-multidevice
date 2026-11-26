@@ -44,15 +44,29 @@ func upsertLabel(db sqlExecer, label *domainChatStorage.Label) error {
 	return err
 }
 
-// UpsertLabel stores the current state of a label.
+// UpsertLabel stores the current state of a label. Deleting a label also
+// drops its chats, so an ID reused later starts empty.
 func (r *SQLiteRepository) UpsertLabel(label *domainChatStorage.Label) error {
 	if err := validLabel(label); err != nil {
 		return err
 	}
-	return upsertLabel(r.db, label)
-}
+	if !label.Deleted {
+		return upsertLabel(r.db, label)
+	}
 
-const labelColumns = `device_id, label_id, name, color, type, order_index, is_active, deleted, updated_at`
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := upsertLabel(tx, label); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM label_chats WHERE device_id = ? AND label_id = ?`, label.DeviceID, label.ID); err != nil {
+		return fmt.Errorf("failed to delete chats of label %s: %w", label.ID, err)
+	}
+	return tx.Commit()
+}
 
 func scanLabel(scanner interface{ Scan(dest ...any) error }) (*domainChatStorage.Label, error) {
 	var label domainChatStorage.Label
@@ -65,7 +79,10 @@ func scanLabel(scanner interface{ Scan(dest ...any) error }) (*domainChatStorage
 
 // GetLabel returns one label of a device, or nil when it is unknown.
 func (r *SQLiteRepository) GetLabel(deviceID, labelID string) (*domainChatStorage.Label, error) {
-	label, err := scanLabel(r.db.QueryRow(`SELECT `+labelColumns+` FROM labels WHERE device_id = ? AND label_id = ?`, deviceID, labelID))
+	label, err := scanLabel(r.db.QueryRow(`
+		SELECT device_id, label_id, name, color, type, order_index, is_active, deleted, updated_at
+		FROM labels WHERE device_id = ? AND label_id = ?
+	`, deviceID, labelID))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -77,7 +94,10 @@ func (r *SQLiteRepository) GetLabels(deviceID string) ([]*domainChatStorage.Labe
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device_id is required for label queries")
 	}
-	rows, err := r.db.Query(`SELECT `+labelColumns+` FROM labels WHERE device_id = ? ORDER BY order_index, label_id`, deviceID)
+	rows, err := r.db.Query(`
+		SELECT device_id, label_id, name, color, type, order_index, is_active, deleted, updated_at
+		FROM labels WHERE device_id = ? ORDER BY order_index, label_id
+	`, deviceID)
 	if err != nil {
 		return nil, err
 	}
