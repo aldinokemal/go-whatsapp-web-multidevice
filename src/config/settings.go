@@ -14,6 +14,14 @@ var (
 	AppOs                  = "GOWA"
 	AppPlatform            = waCompanionReg.DeviceProps_PlatformType(1)
 	AppBasicAuthCredential []string
+	// AppOsAppendVersion appends AppVersion to AppOs in the device name the
+	// phone lists under "Linked devices" ("GOWA v9.11.0"). With false, the
+	// name is AppOs alone. It applies to devices paired after the change.
+	AppOsAppendVersion = true
+	// AppPairDisplayName is the "Browser (OS)" label sent with a phone-number
+	// pairing request; the phone shows it in the pairing notification.
+	// WhatsApp only accepts common browsers and OSes in that format.
+	AppPairDisplayName = "Chrome (Linux)"
 	// AppAllowUnauthenticated exposes device admin, send, logout, and MCP
 	// routes without Basic Auth. It is required when credentials are empty and
 	// AppHost is not a loopback address (the default 0.0.0.0). Loopback binds

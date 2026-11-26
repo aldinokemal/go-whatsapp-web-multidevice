@@ -1024,11 +1024,19 @@ var devicePropsOnce sync.Once
 // created concurrently and whatsmeow marshals store.DeviceProps without a lock.
 func configureDeviceProps() {
 	devicePropsOnce.Do(func() {
-		osName := fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
+		osName := deviceOsName()
 		store.DeviceProps.PlatformType = &config.AppPlatform
 		store.DeviceProps.Os = &osName
 		applyFullHistorySyncProps(store.DeviceProps)
 	})
+}
+
+// deviceOsName is the device name the phone lists under "Linked devices".
+func deviceOsName() string {
+	if !config.AppOsAppendVersion {
+		return config.AppOs
+	}
+	return fmt.Sprintf("%s %s", config.AppOs, config.AppVersion)
 }
 
 // StoreInfo returns configured store URIs for observability.

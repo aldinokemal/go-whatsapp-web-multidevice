@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +114,27 @@ func loadFullHistoryConfig(cmd *cobra.Command) error {
 	return nil
 }
 
+// pairDisplayNamePattern is the "Browser (OS)" format whatsmeow's PairPhone
+// requires for the pairing notification label.
+var pairDisplayNamePattern = regexp.MustCompile(`^[^()\s][^()]* \([^()\s][^()]*\)$`)
+
+// loadDeviceNameConfig applies APP_OS_APPEND_VERSION and APP_PAIR_DISPLAY_NAME
+// unless their flags were passed, and rejects a pairing label that WhatsApp
+// would refuse.
+func loadDeviceNameConfig(cmd *cobra.Command) error {
+	flags := cmd.PersistentFlags()
+	if !flags.Changed("os-append-version") && viper.IsSet("app_os_append_version") {
+		config.AppOsAppendVersion = viper.GetBool("app_os_append_version")
+	}
+	if raw := viper.GetString("app_pair_display_name"); raw != "" && !flags.Changed("pair-display-name") {
+		config.AppPairDisplayName = raw
+	}
+	if !pairDisplayNamePattern.MatchString(config.AppPairDisplayName) {
+		return fmt.Errorf(`invalid pair display name %q (APP_PAIR_DISPLAY_NAME or --pair-display-name): use the "Browser (OS)" format, such as "Chrome (Linux)"`, config.AppPairDisplayName)
+	}
+	return nil
+}
+
 // loadTimezoneConfig applies APP_TIMEZONE unless --timezone was passed and
 // resolves it, rejecting an unknown zone instead of falling back to UTC.
 func loadTimezoneConfig(cmd *cobra.Command) error {
@@ -155,6 +177,9 @@ func initEnvConfig() {
 	}
 	if envOs := viper.GetString("app_os"); envOs != "" {
 		config.AppOs = envOs
+	}
+	if err := loadDeviceNameConfig(rootCmd); err != nil {
+		logrus.Fatal(err)
 	}
 	if err := loadFullHistoryConfig(rootCmd); err != nil {
 		logrus.Fatal(err)
@@ -432,6 +457,18 @@ func initFlags() {
 		"os", "",
 		config.AppOs,
 		`os name --os <string> | example: --os="Chrome"`,
+	)
+	rootCmd.PersistentFlags().BoolVarP(
+		&config.AppOsAppendVersion,
+		"os-append-version", "",
+		config.AppOsAppendVersion,
+		`append the app version to the os name in the linked device name --os-append-version=<true|false> | example: --os-append-version=false`,
+	)
+	rootCmd.PersistentFlags().StringVarP(
+		&config.AppPairDisplayName,
+		"pair-display-name", "",
+		config.AppPairDisplayName,
+		`"Browser (OS)" label shown in the phone's pairing-code notification --pair-display-name <string> | example: --pair-display-name="Chrome (Mac OS)"`,
 	)
 	rootCmd.PersistentFlags().StringSliceVarP(
 		&config.AppBasicAuthCredential,
