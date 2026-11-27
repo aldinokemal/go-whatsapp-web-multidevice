@@ -163,6 +163,12 @@ func (service *serviceApp) LoginWithCode(ctx context.Context, deviceID string, p
 		logrus.Errorf("Error when validate login with code: %s", err.Error())
 		return loginCode, err
 	}
+	// Check the configured label before connecting: PairPhone sends it as is
+	// and WhatsApp answers a malformed one with a bare 400.
+	if err = validations.ValidatePairDisplayName(config.AppPairDisplayName); err != nil {
+		logrus.Errorf("[LOGIN_CODE][%s] %s", deviceID, err.Error())
+		return loginCode, err
+	}
 
 	unlock, err := service.lockLogin(ctx, deviceID)
 	if err != nil {

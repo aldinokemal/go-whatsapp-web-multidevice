@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"strconv"
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -13,15 +12,11 @@ import (
 func TestLoadDeviceNameConfig(t *testing.T) {
 	viper.AutomaticEnv()
 
-	invalid := func(name string) string {
-		return `invalid pair display name ` + strconv.Quote(name) + ` (APP_PAIR_DISPLAY_NAME or --pair-display-name): use the "Browser (OS)" format, such as "Chrome (Linux)"`
-	}
-
 	for _, tc := range []struct {
 		name, appendVersion, pairName string
 		args                          []string
 		wantAppendVersion             bool
-		wantPairName, wantErr         string
+		wantPairName                  string
 	}{
 		{name: "defaults", wantAppendVersion: true, wantPairName: "Chrome (Linux)"},
 		{name: "environment", appendVersion: "false", pairName: "Safari (Mac OS)", wantPairName: "Safari (Mac OS)"},
@@ -30,10 +25,11 @@ func TestLoadDeviceNameConfig(t *testing.T) {
 			wantAppendVersion: true, wantPairName: "Firefox (Windows)"},
 		{name: "explicit flag false overrides environment true", appendVersion: "true",
 			args: []string{"--os-append-version=false"}, wantPairName: "Chrome (Linux)"},
-		{name: "name without OS", pairName: "GOWA", wantErr: invalid("GOWA")},
-		{name: "empty OS", pairName: "Chrome ()", wantErr: invalid("Chrome ()")},
-		{name: "line break", pairName: "Chrome\n (Linux)", wantErr: invalid("Chrome\n (Linux)")},
-		{name: "invalid flag", args: []string{"--pair-display-name=Chrome(Linux)"}, wantErr: invalid("Chrome(Linux)")},
+		// A malformed label does not stop startup; code pairing rejects it
+		// when requested (see usecase.TestMalformedPairLabelOnlyBlocksCodePairing).
+		{name: "malformed label from environment is kept", pairName: "GOWA", wantAppendVersion: true, wantPairName: "GOWA"},
+		{name: "malformed label from flag is kept", args: []string{"--pair-display-name=Chrome(Linux)"},
+			wantAppendVersion: true, wantPairName: "Chrome(Linux)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			appendVersion, pairName := config.AppOsAppendVersion, config.AppPairDisplayName
@@ -49,12 +45,7 @@ func TestLoadDeviceNameConfig(t *testing.T) {
 			cmd.PersistentFlags().StringVar(&config.AppPairDisplayName, "pair-display-name", config.AppPairDisplayName, "")
 			require.NoError(t, cmd.ParseFlags(tc.args))
 
-			err := loadDeviceNameConfig(cmd)
-			if tc.wantErr != "" {
-				require.EqualError(t, err, tc.wantErr)
-				return
-			}
-			require.NoError(t, err)
+			loadDeviceNameConfig(cmd)
 			require.Equal(t, tc.wantAppendVersion, config.AppOsAppendVersion)
 			require.Equal(t, tc.wantPairName, config.AppPairDisplayName)
 		})

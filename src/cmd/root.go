@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +27,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/sqlite"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/usecase"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -114,14 +114,11 @@ func loadFullHistoryConfig(cmd *cobra.Command) error {
 	return nil
 }
 
-// pairDisplayNamePattern is the "Browser (OS)" format whatsmeow's PairPhone
-// requires for the pairing notification label.
-var pairDisplayNamePattern = regexp.MustCompile(`^[^()\s][^()\r\n]* \([^()\s][^()\r\n]*\)$`)
-
 // loadDeviceNameConfig applies APP_OS_APPEND_VERSION and APP_PAIR_DISPLAY_NAME
-// unless their flags were passed, and rejects a pairing label that WhatsApp
-// would refuse.
-func loadDeviceNameConfig(cmd *cobra.Command) error {
+// unless their flags were passed. A malformed pairing label does not stop the
+// service: QR login and existing sessions do not use it, and code pairing
+// rejects it when requested.
+func loadDeviceNameConfig(cmd *cobra.Command) {
 	flags := cmd.PersistentFlags()
 	if !flags.Changed("os-append-version") && viper.IsSet("app_os_append_version") {
 		config.AppOsAppendVersion = viper.GetBool("app_os_append_version")
@@ -129,10 +126,9 @@ func loadDeviceNameConfig(cmd *cobra.Command) error {
 	if raw := viper.GetString("app_pair_display_name"); raw != "" && !flags.Changed("pair-display-name") {
 		config.AppPairDisplayName = raw
 	}
-	if !pairDisplayNamePattern.MatchString(config.AppPairDisplayName) {
-		return fmt.Errorf(`invalid pair display name %q (APP_PAIR_DISPLAY_NAME or --pair-display-name): use the "Browser (OS)" format, such as "Chrome (Linux)"`, config.AppPairDisplayName)
+	if err := validations.ValidatePairDisplayName(config.AppPairDisplayName); err != nil {
+		logrus.Warnf("%s; pairing with a code will be refused until it is fixed", err.Error())
 	}
-	return nil
 }
 
 // loadTimezoneConfig applies APP_TIMEZONE unless --timezone was passed and
@@ -178,9 +174,7 @@ func initEnvConfig() {
 	if envOs := viper.GetString("app_os"); envOs != "" {
 		config.AppOs = envOs
 	}
-	if err := loadDeviceNameConfig(rootCmd); err != nil {
-		logrus.Fatal(err)
-	}
+	loadDeviceNameConfig(rootCmd)
 	if err := loadFullHistoryConfig(rootCmd); err != nil {
 		logrus.Fatal(err)
 	}

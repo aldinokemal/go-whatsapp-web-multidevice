@@ -3,8 +3,10 @@ package validations
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
 	"github.com/stretchr/testify/assert"
 	"go.mau.fi/whatsmeow/types"
 )
@@ -143,5 +145,26 @@ func TestValidatePasskeyResponse(t *testing.T) {
 				assert.ErrorContains(t, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidatePairDisplayName(t *testing.T) {
+	for _, name := range []string{"Chrome (Linux)", "Safari (Mac OS)", "Firefox (Windows)"} {
+		if err := ValidatePairDisplayName(name); err != nil {
+			t.Errorf("%q: unexpected error %v", name, err)
+		}
+	}
+	for _, name := range []string{"", "GOWA", "Chrome(Linux)", "Chrome ()", " (Linux)", "Chrome\n (Linux)", "Chrome (Linux) (x)"} {
+		err := ValidatePairDisplayName(name)
+		if err == nil {
+			t.Errorf("%q: expected a validation error", name)
+			continue
+		}
+		if _, ok := err.(pkgError.ValidationError); !ok {
+			t.Errorf("%q: expected a ValidationError, got %T", name, err)
+		}
+		if !strings.Contains(err.Error(), "APP_PAIR_DISPLAY_NAME") {
+			t.Errorf("%q: error does not name the setting: %v", name, err)
+		}
 	}
 }
