@@ -262,6 +262,34 @@ func (r *deviceChatStorage) CountChatwootDeviceConfigs() (int, error) {
 	return r.base.CountChatwootDeviceConfigs()
 }
 
+func (r *deviceChatStorage) UpsertLabel(label *domainChatStorage.Label) error {
+	return r.base.UpsertLabel(label)
+}
+
+func (r *deviceChatStorage) DeleteLabel(deviceID, labelID string) error {
+	return r.base.DeleteLabel(deviceID, labelID)
+}
+
+func (r *deviceChatStorage) UpsertLabelAssociation(association *domainChatStorage.LabelAssociation) error {
+	return r.base.UpsertLabelAssociation(association)
+}
+
+func (r *deviceChatStorage) DeleteLabelAssociation(deviceID, labelID, chatJID string) error {
+	return r.base.DeleteLabelAssociation(deviceID, labelID, chatJID)
+}
+
+func (r *deviceChatStorage) ListLabels(deviceID string) ([]*domainChatStorage.Label, error) {
+	return r.base.ListLabels(deviceID)
+}
+
+func (r *deviceChatStorage) ListLabelAssociations(deviceID, labelID string) ([]*domainChatStorage.LabelAssociation, error) {
+	return r.base.ListLabelAssociations(deviceID, labelID)
+}
+
+func (r *deviceChatStorage) DeleteLabelDataBefore(deviceID string, before time.Time) error {
+	return r.base.DeleteLabelDataBefore(deviceID, before)
+}
+
 func (r *deviceChatStorage) GetLatestUnreadChatwootMessageLinkByChat(deviceID, waChatJID string) (*domainChatStorage.ChatwootMessageLink, error) {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {

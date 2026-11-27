@@ -355,6 +355,143 @@ func (service serviceUser) MyListContacts(ctx context.Context) (response domainU
 	return response, nil
 }
 
+// MyListLabels lists the labels stored for the device carried by ctx, with the
+// number of chats in each.
+func (service serviceUser) MyListLabels(ctx context.Context) (response domainUser.MyListLabelsResponse, err error) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	return service.listLabels(ctx, storageDeviceID(ctx), client.Store.LIDs)
+}
+
+// MyListLabelChats lists the chats of one label of the device carried by ctx.
+// An unknown or deleted label has no chats.
+func (service serviceUser) MyListLabelChats(ctx context.Context, labelID string) (response domainUser.MyListLabelChatsResponse, err error) {
+	labelID = strings.TrimSpace(labelID)
+	if labelID == "" {
+		return response, pkgError.ValidationError("label_id is required")
+	}
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	associations, err := service.chatStorageRepo.ListLabelAssociations(storageDeviceID(ctx), labelID)
+	if err != nil {
+		return response, err
+	}
+	response.LabelID = labelID
+	response.Data = groupLabelChats(ctx, associations, client.Store.LIDs)[labelID]
+	if response.Data == nil {
+		response.Data = []domainUser.MyListLabelChatsResponseData{}
+	}
+	return response, nil
+}
+
+// MySyncLabels rebuilds the device's label store from a full fetch of the app
+// state patch that carries labels, then removes the labels and chats the fetch
+// no longer contains.
+func (service serviceUser) MySyncLabels(ctx context.Context) (response domainUser.MyListLabelsResponse, err error) {
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+	utils.MustLogin(client)
+
+	deviceID := storageDeviceID(ctx)
+	startedAt := time.Now()
+	if err = whatsapp.FetchLabelAppState(ctx, client); err != nil {
+		return response, fmt.Errorf("failed to sync labels: %w", err)
+	}
+	if err = service.chatStorageRepo.DeleteLabelDataBefore(deviceID, startedAt); err != nil {
+		return response, err
+	}
+	return service.listLabels(ctx, deviceID, client.Store.LIDs)
+}
+
+func (service serviceUser) listLabels(ctx context.Context, deviceID string, lids pnForLIDMapper) (response domainUser.MyListLabelsResponse, err error) {
+	labels, err := service.chatStorageRepo.ListLabels(deviceID)
+	if err != nil {
+		return response, err
+	}
+	associations, err := service.chatStorageRepo.ListLabelAssociations(deviceID, "")
+	if err != nil {
+		return response, err
+	}
+	chats := groupLabelChats(ctx, associations, lids)
+
+	response.Data = make([]domainUser.MyListLabelsResponseData, 0, len(labels))
+	for _, label := range labels {
+		response.Data = append(response.Data, domainUser.MyListLabelsResponseData{
+			LabelID:      label.LabelID,
+			Name:         label.Name,
+			Color:        label.Color,
+			Type:         label.Type,
+			PredefinedID: label.PredefinedID,
+			OrderIndex:   label.OrderIndex,
+			IsActive:     label.IsActive,
+			IsImmutable:  label.IsImmutable,
+			ChatCount:    len(chats[label.LabelID]),
+		})
+	}
+	return response, nil
+}
+
+type pnForLIDMapper interface {
+	GetPNForLID(ctx context.Context, lid types.JID) (types.JID, error)
+}
+
+// groupLabelChats returns the chats of each label sorted by JID. A LID is
+// reported as its phone JID when the LID store maps it, and stored rows that
+// resolve to the same chat are merged.
+func groupLabelChats(ctx context.Context, associations []*domainChatStorage.LabelAssociation, lids pnForLIDMapper) map[string][]domainUser.MyListLabelChatsResponseData {
+	resolved := make(map[string]domainUser.MyListLabelChatsResponseData)
+	positions := make(map[string]map[string]int)
+	grouped := make(map[string][]domainUser.MyListLabelChatsResponseData)
+	for _, association := range associations {
+		row, ok := resolved[association.ChatJID]
+		if !ok {
+			row = resolveLabelChat(ctx, association.ChatJID, lids)
+			resolved[association.ChatJID] = row
+		}
+		labelPositions := positions[association.LabelID]
+		if labelPositions == nil {
+			labelPositions = make(map[string]int)
+			positions[association.LabelID] = labelPositions
+		}
+		if index, duplicate := labelPositions[row.JID]; duplicate {
+			if grouped[association.LabelID][index].LID == "" {
+				grouped[association.LabelID][index].LID = row.LID
+			}
+			continue
+		}
+		labelPositions[row.JID] = len(grouped[association.LabelID])
+		grouped[association.LabelID] = append(grouped[association.LabelID], row)
+	}
+	for _, rows := range grouped {
+		sort.Slice(rows, func(i, j int) bool { return rows[i].JID < rows[j].JID })
+	}
+	return grouped
+}
+
+func resolveLabelChat(ctx context.Context, rawJID string, lids pnForLIDMapper) domainUser.MyListLabelChatsResponseData {
+	jid, err := types.ParseJID(rawJID)
+	if err != nil || jid.Server != types.HiddenUserServer {
+		return domainUser.MyListLabelChatsResponseData{JID: rawJID}
+	}
+	row := domainUser.MyListLabelChatsResponseData{JID: rawJID, LID: rawJID}
+	if lids != nil {
+		if pn, lookupErr := lids.GetPNForLID(ctx, jid); lookupErr == nil && !pn.IsEmpty() {
+			row.JID = pn.ToNonAD().String()
+		}
+	}
+	return row
+}
+
 // MyListContactsDetailed lists the person contacts of the device carried by ctx
 // with every contact-store name in its own field.
 func (service serviceUser) MyListContactsDetailed(ctx context.Context) (response domainUser.MyListContactsDetailedResponse, err error) {
