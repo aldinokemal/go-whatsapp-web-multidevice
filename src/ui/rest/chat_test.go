@@ -218,10 +218,15 @@ func TestMuteChatDurationNullOmittedAndZero(t *testing.T) {
 	}
 
 	t.Run("explicit null is rejected before the usecase", func(t *testing.T) {
-		spy, status, body := send(`{"muted":true,"duration_seconds":null}`)
-		require.Equal(t, fiber.StatusBadRequest, status)
-		require.Contains(t, body, "duration_seconds cannot be null")
-		require.Equal(t, 0, spy.calls, "no mute patch may be sent")
+		for _, request := range []string{
+			`{"muted":true,"duration_seconds":null}`,
+			`{"muted":true,"DURATION_SECONDS":null}`, // binding matches keys without regard to case
+		} {
+			spy, status, body := send(request)
+			require.Equal(t, fiber.StatusBadRequest, status, request)
+			require.Contains(t, body, "duration_seconds cannot be null")
+			require.Equal(t, 0, spy.calls, "no mute patch may be sent for %s", request)
+		}
 	})
 
 	t.Run("omitted duration keeps the always default", func(t *testing.T) {

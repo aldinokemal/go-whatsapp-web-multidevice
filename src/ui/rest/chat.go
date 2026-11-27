@@ -309,12 +309,17 @@ func chatJIDParam(c fiber.Ctx) (string, error) {
 	return strings.Clone(decoded), nil
 }
 
-// jsonFieldIsNull reports whether a JSON object body sets field to null.
+// jsonFieldIsNull reports whether a JSON object body sets field to null. Keys
+// match without regard to case, as they do when the body binds to a struct.
 func jsonFieldIsNull(body []byte, field string) bool {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(body, &fields); err != nil {
 		return false
 	}
-	value, ok := fields[field]
-	return ok && string(bytes.TrimSpace(value)) == "null"
+	for key, value := range fields {
+		if strings.EqualFold(key, field) && string(bytes.TrimSpace(value)) == "null" {
+			return true
+		}
+	}
+	return false
 }
