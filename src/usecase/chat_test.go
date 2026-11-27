@@ -680,6 +680,19 @@ func TestBuildMuteChatPatch(t *testing.T) {
 		}
 	})
 
+	t.Run("device-qualified JID keys the conversation", func(t *testing.T) {
+		device := types.JID{User: "12345", Device: 7, Server: types.DefaultUserServer}
+		if device.String() != "12345:7@s.whatsapp.net" {
+			t.Fatalf("unexpected device JID %s", device)
+		}
+		for _, muted := range []bool{true, false} {
+			patch, _ := buildMuteChatPatch(device, muted, 8*time.Hour, now)
+			if got := patch.Mutations[0].Index; len(got) != 2 || got[0] != appstate.IndexMute || got[1] != "12345@s.whatsapp.net" {
+				t.Fatalf("muted=%v: mutation index %v, want [%s 12345@s.whatsapp.net]", muted, got, appstate.IndexMute)
+			}
+		}
+	})
+
 	t.Run("unmute", func(t *testing.T) {
 		patch, until := buildMuteChatPatch(target, false, 8*time.Hour, now)
 		action := patch.Mutations[0].Value.GetMuteAction()

@@ -527,10 +527,13 @@ func (service serviceChat) MuteChat(ctx context.Context, request domainChat.Mute
 	return response, nil
 }
 
-// buildMuteChatPatch builds the mute app state patch and returns the end of a
-// timed mute. A zero duration mutes until the chat is unmuted: BuildMuteAbs
-// then sends -1 as the end timestamp, which WhatsApp shows as "Always".
+// buildMuteChatPatch builds the mute app state patch for the conversation of
+// target and returns the end of a timed mute. A zero duration mutes until the
+// chat is unmuted: BuildMuteAbs then sends -1 as the end timestamp, which
+// WhatsApp shows as "Always".
 func buildMuteChatPatch(target types.JID, muted bool, duration time.Duration, now time.Time) (appstate.PatchInfo, *time.Time) {
+	// The mute is keyed by the conversation, never by one of its devices.
+	target = target.ToNonAD()
 	if !muted || duration <= 0 {
 		return appstate.BuildMuteAbs(target, muted, nil), nil
 	}
