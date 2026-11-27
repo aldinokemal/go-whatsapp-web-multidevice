@@ -24,7 +24,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/valyala/fasthttp v1.80.0
 	go.mau.fi/libsignal v0.2.3
-	go.mau.fi/whatsmeow v0.0.0-20261126154439-c2ce5c339ae0
+	go.mau.fi/whatsmeow v0.0.0-20261126231607-ae388b0429be
 	golang.org/x/image v0.48.0
 	golang.org/x/net v0.63.0
 	google.golang.org/protobuf v1.36.12
@@ -70,7 +70,7 @@ require (
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
-	modernc.org/libc v1.82.13 // indirect
+	modernc.org/libc v1.82.14 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.13.1 // indirect
 )
