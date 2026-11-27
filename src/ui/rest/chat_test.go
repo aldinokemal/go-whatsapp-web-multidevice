@@ -199,3 +199,42 @@ func TestMuteChatKeepsMissingFlagNil(t *testing.T) {
 		require.Nil(t, spy.lastMute.Muted, "body %s must not turn into an unmute", body)
 	}
 }
+
+func TestMuteChatDurationNullOmittedAndZero(t *testing.T) {
+	send := func(body string) (*requestChatHistorySpy, int, string) {
+		app := fiber.New()
+		spy := &requestChatHistorySpy{}
+		controller := &Chat{Service: spy}
+		app.Post("/chat/:chat_jid/mute", controller.MuteChat)
+
+		req := httptest.NewRequest("POST", "/chat/6289685028129%40s.whatsapp.net/mute", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return spy, resp.StatusCode, string(raw)
+	}
+
+	t.Run("explicit null is rejected before the usecase", func(t *testing.T) {
+		spy, status, body := send(`{"muted":true,"duration_seconds":null}`)
+		require.Equal(t, fiber.StatusBadRequest, status)
+		require.Contains(t, body, "duration_seconds cannot be null")
+		require.Equal(t, 0, spy.calls, "no mute patch may be sent")
+	})
+
+	t.Run("omitted duration keeps the always default", func(t *testing.T) {
+		spy, status, _ := send(`{"muted":true}`)
+		require.Equal(t, fiber.StatusOK, status)
+		require.Equal(t, 1, spy.calls)
+		require.Equal(t, int64(0), spy.lastMute.DurationSeconds)
+	})
+
+	t.Run("explicit zero still means always", func(t *testing.T) {
+		spy, status, _ := send(`{"muted":true,"duration_seconds":0}`)
+		require.Equal(t, fiber.StatusOK, status)
+		require.Equal(t, 1, spy.calls)
+		require.Equal(t, int64(0), spy.lastMute.DurationSeconds)
+	})
+}

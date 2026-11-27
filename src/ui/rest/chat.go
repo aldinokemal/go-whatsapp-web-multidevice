@@ -1,6 +1,8 @@
 package rest
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/url"
 	"strings"
 
@@ -230,6 +232,16 @@ func (controller *Chat) MuteChat(c fiber.Ctx) error {
 			Results: nil,
 		})
 	}
+	// A JSON null decodes to 0, which would mute the chat forever. Only an
+	// omitted duration takes that default.
+	if jsonFieldIsNull(c.Body(), "duration_seconds") {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "duration_seconds cannot be null; omit it or send 0 to mute always",
+			Results: nil,
+		})
+	}
 	// Route JID is authoritative; a body chat_jid must never override it.
 	request.ChatJID = chatJID
 
@@ -295,4 +307,14 @@ func chatJIDParam(c fiber.Ctx) (string, error) {
 		return "", err
 	}
 	return strings.Clone(decoded), nil
+}
+
+// jsonFieldIsNull reports whether a JSON object body sets field to null.
+func jsonFieldIsNull(body []byte, field string) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return false
+	}
+	value, ok := fields[field]
+	return ok && string(bytes.TrimSpace(value)) == "null"
 }
