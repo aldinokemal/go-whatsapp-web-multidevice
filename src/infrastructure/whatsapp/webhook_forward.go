@@ -20,6 +20,7 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -592,6 +593,9 @@ func extractMediaPath(mediaData any) string {
 	return ""
 }
 
+// chatwootMediaFields are the payload fields that can carry one attachment path.
+var chatwootMediaFields = []string{"image", "audio", "video", "document", "sticker", "video_note"}
+
 // buildChatwootMessageContent extracts message body and attachments from the payload.
 // For group messages, prepends the sender name to the content.
 func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName string) (content string, attachments []string) {
@@ -642,8 +646,7 @@ func buildChatwootMessageContent(data map[string]any, isGroup bool, fromName str
 	// images/videos/documents land in Chatwoot as a text caption with NO
 	// attached file, since the string assertion silently fails. audio and
 	// sticker are always plain strings, so the original branch covers them.
-	mediaFields := []string{"image", "audio", "video", "document", "sticker", "video_note"}
-	for _, field := range mediaFields {
+	for _, field := range chatwootMediaFields {
 		mediaData, ok := data[field]
 		if !ok || mediaData == nil {
 			continue
@@ -924,6 +927,15 @@ func extractStructuredMessageContent(data map[string]any) string {
 	}
 
 	if location, ok := data["location"]; ok && location != nil {
+		if queued, ok := location.(map[string]any); ok {
+			// A queued payload carries the LocationMessage's JSON fields.
+			name, _ := queued["name"].(string)
+			lat, hasLat := queued["degreesLatitude"].(float64)
+			lng, hasLng := queued["degreesLongitude"].(float64)
+			if hasLat && hasLng {
+				location = &waE2E.LocationMessage{Name: &name, DegreesLatitude: &lat, DegreesLongitude: &lng}
+			}
+		}
 		if lm, ok := location.(interface {
 			GetDegreesLatitude() float64
 			GetDegreesLongitude() float64
@@ -1898,12 +1910,22 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 		return fmt.Errorf("chatwoot retry: device manager unavailable, not replaying %s for device %s", event.EventName, event.DeviceID)
 	}
 	slot, _ := payload[restSendSlotKey].(string)
+	restData, _ := payload["payload"].(map[string]any)
 	var instance *DeviceInstance
 	if slot != "" {
 		// A slot can be re-paired, and two companion slots can share a bare
 		// JID. Only use the original slot while it still owns this account.
 		instance, _ = dm.GetDevice(slot)
-		if instance == nil || instance.JID() != event.DeviceID {
+		owner := ""
+		if instance != nil {
+			owner = instance.JID()
+		}
+		if owner != "" && owner != event.DeviceID {
+			logrus.Warnf("Chatwoot: dropping sent message %s; slot %s now belongs to another account", event.WhatsAppMessageID, slot)
+			removeFiles(restSendMediaPaths(restData))
+			return nil
+		}
+		if owner == "" {
 			return fmt.Errorf("chatwoot forward: slot %s is unavailable for device %s", slot, event.DeviceID)
 		}
 	} else {
@@ -1927,10 +1949,33 @@ func processChatwootForwardRetryEvent(repo domainChatStorage.IChatStorageReposit
 		}
 	}
 	err := syncPayloadToChatwoot(ctx, payload, event.EventName, event.DeviceID, repo)
-	var statusErr *chatwoot.HTTPStatusError
-	if slot != "" && errors.As(err, &statusErr) && !chatwoot.Retryable(err) {
+	if slot == "" {
+		return err
+	}
+	permanent := func(err error) bool {
+		var statusErr *chatwoot.HTTPStatusError
+		return errors.As(err, &statusErr) && !chatwoot.Retryable(err)
+	}
+	files := restSendMediaPaths(restData)
+	if permanent(err) && len(files) > 0 {
+		// Chatwoot can reject an attachment, e.g. over its size limit. The
+		// message and its caption still belong in the conversation.
+		logrus.Warnf("Chatwoot: sent message %s was rejected with its attachments, retrying as text: %v", event.WhatsAppMessageID, utils.MediaErrorForLog(err))
+		for _, field := range chatwootMediaFields {
+			delete(restData, field)
+		}
+		delete(restData, "interactive_media")
+		if body, _ := restData["body"].(string); body == "" {
+			restData["body"] = "(attachment rejected by Chatwoot)"
+		}
+		err = syncPayloadToChatwoot(ctx, payload, event.EventName, event.DeviceID, repo)
+	}
+	if permanent(err) {
 		logrus.Errorf("Chatwoot: permanent failure forwarding sent message %s: %v", event.WhatsAppMessageID, utils.MediaErrorForLog(err))
-		return nil
+		err = nil
+	}
+	if err == nil {
+		removeFiles(files)
 	}
 	return err
 }

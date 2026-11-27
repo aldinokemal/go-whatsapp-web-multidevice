@@ -187,6 +187,13 @@ func InitClientRegistry(repo domainChatStorage.IChatStorageRepository) {
 	globalRegistry = NewClientRegistry(repo)
 }
 
+// SetClientRegistry installs reg as is; tests use it to restore an earlier value, including nil.
+func SetClientRegistry(reg *ClientRegistry) {
+	globalRegistryMu.Lock()
+	defer globalRegistryMu.Unlock()
+	globalRegistry = reg
+}
+
 // GetClientRegistry returns the process-wide registry (nil before init).
 func GetClientRegistry() *ClientRegistry {
 	globalRegistryMu.RLock()

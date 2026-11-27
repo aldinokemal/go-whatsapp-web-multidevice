@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
@@ -14,6 +16,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 const restSendSlotKey = "rest_send_slot"
@@ -81,7 +84,11 @@ func shouldMirrorRESTSend(ctx context.Context, recipient types.JID, msg *waE2E.M
 
 // ForwardRESTSendToChatwoot mirrors the server-acknowledged message. whatsmeow
 // emits no local Message event for SendMessage. Use only the Chatwoot leg.
+// The HTTP response does not wait for it: the payload is built and queued in
+// the background, and the queue worker performs the Chatwoot HTTP requests.
 func ForwardRESTSendToChatwoot(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, sent whatsmeow.SendResponse) {
+	uploads, _ := ctx.Value(restSendKey{}).(uploadedMedia)
+	defer clear(uploads)
 	if !shouldMirrorRESTSend(ctx, recipient, msg, sent.ID) {
 		return
 	}
@@ -93,9 +100,26 @@ func ForwardRESTSendToChatwoot(ctx context.Context, client *whatsmeow.Client, re
 	if sender.IsEmpty() {
 		return
 	}
-	// Save the mirror while the HTTP request still owns its form fields and
-	// upload bytes. The queue worker performs the Chatwoot HTTP requests.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	// Fiber reuses request buffers once the handler returns, and bound strings
+	// can alias them. Copy what the background build reads.
+	raw, err := proto.Marshal(msg)
+	snapshot := &waE2E.Message{}
+	if err == nil {
+		err = proto.Unmarshal(raw, snapshot)
+	}
+	if err != nil {
+		logrus.Errorf("Chatwoot: cannot queue sent message %s: %v", sent.ID, err)
+		return
+	}
+	recipient.User, recipient.Server = strings.Clone(recipient.User), strings.Clone(recipient.Server)
+	ctx = context.WithValue(context.WithoutCancel(ctx), restSendKey{}, maps.Clone(uploads))
+	// Due in request order, even when an earlier send is still storing its media.
+	queuedAt := time.Now()
+	go queueRESTSendMirror(ctx, client, device, sender, recipient, snapshot, sent, queuedAt)
+}
+
+func queueRESTSendMirror(ctx context.Context, client *whatsmeow.Client, device *DeviceInstance, sender, recipient types.JID, msg *waE2E.Message, sent whatsmeow.SendResponse, queuedAt time.Time) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	deviceID := sender.String()
 	route, err := getChatwootClientFn(deviceID)
@@ -126,8 +150,6 @@ func ForwardRESTSendToChatwoot(ctx context.Context, client *whatsmeow.Client, re
 	}
 	poll := preparePollWebhookPayload(ctx, client, nil, evt)
 	event, data, err := buildEventPayload(ctx, client, evt, poll)
-	uploads, _ := ctx.Value(restSendKey{}).(uploadedMedia)
-	clear(uploads)
 	if err != nil {
 		logrus.Errorf("Chatwoot: failed to build sent message %s: %v", evt.Info.ID, utils.MediaErrorForLog(err))
 		return
@@ -139,7 +161,37 @@ func ForwardRESTSendToChatwoot(ctx context.Context, client *whatsmeow.Client, re
 	}
 	maps.Copy(data, aliases)
 	payload := map[string]any{"event": event, "device_id": deviceID, "payload": data, restSendSlotKey: device.ID()}
-	if storeChatwootForwardEvent(repo, deviceID, event, sent.ID, payload, time.Now(), nil) {
-		wakeChatwootForwardWorker()
+	if !storeChatwootForwardEvent(repo, deviceID, event, sent.ID, payload, queuedAt, nil) {
+		removeFiles(restSendMediaPaths(data))
+		return
+	}
+	wakeChatwootForwardWorker()
+}
+
+// restSendMediaPaths lists the files a REST mirror stored only for its Chatwoot upload.
+func restSendMediaPaths(data map[string]any) (paths []string) {
+	for _, field := range chatwootMediaFields {
+		if path := extractMediaPath(data[field]); path != "" {
+			paths = append(paths, path)
+		}
+	}
+	switch media := data["interactive_media"].(type) {
+	case []string:
+		paths = append(paths, media...)
+	case []any:
+		for _, v := range media {
+			if path, ok := v.(string); ok && path != "" {
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths
+}
+
+func removeFiles(paths []string) {
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logrus.Warnf("Chatwoot: failed to remove mirrored media: %v", err)
+		}
 	}
 }

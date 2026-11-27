@@ -46,10 +46,11 @@ func (r *restMirrorRepo) StoreSentMessageWithContext(context.Context, string, st
 func TestChatwootMirrorFromRESTEndpoints(t *testing.T) {
 	enabled, events := config.ChatwootEnabled, config.ChatwootEvents
 	auto, limit, media := config.WhatsappAutoDownloadMedia, config.WhatsappSettingMaxDownloadSize, config.PathMedia
+	registry := chatwoot.GetClientRegistry()
 	t.Cleanup(func() {
 		config.ChatwootEnabled, config.ChatwootEvents = enabled, events
 		config.WhatsappAutoDownloadMedia, config.WhatsappSettingMaxDownloadSize, config.PathMedia = auto, limit, media
-		chatwoot.InitClientRegistry(nil)
+		chatwoot.SetClientRegistry(registry)
 	})
 	config.ChatwootEnabled, config.ChatwootEvents = true, []string{"message"}
 	config.WhatsappAutoDownloadMedia, config.WhatsappSettingMaxDownloadSize, config.PathMedia = false, 1, t.TempDir()
@@ -126,13 +127,22 @@ func TestChatwootMirrorFromRESTEndpoints(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	send(req)
 
-	// Simulate a restart before the first Chatwoot delivery. Both HTTP sends
-	// have returned; only committed queue rows and media files survive.
+	// Both HTTP sends have returned; the mirrors are queued in the background.
+	require.Eventually(t, func() bool {
+		var queued int
+		return db.QueryRow(`SELECT COUNT(*) FROM chatwoot_forward_queue`).Scan(&queued) == nil && queued == 2
+	}, 3*time.Second, 10*time.Millisecond)
+	// Simulate a restart before the first Chatwoot delivery. Only committed
+	// queue rows and media files survive.
 	require.NoError(t, db.Close())
 	_, reopened := openDB()
-	due, err := reopened.ListDueChatwootForwardEvents(time.Now(), 10)
-	require.NoError(t, err)
-	require.Len(t, due, 2)
+	var due []*domainChatStorage.ChatwootForwardEvent
+	for range 2 {
+		event, err := reopened.ClaimNextChatwootForwardEvent(time.Now(), time.Now().Add(time.Minute))
+		require.NoError(t, err)
+		require.NotNil(t, event)
+		due = append(due, event)
+	}
 	payload := func(event *domainChatStorage.ChatwootForwardEvent, id string) map[string]any {
 		t.Helper()
 		require.Equal(t, sender.String(), event.DeviceID)

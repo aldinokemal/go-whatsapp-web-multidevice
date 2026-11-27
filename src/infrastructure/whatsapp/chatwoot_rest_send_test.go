@@ -154,14 +154,72 @@ func testChatwootRESTSendRetry(t *testing.T, autoDownload bool) {
 	oldManager := deviceManager
 	t.Cleanup(func() { deviceManager = oldManager })
 	deviceManager = NewDeviceManager(nil, nil, nil)
-	deviceManager.AddDevice(companionInstance("support", "449999999999", 1))
-	require.Error(t, processChatwootForwardRetryEvent(repo, queued), "a re-paired slot must not deliver another account's queued message")
+	deviceManager.AddDevice(NewDeviceInstance("support", nil, repo))
+	require.Error(t, processChatwootForwardRetryEvent(repo, queued), "a logged-out slot keeps the message for its account")
 	deviceManager.AddDevice(NewDeviceInstance("support", client, repo))
 	require.NoError(t, processChatwootForwardRetryEvent(repo, queued))
 	require.NotNil(t, repo.storedLink)
 	require.Equal(t, "outgoing", repo.storedLink.Direction)
 	require.Equal(t, int64(3), repo.storedLink.ChatwootConfigID)
 	require.True(t, chatwoot.IsMessageSentByUs(1, 967))
+	require.NoFileExists(t, path, "delivered mirror media is removed")
+
+	// Chatwoot rejects the attachment: the caption still arrives, as text.
+	require.NoError(t, os.WriteFile(path, content, 0600))
+	data["id"] = "rest-large"
+	rejected, err := json.Marshal(payload)
+	require.NoError(t, err)
+	transport = func(r *http.Request) (*http.Response, error) {
+		w := httptest.NewRecorder()
+		switch r.URL.Path {
+		case "/api/v1/accounts/1/contacts/search":
+			io.WriteString(w, `{"payload":[{"id":7,"name":"442222222222","phone_number":"+442222222222"}]}`)
+		case "/api/v1/accounts/1/contacts/7/conversations":
+			io.WriteString(w, `{"payload":[{"id":42,"inbox_id":2,"status":"open"}]}`)
+		case "/api/v1/accounts/1/conversations/42/messages":
+			if r.Header.Get("Content-Type") != "application/json" {
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				break
+			}
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+			require.Equal(t, "Your receipt", body["content"])
+			io.WriteString(w, `{"id":968}`)
+		default:
+			t.Fatalf("unexpected request %s", r.URL)
+		}
+		return w.Result(), nil
+	}
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		return &chatwoot.ResolvedConfig{ConfigID: 3, Client: &chatwoot.Client{
+			BaseURL: "https://chatwoot.example", APIToken: "test", AccountID: 1, InboxID: 2,
+			HTTPClient: &http.Client{Transport: transport},
+		}}, nil
+	}
+	queued.PayloadJSON, queued.WhatsAppMessageID = string(rejected), "rest-large"
+	require.NoError(t, processChatwootForwardRetryEvent(repo, queued))
+	require.True(t, chatwoot.IsMessageSentByUs(1, 968))
+	require.NoFileExists(t, path)
+
+	// A slot re-paired to another account can never deliver this message.
+	require.NoError(t, os.WriteFile(path, content, 0600))
+	getChatwootClientFn = func(string) (*chatwoot.ResolvedConfig, error) {
+		t.Error("a re-paired slot must not deliver another account's message")
+		return nil, nil
+	}
+	deviceManager.AddDevice(companionInstance("support", "449999999999", 1))
+	require.NoError(t, processChatwootForwardRetryEvent(repo, queued), "the job is dropped, not retried")
+	require.NoFileExists(t, path)
+}
+
+func TestChatwootQueuedLocationKeepsCoordinates(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{"location": &waE2E.LocationMessage{
+		DegreesLatitude: proto.Float64(-6.2), DegreesLongitude: proto.Float64(106.8), Name: proto.String("HQ"),
+	}})
+	require.NoError(t, err)
+	var queued map[string]any
+	require.NoError(t, json.Unmarshal(raw, &queued))
+	require.Equal(t, "Location: HQ (-6.200000, 106.800000)", extractStructuredMessageContent(queued))
 }
 
 func TestChatwootRESTSendOnlyOptsInToAllowedMessages(t *testing.T) {
@@ -182,6 +240,9 @@ func TestChatwootRESTSendOnlyOptsInToAllowedMessages(t *testing.T) {
 	require.True(t, shouldMirrorRESTSend(restCtx, recipient, msg, "ack"))
 	require.False(t, shouldMirrorRESTSend(ctx, recipient, msg, "ack"), "callbacks and workers use their own context")
 	require.False(t, shouldMirrorRESTSend(restCtx, recipient, msg, ""))
+	RememberChatwootUpload(restCtx, []byte("hash"), []byte("upload"))
+	ForwardRESTSendToChatwoot(restCtx, nil, types.StatusBroadcastJID, msg, whatsmeow.SendResponse{ID: "ack"})
+	require.Empty(t, restCtx.Value(restSendKey{}), "a skipped mirror still releases the request's upload bytes")
 	interactive := &waE2E.Message{InteractiveMessage: &waE2E.InteractiveMessage{}}
 	require.True(t, shouldMirrorRESTSend(restCtx, recipient, &waE2E.Message{
 		ViewOnceMessage: &waE2E.FutureProofMessage{Message: interactive},
