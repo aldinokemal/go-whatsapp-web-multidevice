@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
 
 func TestPerDeviceSyncServicesAreDistinct(t *testing.T) {
@@ -116,5 +117,52 @@ func TestSyncServiceKeyFor(t *testing.T) {
 	}
 	if k := SyncServiceKeyFor(&ResolvedConfig{ConfigID: 5, DeviceID: "d"}); k != "d" {
 		t.Fatalf("per-device config -> %q, want device id", k)
+	}
+}
+
+// syncIgnoreTestRepo serves a fixed chat list; the rest of the repository is
+// the embedded (nil) interface, which the test never reaches.
+type syncIgnoreTestRepo struct {
+	domainChatStorage.IChatStorageRepository
+	chats []*domainChatStorage.Chat
+}
+
+func (r *syncIgnoreTestRepo) GetChats(*domainChatStorage.ChatFilter) ([]*domainChatStorage.Chat, error) {
+	return r.chats, nil
+}
+
+// TestSyncHistoryAppliesPerDeviceIgnoreJids proves the history import skips a
+// device's own ignore_jids on top of the global CHATWOOT_IGNORE_JIDS. Groups
+// are excluded from the run (IncludeGroups=false), so a group that is not
+// ignored is counted as synced without any Chatwoot call, while an ignored one
+// is skipped before it is counted.
+func TestSyncHistoryAppliesPerDeviceIgnoreJids(t *testing.T) {
+	prev := config.ChatwootIgnoreJids
+	config.ChatwootIgnoreJids = []string{"120363000000000003@g.us"}
+	t.Cleanup(func() { config.ChatwootIgnoreJids = prev })
+
+	repo := &syncIgnoreTestRepo{chats: []*domainChatStorage.Chat{
+		{JID: "120363000000000001@g.us"}, // ignored by the device config
+		{JID: "120363000000000002@g.us"}, // mirrored
+		{JID: "120363000000000003@g.us"}, // ignored globally
+	}}
+
+	run := func(deviceIgnore []string) int {
+		t.Helper()
+		opts := DefaultSyncOptions()
+		opts.IncludeGroups = false
+		opts.IgnoreJids = deviceIgnore
+		progress, err := NewSyncService(nil, repo).SyncHistory(context.Background(), "628@s.whatsapp.net", nil, opts)
+		if err != nil {
+			t.Fatalf("SyncHistory: %v", err)
+		}
+		return progress.SyncedChats
+	}
+
+	if got := run(nil); got != 2 {
+		t.Fatalf("without a device list only the global JID is skipped: processed %d chats, want 2", got)
+	}
+	if got := run([]string{"120363000000000001@g.us"}); got != 1 {
+		t.Fatalf("device ignore_jids must add to the global list: processed %d chats, want 1", got)
 	}
 }
