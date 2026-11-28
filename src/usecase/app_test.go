@@ -3,8 +3,15 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/infrastructure/whatsapp"
+	pkgError "github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/error"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store"
 )
 
 func TestLockLogin_SerializesPerDevice(t *testing.T) {
@@ -44,4 +51,41 @@ func TestLockLogin_SerializesPerDevice(t *testing.T) {
 		t.Fatalf("lock after unlock: %v", err)
 	}
 	unlockAgain()
+}
+
+// TestMalformedPairLabelOnlyBlocksCodePairing pins that a malformed
+// APP_PAIR_DISPLAY_NAME is rejected by code pairing before the client is
+// touched or connected, while QR login and reconnect go through their own
+// checks without consulting the label.
+func TestMalformedPairLabelOnlyBlocksCodePairing(t *testing.T) {
+	original := config.AppPairDisplayName
+	t.Cleanup(func() { config.AppPairDisplayName = original })
+	config.AppPairDisplayName = "GOWA"
+
+	// An unpaired slot with a client that has never connected. The manager
+	// has no store container, so nothing here can reach WhatsApp.
+	client := whatsmeow.NewClient(&store.Device{}, nil)
+	instance := whatsapp.NewDeviceInstance("dev", client, nil)
+	manager := whatsapp.NewDeviceManager(nil, nil, nil)
+	manager.AddDevice(instance)
+	service := &serviceApp{deviceManager: manager}
+
+	_, err := service.LoginWithCode(context.Background(), "dev", "6281234567890")
+	var validationErr pkgError.ValidationError
+	if !errors.As(err, &validationErr) || !strings.Contains(err.Error(), "APP_PAIR_DISPLAY_NAME") {
+		t.Fatalf("code pairing: expected the pair label validation error, got %v", err)
+	}
+	if instance.GetClient() != client || client.IsConnected() {
+		t.Fatal("code pairing touched the client before rejecting the label")
+	}
+
+	err = service.Reconnect(context.Background(), "dev")
+	if err == nil || strings.Contains(err.Error(), "APP_PAIR_DISPLAY_NAME") || !strings.Contains(err.Error(), "not logged in") {
+		t.Fatalf("reconnect: expected its own session check, got %v", err)
+	}
+
+	_, err = service.Login(context.Background(), "dev")
+	if err == nil || strings.Contains(err.Error(), "APP_PAIR_DISPLAY_NAME") || !strings.Contains(err.Error(), "store container is nil") {
+		t.Fatalf("QR login: expected it to reach client setup, got %v", err)
+	}
 }

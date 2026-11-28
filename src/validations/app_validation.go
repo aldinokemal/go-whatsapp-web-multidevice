@@ -21,6 +21,20 @@ func ValidateLoginWithCode(ctx context.Context, phoneNumber string) error {
 	return nil
 }
 
+// pairDisplayNamePattern is the "Browser (OS)" format whatsmeow's PairPhone
+// requires for the pairing notification label. WhatsApp decides which
+// browsers and OSes it accepts.
+var pairDisplayNamePattern = regexp.MustCompile(`^[^()\s][^()\r\n]* \([^()\s][^()\r\n]*\)$`)
+
+// ValidatePairDisplayName checks the label sent with a code pairing request
+// (APP_PAIR_DISPLAY_NAME or --pair-display-name).
+func ValidatePairDisplayName(name string) error {
+	if !pairDisplayNamePattern.MatchString(name) {
+		return pkgError.ValidationError(fmt.Sprintf(`invalid pair display name %q (APP_PAIR_DISPLAY_NAME or --pair-display-name): use the "Browser (OS)" format, such as "Chrome (Linux)"`, name))
+	}
+	return nil
+}
+
 func ValidatePasskeyResponse(ctx context.Context, response *types.WebAuthnResponse) error {
 	if response == nil {
 		return pkgError.ValidationError("assertion payload is required")

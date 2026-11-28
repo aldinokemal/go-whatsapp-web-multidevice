@@ -114,6 +114,8 @@ release notes and `GET /app/info` when using a pinned binary or container tag.
 - Compress videos before sending.
 - Customize the OS name shown as the linked device name in WhatsApp:
   - `--os=Chrome` or `--os=MyApplication`
+  - `--os-append-version=false` to show the OS name without the app version
+  - `--pair-display-name="Chrome (Mac OS)"` for the label of the pairing-code notification on the phone
 - Basic Auth with multiple credentials:
   - `--basic-auth=kemal:secret,toni:password,userName:secretPassword`
   - Short form: `-b=kemal:secret,toni:password,userName:secretPassword`
@@ -260,6 +262,8 @@ To use environment variables:
 | `APP_HOST`                              | Host address to bind the server                               | `0.0.0.0`                                    | `APP_HOST=127.0.0.1`                          |
 | `APP_DEBUG`                             | Enable debug logging                                          | `false`                                      | `APP_DEBUG=true`                              |
 | `APP_OS`                                | OS name (device name in WhatsApp)                             | `GOWA`                                       | `APP_OS=MyApp`                                |
+| `APP_OS_APPEND_VERSION`                 | Append the app version to `APP_OS` in the name shown under Linked devices (`GOWA v9.11.0`). Applies to devices paired after the change. Flag: `--os-append-version` | `true` | `APP_OS_APPEND_VERSION=false` |
+| `APP_PAIR_DISPLAY_NAME`                 | `Browser (OS)` label shown in the phone's notification when pairing with a code. WhatsApp only accepts common browsers and OSes. A value without that format is logged at startup and makes code pairing return an error; QR login is not affected. Flag: `--pair-display-name` | `Chrome (Linux)` | `APP_PAIR_DISPLAY_NAME=Chrome (Mac OS)` |
 | `APP_TIMEZONE`                          | IANA timezone for chat, message and newsletter timestamps in REST and MCP responses, as RFC3339 with that offset. `TZ` is not used; storage, webhooks and other responses stay in UTC. Flag: `--timezone` | `UTC`                                        | `APP_TIMEZONE=Europe/Paris`                   |
 | `APP_BASIC_AUTH`                        | Basic authentication credentials. Required for a non-loopback bind, with a username and password in every entry; loopback stays open for local dev | -                             | `APP_BASIC_AUTH=user1:pass1,user2:pass2`      |
 | `APP_ALLOW_UNAUTHENTICATED`             | Expose the API with no Basic Auth on a non-loopback bind (insecure; for reverse proxies) | `false`                       | `APP_ALLOW_UNAUTHENTICATED=true`              |
