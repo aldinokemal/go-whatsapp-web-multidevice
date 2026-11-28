@@ -110,6 +110,28 @@ type RequestChatHistoryResponse struct {
 	AnchorTimestamp string `json:"anchor_timestamp"`
 }
 
+// Mute Chat operations
+type MuteChatRequest struct {
+	ChatJID string `json:"chat_jid" uri:"chat_jid"`
+	// Muted is required: true mutes the chat, false unmutes it. A pointer, so
+	// a request without the field is rejected instead of unmuting.
+	Muted *bool `json:"muted"`
+	// DurationSeconds is how long the chat stays muted: 28800 (8 hours),
+	// 604800 (1 week) or 0 (always). It is not used when unmuting.
+	DurationSeconds int64 `json:"duration_seconds"`
+}
+
+type MuteChatResponse struct {
+	Status          string `json:"status"`
+	Message         string `json:"message"`
+	ChatJID         string `json:"chat_jid"`
+	Muted           bool   `json:"muted"`
+	DurationSeconds int64  `json:"duration_seconds"`
+	// MutedUntil is the RFC3339 end of a timed mute; empty when the chat is
+	// muted until it is unmuted, or when it is unmuted.
+	MutedUntil string `json:"muted_until,omitempty"`
+}
+
 // Archive Chat operations
 type ArchiveChatRequest struct {
 	ChatJID  string `json:"chat_jid" uri:"chat_jid"`

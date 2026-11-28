@@ -85,6 +85,7 @@ func TestChatJIDParamRejectsMalformedEscape(t *testing.T) {
 // records the RequestChatHistory call, for exercising the REST handler alone.
 type requestChatHistorySpy struct {
 	lastRequest domainChat.RequestChatHistoryRequest
+	lastMute    domainChat.MuteChatRequest
 	calls       int
 }
 
@@ -106,6 +107,12 @@ func (s *requestChatHistorySpy) SetDisappearingTimer(context.Context, domainChat
 
 func (s *requestChatHistorySpy) ArchiveChat(context.Context, domainChat.ArchiveChatRequest) (domainChat.ArchiveChatResponse, error) {
 	return domainChat.ArchiveChatResponse{}, nil
+}
+
+func (s *requestChatHistorySpy) MuteChat(_ context.Context, request domainChat.MuteChatRequest) (domainChat.MuteChatResponse, error) {
+	s.calls++
+	s.lastMute = request
+	return domainChat.MuteChatResponse{Status: "success", ChatJID: request.ChatJID}, nil
 }
 
 func (s *requestChatHistorySpy) RequestChatHistory(_ context.Context, request domainChat.RequestChatHistoryRequest) (domainChat.RequestChatHistoryResponse, error) {
@@ -153,4 +160,86 @@ func TestRequestChatHistoryIgnoresConflictingBodyChatJID(t *testing.T) {
 	require.Equal(t, 1, spy.calls)
 	require.Equal(t, "6289685028129@s.whatsapp.net", spy.lastRequest.ChatJID)
 	require.Equal(t, 50, spy.lastRequest.Count)
+}
+
+func TestMuteChatUsesRouteJIDAndBody(t *testing.T) {
+	app := fiber.New()
+	spy := &requestChatHistorySpy{}
+	controller := &Chat{Service: spy}
+	app.Post("/chat/:chat_jid/mute", controller.MuteChat)
+
+	body := `{"chat_jid":"other@s.whatsapp.net","muted":true,"duration_seconds":28800}`
+	req := httptest.NewRequest("POST", "/chat/120363025982934543%40g.us/mute", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	require.Equal(t, 1, spy.calls)
+	require.Equal(t, "120363025982934543@g.us", spy.lastMute.ChatJID)
+	require.NotNil(t, spy.lastMute.Muted)
+	require.True(t, *spy.lastMute.Muted)
+	require.Equal(t, int64(28800), spy.lastMute.DurationSeconds)
+}
+
+func TestMuteChatKeepsMissingFlagNil(t *testing.T) {
+	for _, body := range []string{`{"duration_seconds":28800}`, `{"muted":null}`} {
+		app := fiber.New()
+		spy := &requestChatHistorySpy{}
+		controller := &Chat{Service: spy}
+		app.Post("/chat/:chat_jid/mute", controller.MuteChat)
+
+		req := httptest.NewRequest("POST", "/chat/6289685028129%40s.whatsapp.net/mute", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Nil(t, spy.lastMute.Muted, "body %s must not turn into an unmute", body)
+	}
+}
+
+func TestMuteChatDurationNullOmittedAndZero(t *testing.T) {
+	send := func(body string) (*requestChatHistorySpy, int, string) {
+		app := fiber.New()
+		spy := &requestChatHistorySpy{}
+		controller := &Chat{Service: spy}
+		app.Post("/chat/:chat_jid/mute", controller.MuteChat)
+
+		req := httptest.NewRequest("POST", "/chat/6289685028129%40s.whatsapp.net/mute", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return spy, resp.StatusCode, string(raw)
+	}
+
+	t.Run("explicit null is rejected before the usecase", func(t *testing.T) {
+		for _, request := range []string{
+			`{"muted":true,"duration_seconds":null}`,
+			`{"muted":true,"DURATION_SECONDS":null}`, // binding matches keys without regard to case
+		} {
+			spy, status, body := send(request)
+			require.Equal(t, fiber.StatusBadRequest, status, request)
+			require.Contains(t, body, "duration_seconds cannot be null")
+			require.Equal(t, 0, spy.calls, "no mute patch may be sent for %s", request)
+		}
+	})
+
+	t.Run("omitted duration keeps the always default", func(t *testing.T) {
+		spy, status, _ := send(`{"muted":true}`)
+		require.Equal(t, fiber.StatusOK, status)
+		require.Equal(t, 1, spy.calls)
+		require.Equal(t, int64(0), spy.lastMute.DurationSeconds)
+	})
+
+	t.Run("explicit zero still means always", func(t *testing.T) {
+		spy, status, _ := send(`{"muted":true,"duration_seconds":0}`)
+		require.Equal(t, fiber.StatusOK, status)
+		require.Equal(t, 1, spy.calls)
+		require.Equal(t, int64(0), spy.lastMute.DurationSeconds)
+	})
 }

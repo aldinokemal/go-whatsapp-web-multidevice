@@ -469,6 +469,79 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 	return response, nil
 }
 
+// MuteChat mutes a chat for a fixed duration or until it is unmuted, or
+// unmutes it, through an app state patch.
+func (service serviceChat) MuteChat(ctx context.Context, request domainChat.MuteChatRequest) (response domainChat.MuteChatResponse, err error) {
+	if err = validations.ValidateMuteChat(ctx, &request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	muted := *request.Muted
+	if !muted {
+		request.DurationSeconds = 0
+	}
+
+	patchInfo, mutedUntil := buildMuteChatPatch(targetJID, muted, time.Duration(request.DurationSeconds)*time.Second, time.Now())
+
+	// Send app state update
+	if err = client.SendAppState(ctx, patchInfo); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid": request.ChatJID,
+			"muted":    muted,
+		}).Error("Failed to send mute chat app state")
+		return response, err
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.Muted = muted
+	response.DurationSeconds = request.DurationSeconds
+	if mutedUntil != nil {
+		response.MutedUntil = mutedUntil.UTC().Format(time.RFC3339)
+	}
+
+	if muted {
+		response.Message = "Chat muted successfully"
+	} else {
+		response.Message = "Chat unmuted successfully"
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid":         request.ChatJID,
+		"muted":            muted,
+		"duration_seconds": request.DurationSeconds,
+	}).Info("Chat mute operation completed successfully")
+
+	return response, nil
+}
+
+// buildMuteChatPatch builds the mute app state patch for the conversation of
+// target and returns the end of a timed mute. A zero duration mutes until the
+// chat is unmuted: BuildMuteAbs then sends -1 as the end timestamp, which
+// WhatsApp shows as "Always".
+func buildMuteChatPatch(target types.JID, muted bool, duration time.Duration, now time.Time) (appstate.PatchInfo, *time.Time) {
+	// The mute is keyed by the conversation, never by one of its devices.
+	target = target.ToNonAD()
+	if !muted || duration <= 0 {
+		return appstate.BuildMuteAbs(target, muted, nil), nil
+	}
+	until := now.Add(duration)
+	endMillis := until.UnixMilli()
+	return appstate.BuildMuteAbs(target, true, &endMillis), &until
+}
+
 // RequestChatHistory asks the phone for older messages of a chat (what
 // WhatsApp Web does when you scroll up / "load older messages"). It anchors
 // the request at the oldest message currently stored for that chat and sends

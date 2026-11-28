@@ -110,9 +110,9 @@ const chatSchema = `{
   "type": "object",
   "required": ["action"],
   "properties": {
-    "action": {"type": "string", "enum": ["list_chats","list_contacts","get_messages","archive","pin","set_disappearing","request_history"], "description": "Chat/contact query or chat setting. request_history asks the phone for older messages, anchored at the oldest stored message; they arrive asynchronously via history sync"},
+    "action": {"type": "string", "enum": ["list_chats","list_contacts","get_messages","archive","pin","mute","set_disappearing","request_history"], "description": "Chat/contact query or chat setting. request_history asks the phone for older messages, anchored at the oldest stored message; they arrive asynchronously via history sync"},
     "device_id": {"type": "string", "description": "Act as this device instead of the connection default"},
-    "chat_jid": {"type": "string", "description": "get_messages/archive/pin/set_disappearing/request_history: chat JID (e.g. 628@s.whatsapp.net or group@g.us)"},
+    "chat_jid": {"type": "string", "description": "get_messages/archive/pin/mute/set_disappearing/request_history: chat JID (e.g. 628@s.whatsapp.net or group@g.us)"},
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "list_chats (default 25) / get_messages (default 50): max rows, 1 to 100"},
     "offset": {"type": "integer", "minimum": 0, "description": "list_chats/get_messages: rows to skip (default 0)"},
     "search": {"type": "string", "description": "list_chats: filter by chat name; get_messages: full-text search"},
@@ -123,6 +123,8 @@ const chatSchema = `{
     "is_from_me": {"type": "boolean", "description": "get_messages: filter by sender (true = sent by me)"},
     "archived": {"type": "boolean", "description": "archive: true to archive, false to unarchive"},
     "pinned": {"type": "boolean", "description": "pin: true to pin, false to unpin"},
+    "muted": {"type": "boolean", "description": "mute: true to mute, false to unmute"},
+    "duration_seconds": {"type": "integer", "enum": [0, 28800, 604800], "description": "mute: 28800 (8h), 604800 (1 week) or 0 (always, the default); not used when muted=false"},
     "timer_seconds": {"type": "integer", "enum": [0, 86400, 604800, 7776000], "description": "set_disappearing: 0 (off), 86400 (24h), 604800 (7d), 7776000 (90d)"},
     "count": {"type": "integer", "minimum": 1, "maximum": 500, "description": "request_history: how many older messages to request (default 50)"}
   },
@@ -130,6 +132,7 @@ const chatSchema = `{
     {"if": {"properties": {"action": {"const": "get_messages"}}}, "then": {"required": ["chat_jid"]}},
     {"if": {"properties": {"action": {"const": "archive"}}},      "then": {"required": ["chat_jid", "archived"]}},
     {"if": {"properties": {"action": {"const": "pin"}}},          "then": {"required": ["chat_jid", "pinned"]}},
+    {"if": {"properties": {"action": {"const": "mute"}}},         "then": {"required": ["chat_jid", "muted"]}},
     {"if": {"properties": {"action": {"const": "set_disappearing"}}}, "then": {"required": ["chat_jid", "timer_seconds"]}},
     {"if": {"properties": {"action": {"const": "request_history"}}},  "then": {"required": ["chat_jid"]}}
   ]

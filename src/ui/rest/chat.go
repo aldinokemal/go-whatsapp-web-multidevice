@@ -1,6 +1,8 @@
 package rest
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/url"
 	"strings"
 
@@ -23,6 +25,7 @@ func InitRestChat(app fiber.Router, service domainChat.IChatUsecase) Chat {
 	app.Post("/chat/:chat_jid/pin", rest.PinChat)
 	app.Post("/chat/:chat_jid/disappearing", rest.SetDisappearingTimer)
 	app.Post("/chat/:chat_jid/archive", rest.ArchiveChat)
+	app.Post("/chat/:chat_jid/mute", rest.MuteChat)
 	app.Post("/chat/:chat_jid/history", rest.RequestChatHistory)
 
 	return rest
@@ -206,6 +209,53 @@ func (controller *Chat) ArchiveChat(c fiber.Ctx) error {
 	})
 }
 
+func (controller *Chat) MuteChat(c fiber.Ctx) error {
+	var request domainChat.MuteChatRequest
+
+	// Parse path parameter
+	chatJID, err := chatJIDParam(c)
+	if err != nil {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "invalid chat_jid path parameter: " + err.Error(),
+			Results: nil,
+		})
+	}
+
+	// Parse JSON body
+	if err := c.Bind().Body(&request); err != nil {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "Invalid request body",
+			Results: nil,
+		})
+	}
+	// A JSON null decodes to 0, which would mute the chat forever. Only an
+	// omitted duration takes that default.
+	if jsonFieldIsNull(c.Body(), "duration_seconds") {
+		return c.Status(400).JSON(utils.ResponseData{
+			Status:  400,
+			Code:    "BAD_REQUEST",
+			Message: "duration_seconds cannot be null; omit it or send 0 to mute always",
+			Results: nil,
+		})
+	}
+	// Route JID is authoritative; a body chat_jid must never override it.
+	request.ChatJID = chatJID
+
+	response, err := controller.Service.MuteChat(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	utils.PanicIfNeeded(err)
+
+	return c.JSON(utils.ResponseData{
+		Status:  200,
+		Code:    "SUCCESS",
+		Message: response.Message,
+		Results: response,
+	})
+}
+
 func (controller *Chat) RequestChatHistory(c fiber.Ctx) error {
 	var request domainChat.RequestChatHistoryRequest
 
@@ -257,4 +307,19 @@ func chatJIDParam(c fiber.Ctx) (string, error) {
 		return "", err
 	}
 	return strings.Clone(decoded), nil
+}
+
+// jsonFieldIsNull reports whether a JSON object body sets field to null. Keys
+// match without regard to case, as they do when the body binds to a struct.
+func jsonFieldIsNull(body []byte, field string) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return false
+	}
+	for key, value := range fields {
+		if strings.EqualFold(key, field) && string(bytes.TrimSpace(value)) == "null" {
+			return true
+		}
+	}
+	return false
 }

@@ -26,7 +26,7 @@ func InitMcpChat(chatService domainChat.IChatUsecase, userService domainUser.IUs
 
 func (h *ChatHandler) AddChatTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_chat",
-		mcpg.WithDescription("Query and manage WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), archive/unarchive, pin/unpin, set_disappearing (disappearing-message timer), or request_history (ask the phone to sync older messages of a chat)."),
+		mcpg.WithDescription("Query and manage WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), archive/unarchive, pin/unpin, mute/unmute, set_disappearing (disappearing-message timer), or request_history (ask the phone to sync older messages of a chat)."),
 		mcpg.WithTitleAnnotation("Chat Management"),
 		mcpg.WithReadOnlyHintAnnotation(false),
 		mcpg.WithDestructiveHintAnnotation(true),
@@ -116,6 +116,23 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		resp, err := h.chatService.PinChat(ctx, domainChat.PinChatRequest{
 			ChatJID: chatJID,
 			Pinned:  request.GetBool("pinned", false),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, resp.Message), nil
+	case "mute":
+		var muted *bool
+		if args := request.GetArguments(); args != nil {
+			if _, ok := args["muted"]; ok {
+				v := request.GetBool("muted", false)
+				muted = &v
+			}
+		}
+		resp, err := h.chatService.MuteChat(ctx, domainChat.MuteChatRequest{
+			ChatJID:         chatJID,
+			Muted:           muted,
+			DurationSeconds: int64(request.GetInt("duration_seconds", 0)),
 		})
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil

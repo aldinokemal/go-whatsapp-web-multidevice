@@ -3386,6 +3386,67 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorInternalServer'
 
+  /chat/{chat_jid}/mute:
+    post:
+      operationId: muteChat
+      tags:
+        - chat
+      summary: Mute or unmute a chat
+      description: Mute a chat for 8 hours, 1 week or always, or unmute it. The change is sent as an app state update, so it reaches the phone and the other linked devices.
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdHeader'
+        - in: path
+          name: chat_jid
+          schema:
+            type: string
+          required: true
+          description: Chat JID (e.g., phone@s.whatsapp.net for individual or groupid@g.us for group). Percent-encoded values (e.g., groupid%40g.us) are accepted.
+          example: '6289685028129@s.whatsapp.net'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                muted:
+                  type: boolean
+                  example: true
+                  description: Whether to mute (true) or unmute (false) the chat
+                duration_seconds:
+                  type: integer
+                  format: int64
+                  enum: [0, 28800, 604800]
+                  default: 0
+                  example: 28800
+                  description: How long the chat stays muted. 28800 (8 hours), 604800 (1 week) or 0 (always). Not used when muted is false.
+              required:
+                - muted
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MuteChatResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBadRequest'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorUnauthorized'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInternalServer'
+
   /group/info:
     get:
       operationId: groupInfo
@@ -6973,6 +7034,39 @@ components:
             archived:
               type: boolean
               example: true
+    MuteChatResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          example: SUCCESS
+        message:
+          type: string
+          example: Chat muted successfully
+        results:
+          type: object
+          properties:
+            status:
+              type: string
+              example: success
+            message:
+              type: string
+              example: Chat muted successfully
+            chat_jid:
+              type: string
+              example: '6289685028129@s.whatsapp.net'
+            muted:
+              type: boolean
+              example: true
+            duration_seconds:
+              type: integer
+              format: int64
+              example: 28800
+            muted_until:
+              type: string
+              format: date-time
+              example: '2026-01-02T11:04:05Z'
+              description: End of a timed mute. Omitted when the chat is muted always or unmuted.
     GroupInfoResponse:
       type: object
       properties:
