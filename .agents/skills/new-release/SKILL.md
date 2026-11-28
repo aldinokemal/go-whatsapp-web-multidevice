@@ -37,9 +37,14 @@ Release-note editing is a separate task; do not run `gh release create`.
    must exit `1`; remote `git ls-remote --exit-code --refs --tags <push_url> refs/tags/<version>`
    must exit `2`; `gh api -i repos/aldinokemal/go-whatsapp-web-multidevice/releases/tags/<version>`
    must return explicit HTTP `404`. A present ref/release or any other error stops the workflow.
-4. Run `go run ./tools/check-sdk-version` from `src/`. This checks
-   the version in `docs/openapi.yaml` against Go, npm, and Composer. Stop if any
-   package slot is occupied by a different contract or cannot be verified.
+4. Read OpenAPI `info.version` in `docs/openapi.yaml` and apply the
+   [SDK transition rule](../../../docs/sdk/readme.md). Check that exact version
+   on npm, the Go proxy, and Packagist. Also check the Go and PHP SDK tags, which
+   can exist before their registries index them. An occupied version must
+   explicitly record the same OpenAPI version in npm's
+   `gowaSource.openapiVersion`, the tagged Go `GOWA-SOURCE.txt`, or the tagged
+   PHP commit's `GOWA-OpenAPI-Version` trailer. Stop if an occupied version
+   lacks matching provenance, or any lookup cannot be verified.
 5. Show the repository, requested/current versions, full `base_sha`, and subject. Ask:
    `Update AppVersion to <version>, commit, push main, and tag the release? [yes/no]`
 
@@ -59,8 +64,8 @@ stop and report the failed check.
    `release_sha`, which must differ from `base_sha`.
 4. Push `origin HEAD:refs/heads/main`, fetch `origin main --tags --prune`, and require
    `HEAD == origin/main == release_sha`. Recheck local/remote tag and release absence.
-5. Run `go run ./tools/check-sdk-version` from `src/` again immediately before tagging. If
-   it passes, create `git tag <version> <release_sha>` and push only
+5. Repeat the SDK version preflight immediately before tagging. If it passes,
+   create `git tag <version> <release_sha>` and push only
    `origin refs/tags/<version>:refs/tags/<version>`.
 
 ## Completion and failure
