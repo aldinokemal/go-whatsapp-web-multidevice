@@ -26,7 +26,7 @@ func InitMcpChat(chatService domainChat.IChatUsecase, userService domainUser.IUs
 
 func (h *ChatHandler) AddChatTools(mcpServer *server.MCPServer) {
 	tool := mcpg.NewTool("whatsapp_chat",
-		mcpg.WithDescription("Query and manage WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), archive/unarchive, pin/unpin, set_disappearing (disappearing-message timer), or request_history (ask the phone to sync older messages of a chat)."),
+		mcpg.WithDescription("Query and manage WhatsApp chats and contacts: list_chats, list_contacts, get_messages (chat history with filters), archive/unarchive, pin/unpin, read (mark the chat as read or unread, without read receipts), set_disappearing (disappearing-message timer), or request_history (ask the phone to sync older messages of a chat)."),
 		mcpg.WithTitleAnnotation("Chat Management"),
 		mcpg.WithReadOnlyHintAnnotation(false),
 		mcpg.WithDestructiveHintAnnotation(true),
@@ -116,6 +116,22 @@ func (h *ChatHandler) handleChat(ctx context.Context, request mcpg.CallToolReque
 		resp, err := h.chatService.PinChat(ctx, domainChat.PinChatRequest{
 			ChatJID: chatJID,
 			Pinned:  request.GetBool("pinned", false),
+		})
+		if err != nil {
+			return mcpg.NewToolResultError(err.Error()), nil
+		}
+		return mcpg.NewToolResultStructured(resp, resp.Message), nil
+	case "read":
+		var read *bool
+		if args := request.GetArguments(); args != nil {
+			if _, ok := args["read"]; ok {
+				v := request.GetBool("read", false)
+				read = &v
+			}
+		}
+		resp, err := h.chatService.MarkChatAsRead(ctx, domainChat.MarkChatAsReadRequest{
+			ChatJID: chatJID,
+			Read:    read,
 		})
 		if err != nil {
 			return mcpg.NewToolResultError(err.Error()), nil

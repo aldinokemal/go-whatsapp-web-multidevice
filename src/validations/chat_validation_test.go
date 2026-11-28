@@ -324,3 +324,24 @@ func TestValidateRequestChatHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMarkChatAsRead(t *testing.T) {
+	read, unread := true, false
+	tests := []struct {
+		name    string
+		request domainChat.MarkChatAsReadRequest
+		err     any
+	}{
+		{"mark as read", domainChat.MarkChatAsReadRequest{ChatJID: "6289685028129@s.whatsapp.net", Read: &read}, nil},
+		{"mark as unread", domainChat.MarkChatAsReadRequest{ChatJID: "6289685028129@s.whatsapp.net", Read: &unread}, nil},
+		{"missing read", domainChat.MarkChatAsReadRequest{ChatJID: "6289685028129@s.whatsapp.net"}, pkgError.ValidationError("read: is required.")},
+		{"empty chat_jid", domainChat.MarkChatAsReadRequest{Read: &read}, pkgError.ValidationError("chat_jid: cannot be blank.")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMarkChatAsRead(context.Background(), &tt.request)
+			assert.Equal(t, tt.err, err)
+		})
+	}
+}

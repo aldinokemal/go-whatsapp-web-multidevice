@@ -15,7 +15,9 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/validations"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 )
 
 type serviceChat struct {
@@ -467,6 +469,133 @@ func (service serviceChat) ArchiveChat(ctx context.Context, request domainChat.A
 	}).Info("Chat archive operation completed successfully")
 
 	return response, nil
+}
+
+// MarkChatAsRead marks a chat as read or unread through an app state patch,
+// like "Mark as read" and "Mark as unread" in WhatsApp. It sends no read
+// receipts.
+func (service serviceChat) MarkChatAsRead(ctx context.Context, request domainChat.MarkChatAsReadRequest) (response domainChat.MarkChatAsReadResponse, err error) {
+	if err = validations.ValidateMarkChatAsRead(ctx, &request); err != nil {
+		return response, err
+	}
+
+	client := whatsapp.ClientFromContext(ctx)
+	if client == nil {
+		return response, pkgError.ErrWaCLI
+	}
+
+	// Validate JID and ensure connection
+	targetJID, err := utils.ValidateJidWithLogin(client, request.ChatJID)
+	if err != nil {
+		return response, err
+	}
+
+	read := *request.Read
+
+	// The message range names the newest message the flag applies to. Without
+	// a stored message, BuildMarkChatAsRead falls back to the current time.
+	// Rows of the same chat can sit under its phone JID and its LID.
+	keys := chatKeys(request.ChatJID, targetJID)
+	if lid := utils.ResolvePhoneToLID(ctx, targetJID, client); !lid.IsEmpty() {
+		keys = append(keys, lid.String())
+	}
+	lastTimestamp, lastKey, err := service.lastMessageKey(storageDeviceID(ctx), targetJID, keys...)
+	if err != nil {
+		logrus.WithError(err).WithField("chat_jid", request.ChatJID).Error("Failed to look up the last stored message")
+		return response, err
+	}
+	patchInfo := appstate.BuildMarkChatAsRead(targetJID, read, lastTimestamp, lastKey)
+
+	// Send app state update
+	if err = client.SendAppState(ctx, patchInfo); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{
+			"chat_jid": request.ChatJID,
+			"read":     read,
+		}).Error("Failed to send mark chat as read app state")
+		return response, err
+	}
+
+	// Build response
+	response.Status = "success"
+	response.ChatJID = request.ChatJID
+	response.Read = read
+
+	if read {
+		response.Message = "Chat marked as read successfully"
+	} else {
+		response.Message = "Chat marked as unread successfully"
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"chat_jid": request.ChatJID,
+		"read":     read,
+	}).Info("Chat read state operation completed successfully")
+
+	return response, nil
+}
+
+// lastMessageKeyPage is how many stored rows are read per query while looking
+// for the newest real message; stored call records are skipped.
+const lastMessageKeyPage = 50
+
+// lastMessageKey returns the timestamp and key of the newest stored message of
+// a chat across all the keys it may be stored under. It returns a zero time and
+// a nil key when the device or the chat has no stored message.
+func (service serviceChat) lastMessageKey(deviceID string, target types.JID, keys ...string) (time.Time, *waCommon.MessageKey, error) {
+	if deviceID == "" || service.chatStorageRepo == nil {
+		return time.Time{}, nil, nil
+	}
+	var newest *domainChatStorage.Message
+	for _, key := range keys {
+		message, err := service.newestRealMessage(deviceID, key)
+		if err != nil {
+			return time.Time{}, nil, err
+		}
+		if message != nil && (newest == nil || message.Timestamp.After(newest.Timestamp)) {
+			newest = message
+		}
+	}
+	if newest == nil {
+		return time.Time{}, nil, nil
+	}
+
+	messageKey := &waCommon.MessageKey{
+		RemoteJID: proto.String(target.String()),
+		FromMe:    proto.Bool(newest.IsFromMe),
+		ID:        proto.String(newest.ID),
+	}
+	if target.Server == types.GroupServer && !newest.IsFromMe && newest.Sender != "" {
+		participant := newest.Sender
+		if !strings.Contains(participant, "@") {
+			participant += "@" + types.DefaultUserServer
+		}
+		messageKey.Participant = proto.String(participant)
+	}
+	return newest.Timestamp, messageKey, nil
+}
+
+// newestRealMessage returns the newest stored message of a chat key that is
+// not a call record, or nil when there is none.
+func (service serviceChat) newestRealMessage(deviceID, chatJID string) (*domainChatStorage.Message, error) {
+	for offset := 0; ; offset += lastMessageKeyPage {
+		messages, err := service.chatStorageRepo.GetMessages(&domainChatStorage.MessageFilter{
+			DeviceID: deviceID,
+			ChatJID:  chatJID,
+			Limit:    lastMessageKeyPage,
+			Offset:   offset,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, message := range messages {
+			if message != nil && message.ID != "" && message.MediaType != "call" {
+				return message, nil
+			}
+		}
+		if len(messages) < lastMessageKeyPage {
+			return nil, nil
+		}
+	}
 }
 
 // RequestChatHistory asks the phone for older messages of a chat (what

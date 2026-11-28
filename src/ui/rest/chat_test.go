@@ -3,6 +3,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"strings"
@@ -85,6 +86,7 @@ func TestChatJIDParamRejectsMalformedEscape(t *testing.T) {
 // records the RequestChatHistory call, for exercising the REST handler alone.
 type requestChatHistorySpy struct {
 	lastRequest domainChat.RequestChatHistoryRequest
+	lastRead    domainChat.MarkChatAsReadRequest
 	calls       int
 }
 
@@ -106,6 +108,12 @@ func (s *requestChatHistorySpy) SetDisappearingTimer(context.Context, domainChat
 
 func (s *requestChatHistorySpy) ArchiveChat(context.Context, domainChat.ArchiveChatRequest) (domainChat.ArchiveChatResponse, error) {
 	return domainChat.ArchiveChatResponse{}, nil
+}
+
+func (s *requestChatHistorySpy) MarkChatAsRead(_ context.Context, request domainChat.MarkChatAsReadRequest) (domainChat.MarkChatAsReadResponse, error) {
+	s.calls++
+	s.lastRead = request
+	return domainChat.MarkChatAsReadResponse{Status: "success", ChatJID: request.ChatJID}, nil
 }
 
 func (s *requestChatHistorySpy) RequestChatHistory(_ context.Context, request domainChat.RequestChatHistoryRequest) (domainChat.RequestChatHistoryResponse, error) {
@@ -153,4 +161,43 @@ func TestRequestChatHistoryIgnoresConflictingBodyChatJID(t *testing.T) {
 	require.Equal(t, 1, spy.calls)
 	require.Equal(t, "6289685028129@s.whatsapp.net", spy.lastRequest.ChatJID)
 	require.Equal(t, 50, spy.lastRequest.Count)
+}
+
+func TestMarkChatAsReadUsesRouteJIDAndBody(t *testing.T) {
+	app := fiber.New()
+	spy := &requestChatHistorySpy{}
+	controller := &Chat{Service: spy}
+	app.Post("/chat/:chat_jid/read", controller.MarkChatAsRead)
+
+	for _, read := range []bool{true, false} {
+		body := fmt.Sprintf(`{"chat_jid":"other@s.whatsapp.net","read":%t}`, read)
+		req := httptest.NewRequest("POST", "/chat/120363025982934543%40g.us/read", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, fiber.StatusOK, resp.StatusCode)
+		require.Equal(t, "120363025982934543@g.us", spy.lastRead.ChatJID)
+		require.NotNil(t, spy.lastRead.Read)
+		require.Equal(t, read, *spy.lastRead.Read)
+	}
+	require.Equal(t, 2, spy.calls)
+}
+
+func TestMarkChatAsReadKeepsMissingFlagNil(t *testing.T) {
+	for _, body := range []string{`{}`, `{"read":null}`} {
+		app := fiber.New()
+		spy := &requestChatHistorySpy{}
+		controller := &Chat{Service: spy}
+		app.Post("/chat/:chat_jid/read", controller.MarkChatAsRead)
+
+		req := httptest.NewRequest("POST", "/chat/6289685028129%40s.whatsapp.net/read", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Nil(t, spy.lastRead.Read, "body %s must not turn into mark as unread", body)
+	}
 }
