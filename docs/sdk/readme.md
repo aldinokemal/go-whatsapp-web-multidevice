@@ -1,7 +1,9 @@
 # Official GOWA SDKs
 
-Use the SDK version that matches your GOWA server. For GOWA v9.11.0, the public
-install commands after the first release are:
+New SDK packages follow `info.version` in the OpenAPI document shipped with
+your GOWA release. Check that version and select its matching SDK package.
+The legacy SDKs published for GOWA v9.11.0 contain OpenAPI 9.7.0 and use the
+following install commands:
 
 | SDK | Install |
 | --- | --- |
@@ -10,16 +12,21 @@ install commands after the first release are:
 | [PHP](https://github.com/aldinokemal/gowa-sdk-php) | `composer require aldinokemal/gowa-sdk-php:9.11.0` |
 
 PHP keeps the `SdkWhatsappWebMultiDevice` namespace. The Go import path includes
-the server's major version. Node and PHP consumers using an older SDK should
+the OpenAPI major version. Node and PHP consumers using an older SDK should
 review generated method signatures when moving to GOWA 9.
 
 ## Automatic releases
 
 After both GOWA binary release jobs succeed for a stable tag, GitHub Actions
 sends the tag and its commit SHA to each SDK repository. Each SDK generates from
-that exact `docs/openapi.yaml`, validates the result, and publishes through its
-own workflow. Go publishes a Git tag, Node publishes to public npm, and PHP
-publishes a Git tag for Composer. Configure automatic Packagist updates in the PHP repository.
+that exact `docs/openapi.yaml` when the OpenAPI version increases. Each workflow
+skips versions already covered by its SDK. Go publishes a module tag, Node
+publishes to npm, and PHP publishes a tag for Composer. Configure automatic
+Packagist updates in the PHP repository.
+
+During the transition, pin new packages explicitly if their OpenAPI version
+sorts below the legacy SDK version `9.11.0`. Node puts those releases on
+npm's `openapi` dist-tag.
 
 Install a GitHub App under `aldinokemal` with repository Contents write access
 and limit the installation to `gowa-sdk-go`, `gowa-sdk-node`, and `gowa-sdk-php`.
