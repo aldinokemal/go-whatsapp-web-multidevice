@@ -225,3 +225,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: goreleaser release --config /tmp/.goreleaser-macos.yml --clean --timeout 60m --skip=validate
+
+  release-sdks:
+    if: github.event_name == 'push'
+    needs: [build-linux-windows, build-macos]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-sdks.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      SDK_RELEASE_APP_PRIVATE_KEY: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}
