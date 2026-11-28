@@ -28,7 +28,12 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.commit.outputs.sha }}
     steps:
+      - name: Report whether SDK dispatch is configured
+        if: vars.SDK_RELEASE_APP_CLIENT_ID == ''
+        run: echo "::warning::Set SDK_RELEASE_APP_CLIENT_ID and SDK_RELEASE_APP_PRIVATE_KEY to enable SDK dispatch"
+
       - name: Validate the published GOWA release
+        if: vars.SDK_RELEASE_APP_CLIENT_ID != ''
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,16 +48,19 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
+        if: steps.release.outputs.tag != ''
         with:
           ref: refs/tags/${{ steps.release.outputs.tag }}
           persist-credentials: false
 
       - name: Resolve the tagged commit
+        if: steps.release.outputs.tag != ''
         id: commit
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   dispatch:
     needs: source
+    if: needs.source.outputs.tag != ''
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

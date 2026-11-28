@@ -1,5 +1,5 @@
 # sdk-node Configs
-npmName: "@aldinokemal/gowa-sdk-node"
+npmName: "@aldinokemal2104/gowa-sdk-node"
 npmRepository: "https://registry.npmjs.org"
 snapshot: false
 supportsES6: true
