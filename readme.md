@@ -668,6 +668,7 @@ You may also fork or modify the source code.
 
 - Check [docs/openapi.yaml](./docs/openapi.yaml) for detailed API specifications.
 - Use [Swagger Editor](https://editor.swagger.io) to visualize the API.
+- See the [official Go, Node, and PHP SDKs](./docs/sdk/readme.md) for installation and release details.
 - Generate HTTP clients using [openapi-generator](https://openapi-generator.tech/#try).
 
 | Status   | Operation                              | Method | URL                                 |

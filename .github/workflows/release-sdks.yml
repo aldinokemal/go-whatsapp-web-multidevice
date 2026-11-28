@@ -1,0 +1,101 @@
+name: Release SDKs
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Stable GOWA release tag
+        required: true
+        type: string
+      sha:
+        description: Commit built by the server release workflow
+        required: true
+        type: string
+    secrets:
+      SDK_RELEASE_APP_PRIVATE_KEY:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable GOWA release tag to publish or retry
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    if: github.repository == 'aldinokemal/go-whatsapp-web-multidevice'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Report whether SDK dispatch is configured
+        if: vars.SDK_RELEASE_APP_CLIENT_ID == ''
+        run: echo "::warning::Set SDK_RELEASE_APP_CLIENT_ID and SDK_RELEASE_APP_PRIVATE_KEY to enable SDK dispatch"
+
+      - name: Validate the published GOWA release
+        if: vars.SDK_RELEASE_APP_CLIENT_ID != ''
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Expected a stable semver tag such as v9.11.0"
+            exit 1
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease |
+            jq -e --arg tag "$TAG" '.tagName == $tag and (.isDraft or .isPrerelease | not)'
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        if: steps.release.outputs.tag != ''
+        with:
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+          persist-credentials: false
+
+      - name: Resolve the tagged commit
+        if: steps.release.outputs.tag != ''
+        id: commit
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if [[ -n "$RELEASE_SHA" && "$sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::The stable tag no longer points to the GOWA release build commit"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  dispatch:
+    needs: source
+    if: needs.source.outputs.tag != ''
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [gowa-sdk-go, gowa-sdk-node, gowa-sdk-php]
+    name: Dispatch ${{ matrix.sdk }}
+    steps:
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        id: sdk-token
+        with:
+          client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}
+          owner: aldinokemal
+          repositories: ${{ matrix.sdk }}
+          permission-contents: write
+
+      - name: Start the SDK release workflow
+        env:
+          GH_TOKEN: ${{ steps.sdk-token.outputs.token }}
+          SDK_REPOSITORY: aldinokemal/${{ matrix.sdk }}
+          TAG: ${{ needs.source.outputs.tag }}
+          SHA: ${{ needs.source.outputs.sha }}
+        run: |
+          jq -n --arg tag "$TAG" --arg sha "$SHA" \
+            '{event_type: "gowa-release", client_payload: {tag: $tag, sha: $sha}}' |
+            gh api --method POST "repos/$SDK_REPOSITORY/dispatches" --input -

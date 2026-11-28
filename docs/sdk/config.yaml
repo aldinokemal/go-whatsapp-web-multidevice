@@ -1,6 +1,6 @@
 # sdk-node Configs
-npmName: "@aldinokemal/sdk-node-whatsapp-web-multidevice"
-npmRepository: "https://npm.pkg.github.com"
+npmName: "@aldinokemal2104/gowa-sdk-node"
+npmRepository: "https://registry.npmjs.org"
 snapshot: false
 supportsES6: true
 withInterfaces: true
