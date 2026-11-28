@@ -28,6 +28,12 @@ During the transition, pin new packages explicitly if their OpenAPI version
 sorts below the legacy SDK version `9.11.0`. Node puts those releases on
 npm's `openapi` dist-tag.
 
+The legacy `9.11.0` packages provide OpenAPI `9.7.0` only. If a GOWA release
+uses OpenAPI `9.11.0`, the SDK workflows reject publication because that version
+is already occupied. To publish SDKs for that contract, set `info.version` to
+a higher unused version, such as `9.11.1` if available, before tagging a new
+GOWA release. Install the SDK at that new OpenAPI version once it is published.
+
 Install a GitHub App under `aldinokemal` with repository Contents write access
 and limit the installation to `gowa-sdk-go`, `gowa-sdk-node`, and `gowa-sdk-php`.
 Set `SDK_RELEASE_APP_CLIENT_ID` as a GOWA Actions variable and
