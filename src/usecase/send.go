@@ -227,6 +227,9 @@ type serviceSend struct {
 	appService      app.IAppUsecase
 	chatStorageRepo domainChatStorage.IChatStorageRepository
 
+	validateJIDFn func(*whatsmeow.Client, string) (types.JID, error)
+	sendMessageFn func(*whatsmeow.Client, context.Context, types.JID, *waE2E.Message, ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error)
+
 	// Forward re-upload seams; nil uses the real whatsmeow/CDN implementations.
 	extractMediaFn         extractMediaFunc
 	requestMediaReuploadFn requestMediaReuploadFunc
@@ -239,6 +242,13 @@ func NewSendService(appService app.IAppUsecase, chatStorageRepo domainChatStorag
 		appService:      appService,
 		chatStorageRepo: chatStorageRepo,
 	}
+}
+
+func (service serviceSend) validateJID(client *whatsmeow.Client, jid string) (types.JID, error) {
+	if service.validateJIDFn != nil {
+		return service.validateJIDFn(client, jid)
+	}
+	return utils.ValidateJidWithLogin(client, jid)
 }
 
 // sendRequestExtras returns the options a send carries in its context, merged
@@ -268,10 +278,16 @@ func sendRequestExtras(ctx context.Context, extra ...whatsmeow.SendRequestExtra)
 // "reach-out timelock" rejection is a WhatsApp server-side restriction that the
 // client cannot retry around, so it is surfaced as-is via normalizeSendError.
 func (service serviceSend) wrapSendMessage(ctx context.Context, client *whatsmeow.Client, recipient types.JID, msg *waE2E.Message, content string, extra ...whatsmeow.SendRequestExtra) (whatsmeow.SendResponse, error) {
-	ts, err := client.SendMessage(ctx, recipient, msg, sendRequestExtras(ctx, extra...)...)
+	send := service.sendMessageFn
+	if send == nil {
+		send = (*whatsmeow.Client).SendMessage
+	}
+	ts, err := send(client, ctx, recipient, msg, sendRequestExtras(ctx, extra...)...)
 	if err != nil {
 		return whatsmeow.SendResponse{}, normalizeSendError(err)
 	}
+
+	whatsapp.ForwardRESTSendToChatwoot(ctx, client, recipient, msg, ts)
 
 	// Store the sent message using chatstorage
 	senderJID := whatsapp.OwnSenderJID(client)
@@ -659,7 +675,7 @@ func (service serviceSend) SendFile(ctx context.Context, request domainSend.File
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.BaseRequest.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.BaseRequest.Phone)
 	if err != nil {
 		return response, err
 	}
@@ -2169,10 +2185,15 @@ func (service serviceSend) SendSticker(ctx context.Context, request domainSend.S
 // uploadMedia uploads media for a send to recipient, using the newsletter
 // upload for newsletter recipients.
 func (service serviceSend) uploadMedia(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {
-	if service.uploadMediaFn != nil {
-		return service.uploadMediaFn(ctx, client, mediaType, media, recipient)
+	upload := service.uploadMediaFn
+	if upload == nil {
+		upload = uploadMediaForRecipient
 	}
-	return uploadMediaForRecipient(ctx, client, mediaType, media, recipient)
+	uploaded, err = upload(ctx, client, mediaType, media, recipient)
+	if err == nil {
+		whatsapp.RememberChatwootUpload(ctx, uploaded.FileSHA256, media)
+	}
+	return uploaded, err
 }
 
 func uploadMediaForRecipient(ctx context.Context, client *whatsmeow.Client, mediaType whatsmeow.MediaType, media []byte, recipient types.JID) (uploaded whatsmeow.UploadResponse, err error) {

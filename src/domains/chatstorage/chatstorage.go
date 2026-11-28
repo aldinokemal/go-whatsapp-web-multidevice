@@ -141,8 +141,8 @@ type ChatwootDeviceConfig struct {
 	WebhookSecret string `db:"webhook_secret"`
 }
 
-// ChatwootForwardEvent is a durable retry record for a live WhatsApp event
-// that could not be delivered to Chatwoot because of a transient failure.
+// ChatwootForwardEvent holds an acknowledged REST send awaiting Chatwoot delivery
+// or a live WhatsApp event queued for retry after a transient failure.
 type ChatwootForwardEvent struct {
 	ID                int64     `db:"id"`
 	DeviceID          string    `db:"device_id"`

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	domainChatStorage "github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSQLiteRepositoryStoresAndLooksUpChatwootMessageLinks(t *testing.T) {
@@ -388,56 +389,74 @@ func TestSQLiteRepositoryChatwootForwardQueueLifecycle(t *testing.T) {
 		t.Fatalf("enqueue retry: %v", err)
 	}
 
-	due, err := repo.ListDueChatwootForwardEvents(now.Add(-time.Second), 10)
-	if err != nil {
-		t.Fatalf("list early due events: %v", err)
-	}
-	if len(due) != 0 {
-		t.Fatalf("early due len = %d, want 0", len(due))
-	}
+	early, err := repo.ClaimNextChatwootForwardEvent(now.Add(-time.Second), now)
+	require.NoError(t, err)
+	require.Nil(t, early, "a job is not claimed before it is due")
 
-	due, err = repo.ListDueChatwootForwardEvents(now, 10)
-	if err != nil {
-		t.Fatalf("list due events: %v", err)
-	}
-	if len(due) != 1 {
-		t.Fatalf("due len = %d, want 1", len(due))
-	}
-	if due[0].DeviceID != "device-a@s.whatsapp.net" || due[0].WhatsAppMessageID != "wa-queue-1" || due[0].Attempts != 0 {
-		t.Fatalf("unexpected due event: %+v", due[0])
-	}
+	firstLease := now.Add(30 * time.Second)
+	claimed, err := repo.ClaimNextChatwootForwardEvent(now, firstLease)
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.Equal(t, "device-a@s.whatsapp.net", claimed.DeviceID)
+	require.Equal(t, "wa-queue-1", claimed.WhatsAppMessageID)
+	require.Zero(t, claimed.Attempts)
+	other, err := repo.ClaimNextChatwootForwardEvent(now, firstLease)
+	require.NoError(t, err)
+	require.Nil(t, other, "a second worker cannot take an active delivery")
+
+	// Simulate a crash. A replacement worker reclaims the job after expiry.
+	// The original worker cannot delete or postpone the replacement's claim.
+	secondLease := firstLease.Add(time.Minute)
+	other, err = repo.ClaimNextChatwootForwardEvent(firstLease, secondLease)
+	require.NoError(t, err)
+	require.Equal(t, claimed, other)
+	require.Error(t, repo.MarkChatwootForwardEventDone(claimed.ID, firstLease))
+	require.Error(t, repo.MarkChatwootForwardEventFailed(claimed.ID, firstLease, "stale failure", now))
 
 	nextAttempt := now.Add(2 * time.Minute)
-	if err := repo.MarkChatwootForwardEventFailed(due[0].ID, "still down", nextAttempt); err != nil {
+	if err := repo.MarkChatwootForwardEventFailed(other.ID, secondLease, "still down", nextAttempt); err != nil {
 		t.Fatalf("mark retry failed: %v", err)
 	}
 
-	due, err = repo.ListDueChatwootForwardEvents(nextAttempt.Add(-time.Second), 10)
-	if err != nil {
-		t.Fatalf("list before next attempt: %v", err)
-	}
-	if len(due) != 0 {
-		t.Fatalf("due before next len = %d, want 0", len(due))
-	}
+	early, err = repo.ClaimNextChatwootForwardEvent(nextAttempt.Add(-time.Second), nextAttempt)
+	require.NoError(t, err)
+	require.Nil(t, early, "a failed job waits for its backoff")
 
-	due, err = repo.ListDueChatwootForwardEvents(nextAttempt, 10)
-	if err != nil {
-		t.Fatalf("list next due events: %v", err)
-	}
-	if len(due) != 1 || due[0].Attempts != 1 || due[0].LastError != "still down" {
-		t.Fatalf("unexpected retried event: %+v", due)
-	}
+	// A job that has not failed yet goes before a backed-off retry, even one due earlier.
+	require.NoError(t, repo.EnqueueChatwootForwardEvent(&domainChatStorage.ChatwootForwardEvent{
+		DeviceID: "device-a@s.whatsapp.net", EventName: "message", WhatsAppMessageID: "wa-queue-2",
+		PayloadJSON: `{"payload":{"id":"wa-queue-2"}}`, NextAttemptAt: nextAttempt.Add(time.Second),
+	}))
+	freshLease := nextAttempt.Add(time.Minute)
+	fresh, err := repo.ClaimNextChatwootForwardEvent(nextAttempt.Add(time.Second), freshLease)
+	require.NoError(t, err)
+	require.Equal(t, "wa-queue-2", fresh.WhatsAppMessageID)
+	require.NoError(t, repo.MarkChatwootForwardEventDone(fresh.ID, freshLease))
 
-	if err := repo.MarkChatwootForwardEventDone(due[0].ID); err != nil {
+	finalLease := nextAttempt.Add(2 * time.Minute)
+	claimed, err = repo.ClaimNextChatwootForwardEvent(nextAttempt.Add(time.Second), finalLease)
+	require.NoError(t, err)
+	require.Equal(t, "wa-queue-1", claimed.WhatsAppMessageID)
+	require.Equal(t, 1, claimed.Attempts)
+	require.Equal(t, "still down", claimed.LastError)
+	if err := repo.MarkChatwootForwardEventDone(claimed.ID, finalLease); err != nil {
 		t.Fatalf("mark retry done: %v", err)
 	}
-	due, err = repo.ListDueChatwootForwardEvents(nextAttempt.Add(time.Hour), 10)
-	if err != nil {
-		t.Fatalf("list after done: %v", err)
+	early, err = repo.ClaimNextChatwootForwardEvent(nextAttempt.Add(time.Hour), nextAttempt.Add(2*time.Hour))
+	require.NoError(t, err)
+	require.Nil(t, early, "a completed job is removed")
+
+	// Enqueue checks the lease against the real clock.
+	active := &domainChatStorage.ChatwootForwardEvent{
+		DeviceID: "device-a@s.whatsapp.net", EventName: "message", WhatsAppMessageID: "wa-queue-3",
+		PayloadJSON: `{"payload":{"id":"wa-queue-3"}}`, NextAttemptAt: now,
 	}
-	if len(due) != 0 {
-		t.Fatalf("due after done len = %d, want 0", len(due))
-	}
+	require.NoError(t, repo.EnqueueChatwootForwardEvent(active))
+	claimed, err = repo.ClaimNextChatwootForwardEvent(now, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, "wa-queue-3", claimed.WhatsAppMessageID)
+	active.PayloadJSON = `{"payload":{"id":"wa-queue-3","body":"replacement"}}`
+	require.Error(t, repo.EnqueueChatwootForwardEvent(active), "an active delivery cannot be replaced silently")
 }
 
 // replyLink is a link in the synthetic reply scope: Chatwoot message 41 of

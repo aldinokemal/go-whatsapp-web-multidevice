@@ -39,7 +39,7 @@ func (service serviceSend) SendForward(ctx context.Context, request domainSend.F
 		return response, pkgError.ErrWaCLI
 	}
 
-	dataWaRecipient, err := utils.ValidateJidWithLogin(client, request.Phone)
+	dataWaRecipient, err := service.validateJID(client, request.Phone)
 	if err != nil {
 		return response, err
 	}

@@ -289,16 +289,16 @@ func (r *deviceChatStorage) EnqueueChatwootForwardEvent(event *domainChatStorage
 	return r.base.EnqueueChatwootForwardEvent(event)
 }
 
-func (r *deviceChatStorage) ListDueChatwootForwardEvents(now time.Time, limit int) ([]*domainChatStorage.ChatwootForwardEvent, error) {
-	return r.base.ListDueChatwootForwardEvents(now, limit)
+func (r *deviceChatStorage) ClaimNextChatwootForwardEvent(now, leaseUntil time.Time) (*domainChatStorage.ChatwootForwardEvent, error) {
+	return r.base.ClaimNextChatwootForwardEvent(now, leaseUntil)
 }
 
-func (r *deviceChatStorage) MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error {
-	return r.base.MarkChatwootForwardEventFailed(id, lastError, nextAttemptAt)
+func (r *deviceChatStorage) MarkChatwootForwardEventFailed(id int64, leaseUntil time.Time, lastError string, nextAttemptAt time.Time) error {
+	return r.base.MarkChatwootForwardEventFailed(id, leaseUntil, lastError, nextAttemptAt)
 }
 
-func (r *deviceChatStorage) MarkChatwootForwardEventDone(id int64) error {
-	return r.base.MarkChatwootForwardEventDone(id)
+func (r *deviceChatStorage) MarkChatwootForwardEventDone(id int64, leaseUntil time.Time) error {
+	return r.base.MarkChatwootForwardEventDone(id, leaseUntil)
 }
 
 // Scheduled sends are keyed by the registry slot alias, which r.deviceID (a

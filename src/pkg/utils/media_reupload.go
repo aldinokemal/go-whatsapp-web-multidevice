@@ -81,7 +81,10 @@ func downloadReuploadedMedia(ctx context.Context, downloader mediaDownloader, di
 	if err != nil {
 		return ReuploadedMedia{}, err
 	}
-	extracted, err := storeExtractedMedia(storageLocation, mediaFile, data)
+	if int64(len(data)) > config.WhatsappSettingMaxDownloadSize {
+		return ReuploadedMedia{}, errFileTooLarge
+	}
+	extracted, err := StoreMediaBytes(storageLocation, mediaFile, data)
 	if err != nil {
 		return ReuploadedMedia{}, err
 	}

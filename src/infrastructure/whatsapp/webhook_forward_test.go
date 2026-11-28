@@ -299,16 +299,21 @@ type retryWorkerTestRepo struct {
 	doneIDs   []int64
 }
 
-func (r *retryWorkerTestRepo) ListDueChatwootForwardEvents(_ time.Time, _ int) ([]*chatstorage.ChatwootForwardEvent, error) {
-	return r.due, nil
+func (r *retryWorkerTestRepo) ClaimNextChatwootForwardEvent(_, _ time.Time) (*chatstorage.ChatwootForwardEvent, error) {
+	if len(r.due) == 0 {
+		return nil, nil
+	}
+	event := r.due[0]
+	r.due = r.due[1:]
+	return event, nil
 }
 
-func (r *retryWorkerTestRepo) MarkChatwootForwardEventFailed(id int64, _ string, _ time.Time) error {
+func (r *retryWorkerTestRepo) MarkChatwootForwardEventFailed(id int64, _ time.Time, _ string, _ time.Time) error {
 	r.failedIDs = append(r.failedIDs, id)
 	return nil
 }
 
-func (r *retryWorkerTestRepo) MarkChatwootForwardEventDone(id int64) error {
+func (r *retryWorkerTestRepo) MarkChatwootForwardEventDone(id int64, _ time.Time) error {
 	r.doneIDs = append(r.doneIDs, id)
 	return nil
 }

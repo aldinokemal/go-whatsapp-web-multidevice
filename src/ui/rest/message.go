@@ -197,7 +197,7 @@ func (controller *Message) ForwardMessage(c fiber.Ctx) error {
 	request.MessageID = c.Params("message_id")
 	utils.SanitizePhone(&request.Phone)
 
-	response, err := controller.SendService.SendForward(whatsapp.ContextWithDevice(c.Context(), getDeviceFromCtx(c)), request)
+	response, err := controller.SendService.SendForward(restSendContext(c), request)
 	utils.PanicIfNeeded(err)
 
 	return c.JSON(utils.ResponseData{

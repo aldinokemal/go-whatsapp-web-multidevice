@@ -104,10 +104,14 @@ type IChatStorageRepository interface {
 	// links whose account id is still 0, so they resolve under exact-account
 	// scoping instead of relying on the legacy-zero wildcard. Idempotent.
 	BackfillChatwootMessageLinkAccount(accountID int) (int64, error)
+	// EnqueueChatwootForwardEvent fails while a worker holds the same job's lease.
 	EnqueueChatwootForwardEvent(event *ChatwootForwardEvent) error
-	ListDueChatwootForwardEvents(now time.Time, limit int) ([]*ChatwootForwardEvent, error)
-	MarkChatwootForwardEventFailed(id int64, lastError string, nextAttemptAt time.Time) error
-	MarkChatwootForwardEventDone(id int64) error
+	// ClaimNextChatwootForwardEvent grants one worker the earliest available job,
+	// taking jobs that have not failed yet before backed-off retries.
+	// The returned claim can be completed or rescheduled only with its lease deadline.
+	ClaimNextChatwootForwardEvent(now, leaseUntil time.Time) (*ChatwootForwardEvent, error)
+	MarkChatwootForwardEventFailed(id int64, leaseUntil time.Time, lastError string, nextAttemptAt time.Time) error
+	MarkChatwootForwardEventDone(id int64, leaseUntil time.Time) error
 
 	// Scheduled send operations.
 	CreateScheduledSend(job *ScheduledSend) error

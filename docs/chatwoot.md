@@ -666,7 +666,14 @@ An exact entry matches a chat under either of its addresses, so `111222333@lid` 
 | Contacts | ✅ | vCard information preserved |
 | Polls | ✅ | Creations and edits show the options; an added option shows as `Poll option added: <name>`. Votes are not posted, since WhatsApp only updates the poll's tally; webhooks still receive them |
 
-**Outgoing messages (sent from your own WhatsApp device)** are automatically forwarded to Chatwoot as `outgoing` messages.
+Messages sent from your phone or through an immediate REST `/send/*` or `/message/:message_id/forward` request appear as **outgoing** in the sending device’s Chatwoot inbox. For REST uploads, GOWA saves the bytes it sent in the media directory so Chatwoot retries retain the attachment, filename and caption even when `WHATSAPP_AUTO_DOWNLOAD_MEDIA=false`. GOWA deletes that copy once the message reaches Chatwoot or is dropped. Media available only from WhatsApp still follows the auto-download setting. GOWA skips REST photos and videos sent with `view_once=true`. The usual Chatwoot event and chat filters apply.
+
+After WhatsApp accepts a REST send, GOWA returns the HTTP response, then prepares the attachments and writes the mirror to the local chat storage queue in the background. If GOWA stops before that write, the mirror is lost. If the write fails, GOWA logs the failure. A background worker delivers queued messages one at a time, taking new messages before retries that already failed. After a restart, it can reclaim an interrupted delivery when its ten-minute lease expires. If Chatwoot rejects a REST message's attachment with a permanent error (for example, a file over its size limit), GOWA posts the message again as text only, so the caption is kept. Queued REST messages for a device slot that has since been paired to a different WhatsApp account are dropped. REST sends made close together, and retries, can appear out of order in Chatwoot. If Chatwoot creates a message but its response is lost before GOWA saves the link, a retry can create a duplicate.
+
+REST mirroring has these limits:
+
+- Edits, revokes and reactions made through `/message/:message_id/update`, `/revoke` and `/reaction` are not mirrored. Chatwoot keeps the original message as it was sent.
+- A contact can quote a REST message before its mirror reaches Chatwoot. That reply is then posted without its thread link to the quoted message.
 
 Live WhatsApp messages that hit a transient Chatwoot failure (network error, HTTP 429, or HTTP 5xx) are stored in the local chat storage retry queue and replayed in the background with capped exponential backoff. Permanent Chatwoot errors (most HTTP 4xx responses) are logged and not retried.
 
