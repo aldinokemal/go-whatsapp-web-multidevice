@@ -34,8 +34,8 @@ is already occupied. To publish SDKs for that contract, set `info.version` to
 a higher unused version, such as `9.11.1` if available, before tagging a new
 GOWA release. Install the SDK at that new OpenAPI version once it is published.
 
-Before tagging a GOWA release, run `ruby scripts/check-sdk-version.rb` from
-the repository root. The `$new-release` procedure runs this check before
+Before tagging a GOWA release, run `go run ./tools/check-sdk-version` from
+`src/`. The `$new-release` procedure runs this check before
 confirmation and again immediately before creating the tag. An existing SDK
 with the matching OpenAPI version passes the check.
 

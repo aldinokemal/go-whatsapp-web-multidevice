@@ -37,7 +37,7 @@ Release-note editing is a separate task; do not run `gh release create`.
    must exit `1`; remote `git ls-remote --exit-code --refs --tags <push_url> refs/tags/<version>`
    must exit `2`; `gh api -i repos/aldinokemal/go-whatsapp-web-multidevice/releases/tags/<version>`
    must return explicit HTTP `404`. A present ref/release or any other error stops the workflow.
-4. Run `ruby scripts/check-sdk-version.rb` from the repository root. This checks
+4. Run `go run ./tools/check-sdk-version` from `src/`. This checks
    the version in `docs/openapi.yaml` against Go, npm, and Composer. Stop if any
    package slot is occupied by a different contract or cannot be verified.
 5. Show the repository, requested/current versions, full `base_sha`, and subject. Ask:
@@ -59,7 +59,7 @@ stop and report the failed check.
    `release_sha`, which must differ from `base_sha`.
 4. Push `origin HEAD:refs/heads/main`, fetch `origin main --tags --prune`, and require
    `HEAD == origin/main == release_sha`. Recheck local/remote tag and release absence.
-5. Run `ruby scripts/check-sdk-version.rb` again immediately before tagging. If
+5. Run `go run ./tools/check-sdk-version` from `src/` again immediately before tagging. If
    it passes, create `git tag <version> <release_sha>` and push only
    `origin refs/tags/<version>:refs/tags/<version>`.
 
