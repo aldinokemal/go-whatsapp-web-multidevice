@@ -68,6 +68,28 @@ type PollOption struct {
 	Hash string `json:"hash"`
 }
 
+// Label is a WhatsApp label as last seen in app state: a Business label, or a
+// chat list of a personal account (Type "CUSTOM"). Rows are kept per device.
+type Label struct {
+	DeviceID   string    `db:"device_id"`
+	ID         string    `db:"label_id"`
+	Name       string    `db:"name"`
+	Color      int32     `db:"color"`
+	Type       string    `db:"type"` // LabelEditAction.ListType name; empty when WhatsApp sent none
+	OrderIndex int32     `db:"order_index"`
+	Active     bool      `db:"is_active"`
+	Deleted    bool      `db:"deleted"`
+	UpdatedAt  time.Time `db:"updated_at"`
+}
+
+// LabelChat links a chat to a label of the same device.
+type LabelChat struct {
+	DeviceID  string    `db:"device_id"`
+	LabelID   string    `db:"label_id"`
+	ChatJID   string    `db:"chat_jid"`
+	UpdatedAt time.Time `db:"updated_at"`
+}
+
 // PollDefinition stores the option catalogue required to resolve encrypted
 // poll vote hashes after restarts and history synchronization.
 type PollDefinition struct {

@@ -291,7 +291,7 @@ func TestHandleAppState_DeviceWebhookOnly_ForwardsLabelEvent(t *testing.T) {
 		},
 	}
 
-	handleAppState(context.Background(), evt, "device_1", nil)
+	handleAppState(context.Background(), evt, "device_1", nil, nil)
 
 	select {
 	case url := <-called:

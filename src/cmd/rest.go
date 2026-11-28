@@ -184,6 +184,7 @@ func restServer(_ *cobra.Command, _ []string) {
 		rest.InitRestMessage(r, messageUsecase, sendUsecase)
 		rest.InitRestGroup(r, groupUsecase)
 		rest.InitRestNewsletter(r, newsletterUsecase)
+		rest.InitRestLabel(r, labelUsecase)
 		websocket.RegisterRoutes(r, appUsecase)
 	}
 
@@ -197,16 +198,7 @@ func restServer(_ *cobra.Command, _ []string) {
 	// one whatsmeow session. With OAuth disabled it keeps the existing global
 	// Basic Auth behavior; OAuth-enabled MCP was already mounted above.
 	if config.McpEnabled && !mcpOAuthRegistered {
-		uimcp.Register(apiGroup, dm, uimcp.Deps{
-			App:        appUsecase,
-			Send:       sendUsecase,
-			Schedule:   scheduleUsecase,
-			Chat:       chatUsecase,
-			User:       userUsecase,
-			Message:    messageUsecase,
-			Group:      groupUsecase,
-			Newsletter: newsletterUsecase,
-		})
+		uimcp.Register(apiGroup, dm, mcpDeps())
 	}
 
 	// Chatwoot sync + per-device config routes - require authentication (the
@@ -367,4 +359,20 @@ func newBasicAuthMiddleware(accounts map[string]string) fiber.Handler {
 			return subtle.ConstantTimeCompare([]byte(password), []byte(expectedPassword)) == 1
 		},
 	})
+}
+
+// mcpDeps lists the usecases behind the MCP tools. Both MCP mounts (Basic Auth
+// and OAuth) use it, so a new tool cannot be left without its service on one.
+func mcpDeps() uimcp.Deps {
+	return uimcp.Deps{
+		App:        appUsecase,
+		Send:       sendUsecase,
+		Schedule:   scheduleUsecase,
+		Chat:       chatUsecase,
+		User:       userUsecase,
+		Message:    messageUsecase,
+		Group:      groupUsecase,
+		Newsletter: newsletterUsecase,
+		Label:      labelUsecase,
+	}
 }

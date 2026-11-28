@@ -1747,6 +1747,16 @@ func (r *SQLiteRepository) TruncateAllChats() error {
 		return fmt.Errorf("failed to delete scheduled sends: %w", err)
 	}
 
+	_, err = tx.Exec("DELETE FROM label_chats")
+	if err != nil {
+		return fmt.Errorf("failed to delete label chats: %w", err)
+	}
+
+	_, err = tx.Exec("DELETE FROM labels")
+	if err != nil {
+		return fmt.Errorf("failed to delete labels: %w", err)
+	}
+
 	// Delete messages after dependent rows to keep cleanup explicit.
 	_, err = tx.Exec("DELETE FROM messages")
 	if err != nil {
@@ -1796,6 +1806,14 @@ func (r *SQLiteRepository) DeleteDeviceData(deviceID string) error {
 
 	if _, err := tx.Exec(`DELETE FROM scheduled_sends WHERE device_id = ?`, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device scheduled sends: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM label_chats WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device label chats: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM labels WHERE device_id = ?`, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device labels: %w", err)
 	}
 
 	// Delete messages after dependent rows via direct device_id filter.
@@ -3538,5 +3556,28 @@ func (r *SQLiteRepository) getMigrations() []string {
 
 		// Migration 54: Poll retries must reuse the secret as well as the ID.
 		`ALTER TABLE scheduled_sends ADD COLUMN pending_poll_secret BLOB`,
+
+		// Migration 55: Labels (Business labels and personal chat lists) from app state
+		`CREATE TABLE IF NOT EXISTS labels (
+			device_id VARCHAR(255) NOT NULL,
+			label_id VARCHAR(64) NOT NULL,
+			name VARCHAR(255) NOT NULL DEFAULT '',
+			color INTEGER NOT NULL DEFAULT 0,
+			type VARCHAR(32) NOT NULL DEFAULT '',
+			order_index INTEGER NOT NULL DEFAULT 0,
+			is_active BOOLEAN NOT NULL DEFAULT TRUE,
+			deleted BOOLEAN NOT NULL DEFAULT FALSE,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (device_id, label_id)
+		)`,
+
+		// Migration 56: Chats added to a label
+		`CREATE TABLE IF NOT EXISTS label_chats (
+			device_id VARCHAR(255) NOT NULL,
+			label_id VARCHAR(64) NOT NULL,
+			chat_jid VARCHAR(255) NOT NULL,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (device_id, label_id, chat_jid)
+		)`,
 	}
 }

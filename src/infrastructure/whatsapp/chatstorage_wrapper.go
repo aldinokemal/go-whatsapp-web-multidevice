@@ -385,6 +385,40 @@ func (r *deviceChatStorage) GetPollDefinitionByIDAndDevice(deviceID, pollMessage
 	return r.base.GetPollDefinitionByIDAndDevice(targetDeviceID, pollMessageID)
 }
 
+func (r *deviceChatStorage) targetDevice(deviceID string) string {
+	if deviceID == "" {
+		return r.deviceID
+	}
+	return deviceID
+}
+
+func (r *deviceChatStorage) UpsertLabel(label *domainChatStorage.Label) error {
+	if label != nil && label.DeviceID == "" {
+		label.DeviceID = r.deviceID
+	}
+	return r.base.UpsertLabel(label)
+}
+
+func (r *deviceChatStorage) GetLabel(deviceID, labelID string) (*domainChatStorage.Label, error) {
+	return r.base.GetLabel(r.targetDevice(deviceID), labelID)
+}
+
+func (r *deviceChatStorage) GetLabels(deviceID string) ([]*domainChatStorage.Label, error) {
+	return r.base.GetLabels(r.targetDevice(deviceID))
+}
+
+func (r *deviceChatStorage) SetLabelChat(deviceID, labelID, chatJID string, labeled bool, at time.Time) error {
+	return r.base.SetLabelChat(r.targetDevice(deviceID), labelID, chatJID, labeled, at)
+}
+
+func (r *deviceChatStorage) GetLabelChats(deviceID string) ([]*domainChatStorage.LabelChat, error) {
+	return r.base.GetLabelChats(r.targetDevice(deviceID))
+}
+
+func (r *deviceChatStorage) ReplaceLabels(deviceID string, labels []*domainChatStorage.Label, chats []*domainChatStorage.LabelChat) error {
+	return r.base.ReplaceLabels(r.targetDevice(deviceID), labels, chats)
+}
+
 func (r *deviceChatStorage) AppendPollOption(deviceID, chatJID, pollMessageID string, option domainChatStorage.PollOption) error {
 	targetDeviceID := deviceID
 	if targetDeviceID == "" {

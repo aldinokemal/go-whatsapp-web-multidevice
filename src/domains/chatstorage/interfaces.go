@@ -69,6 +69,17 @@ type IChatStorageRepository interface {
 	GetPollDefinitionByIDAndDevice(deviceID, pollMessageID string) (*PollDefinition, error)
 	AppendPollOption(deviceID, chatJID, pollMessageID string, option PollOption) error
 
+	// Label operations, fed by the label_edit and label_jid app state mutations
+	UpsertLabel(label *Label) error
+	GetLabel(deviceID, labelID string) (*Label, error)
+	GetLabels(deviceID string) ([]*Label, error)
+	// SetLabelChat adds (labeled) or removes a chat from a label.
+	SetLabelChat(deviceID, labelID, chatJID string, labeled bool, at time.Time) error
+	GetLabelChats(deviceID string) ([]*LabelChat, error)
+	// ReplaceLabels swaps every label and label link of a device for the given
+	// ones, after a full app state sync.
+	ReplaceLabels(deviceID string, labels []*Label, chats []*LabelChat) error
+
 	// Chatwoot correlation operations
 	UpsertChatwootMessageLink(link *ChatwootMessageLink) error
 	GetChatwootMessageLinkByWhatsAppID(deviceID, waMessageID string) (*ChatwootMessageLink, error)
