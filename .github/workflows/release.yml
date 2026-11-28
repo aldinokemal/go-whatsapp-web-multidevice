@@ -234,5 +234,6 @@ jobs:
     uses: ./.github/workflows/release-sdks.yml
     with:
       tag: ${{ github.ref_name }}
+      sha: ${{ github.sha }}
     secrets:
       SDK_RELEASE_APP_PRIVATE_KEY: ${{ secrets.SDK_RELEASE_APP_PRIVATE_KEY }}

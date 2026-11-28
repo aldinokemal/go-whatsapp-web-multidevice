@@ -7,6 +7,10 @@ on:
         description: Stable GOWA release tag
         required: true
         type: string
+      sha:
+        description: Commit built by the server release workflow
+        required: true
+        type: string
     secrets:
       SDK_RELEASE_APP_PRIVATE_KEY:
         required: true
@@ -56,7 +60,15 @@ jobs:
       - name: Resolve the tagged commit
         if: steps.release.outputs.tag != ''
         id: commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if [[ -n "$RELEASE_SHA" && "$sha" != "$RELEASE_SHA" ]]; then
+            echo "::error::The stable tag no longer points to the GOWA release build commit"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   dispatch:
     needs: source
@@ -68,7 +80,7 @@ jobs:
         sdk: [gowa-sdk-go, gowa-sdk-node, gowa-sdk-php]
     name: Dispatch ${{ matrix.sdk }}
     steps:
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: sdk-token
         with:
           client-id: ${{ vars.SDK_RELEASE_APP_CLIENT_ID }}
